@@ -509,4 +509,10 @@ def blaze_oauth_callback(code: str = "", state: str = ""):
         "message": "Blaze OAuth callback received.",
         "code_received": bool(code),
         "state": state
+    }@app.get("/oauth/blaze/callback")
+def blaze_oauth_callback(code: str = "", state: str = ""):
+    return {
+        "message": "Blaze OAuth callback received.",
+        "code_received": bool(code),
+        "state": state
     }
