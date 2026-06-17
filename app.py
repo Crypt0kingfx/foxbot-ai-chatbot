@@ -534,12 +534,6 @@ def login_blaze():
     oauth_session["state"] = data.get("state")
     oauth_session["codeVerifier"] = data.get("codeVerifier")
 
-    if not data.get("url"):
-        return {
-            "debug_status_code": response.status_code,
-            "debug_response": data
-        }
-
     return RedirectResponse(data.get("url"))
 
 
@@ -573,3 +567,23 @@ def blaze_oauth_callback(code: str = "", state: str = ""):
         "scopes": token_data.get("scopes")
     }
 
+
+
+@app.get("/me")
+def get_my_profile():
+    access_token = bot_tokens.get("accessToken")
+
+    if not access_token:
+        return {"error": "Not logged in yet. Visit /login/blaze first."}
+
+    response = requests.get(
+        "https://api.blaze.stream/v1/users/profile",
+        headers={
+            "secret": BLAZE_CLIENT_SECRET,
+            "client-id": BLAZE_CLIENT_ID,
+            "authorization": f"Bearer {access_token}",
+            "content-type": "application/json"
+        }
+    )
+
+    return response.json()
