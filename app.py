@@ -2,6 +2,9 @@
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import random
+import os
+import requests
+from fastapi.responses import RedirectResponse
 
 app = FastAPI()
 
@@ -506,10 +509,60 @@ def chat(message: str = "", username: str = "viewer"):
     }
 
 
+BLAZE_CLIENT_ID = os.environ.get("BLAZE_CLIENT_ID", "")
+BLAZE_CLIENT_SECRET = os.environ.get("BLAZE_CLIENT_SECRET", "")
+BLAZE_REDIRECT_URI = "https://foxbot-ai-chatbot.onrender.com/oauth/blaze/callback"
+
+oauth_session = {}
+bot_tokens = {}
+
+
+@app.get("/login/blaze")
+def login_blaze():
+    response = requests.post(
+        "https://blaze.stream/bapi/oauth2/generate-auth-url",
+        json={
+            "clientId": BLAZE_CLIENT_ID,
+            "clientSecret": BLAZE_CLIENT_SECRET,
+            "redirectUri": BLAZE_REDIRECT_URI,
+            "scopes": ["users.read", "offline.access", "channel.moderate", "users.bot"]
+        }
+    )
+
+    data = response.json()
+
+    oauth_session["state"] = data.get("state")
+    oauth_session["codeVerifier"] = data.get("codeVerifier")
+
+    return RedirectResponse(data.get("url"))
+
+
 @app.get("/oauth/blaze/callback")
 def blaze_oauth_callback(code: str = "", state: str = ""):
+    if not code:
+        return {"error": "Missing code from Blaze callback."}
+
+    if state != oauth_session.get("state"):
+        return {"error": "State did not match. Please try logging in again."}
+
+    token_response = requests.post(
+        "https://blaze.stream/bapi/oauth2/token",
+        json={
+            "clientId": BLAZE_CLIENT_ID,
+            "clientSecret": BLAZE_CLIENT_SECRET,
+            "code": code,
+            "codeVerifier": oauth_session.get("codeVerifier"),
+            "redirectUri": BLAZE_REDIRECT_URI,
+            "grantType": "authorization_code"
+        }
+    )
+
+    token_data = token_response.json()
+
+    bot_tokens["accessToken"] = token_data.get("accessToken")
+    bot_tokens["refreshToken"] = token_data.get("refreshToken")
+
     return {
-        "message": "Blaze OAuth callback received.",
-        "code_received": bool(code),
-        "state": state
+        "message": "Blaze login successful! FoxBot is now connected to your account.",
+        "scopes": token_data.get("scopes")
     }
