@@ -534,6 +534,12 @@ def login_blaze():
     oauth_session["state"] = data.get("state")
     oauth_session["codeVerifier"] = data.get("codeVerifier")
 
+    if not data.get("url"):
+        return {
+            "debug_status_code": response.status_code,
+            "debug_response": data
+        }
+
     return RedirectResponse(data.get("url"))
 
 
@@ -566,3 +572,4 @@ def blaze_oauth_callback(code: str = "", state: str = ""):
         "message": "Blaze login successful! FoxBot is now connected to your account.",
         "scopes": token_data.get("scopes")
     }
+
