@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import random
@@ -336,7 +336,7 @@ html_content = """
                         <h2>FoxBot AI Chatbot</h2>
                         <p>The ultimate Blaze creator assistant demo.</p>
                     </div>
-                    <div class="status">● Live Local Demo</div>
+                    <div class="status">â— Live Local Demo</div>
                 </div>
 
                 <div class="controls">
@@ -486,7 +486,7 @@ def chat(message: str = "", username: str = "viewer"):
         winner = random.choice(giveaway_entries)
 
         return {
-            "response": f"🎉 Winner selected: @{winner}!"
+            "response": f"ðŸŽ‰ Winner selected: @{winner}!"
         }
 
     if lower_message.startswith("!ask"):
@@ -503,13 +503,10 @@ def chat(message: str = "", username: str = "viewer"):
 
     return {
         "response": "Unknown command. Type !help"
-    }@app.get("/oauth/blaze/callback")
-def blaze_oauth_callback(code: str = "", state: str = ""):
-    return {
-        "message": "Blaze OAuth callback received.",
-        "code_received": bool(code),
-        "state": state
-    }@app.get("/oauth/blaze/callback")
+    }
+
+
+@app.get("/oauth/blaze/callback")
 def blaze_oauth_callback(code: str = "", state: str = ""):
     return {
         "message": "Blaze OAuth callback received.",
