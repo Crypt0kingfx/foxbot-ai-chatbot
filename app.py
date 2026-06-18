@@ -1,4 +1,9 @@
-﻿from fastapi import FastAPI
+﻿import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import random
@@ -587,3 +592,50 @@ def get_my_profile():
     )
 
     return response.json()
+@app.get("/blaze/find-channel")
+def find_blaze_channel():
+    client_id = os.getenv("BLAZE_CLIENT_ID")
+    access_token = bot_tokens.get("accessToken")
+    channel_slug = os.getenv("BLAZE_CHANNEL_SLUG")
+
+    if not client_id:
+        return {
+            "success": False,
+            "message": "Missing BLAZE_CLIENT_ID in Render environment variables."
+        }
+
+    if not access_token:
+        return {
+            "success": False,
+            "message": "Not logged in yet. Visit /login/blaze first."
+        }
+
+    if not channel_slug:
+        return {
+            "success": False,
+            "message": "Missing BLAZE_CHANNEL_SLUG in Render environment variables."
+        }
+
+    url = "https://api.blaze.stream/v1/channels"
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "client-id": client_id,
+        "Accept": "application/json"
+    }
+
+    params = {
+        "limit": 20,
+        "type": "all",
+        "slug[]": channel_slug
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+
+    try:
+        return response.json()
+    except Exception:
+        return {
+            "status_code": response.status_code,
+            "text": response.text
+        }
