@@ -678,3 +678,47 @@ def send_test_blaze_message():
             "status_code": response.status_code,
             "response": response.text
         }
+@app.get("/blaze/run-command")
+def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
+    client_id = os.getenv("BLAZE_CLIENT_ID")
+    channel_id = os.getenv("BLAZE_CHANNEL_ID")
+    access_token = bot_tokens.get("accessToken")
+
+    if not client_id:
+        return {"success": False, "message": "Missing BLAZE_CLIENT_ID."}
+
+    if not channel_id:
+        return {"success": False, "message": "Missing BLAZE_CHANNEL_ID."}
+
+    if not access_token:
+        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+
+    foxbot_result = chat(message=message, username=username)
+    foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+
+    response = requests.post(
+        "https://api.blaze.stream/v1/chats/messages",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "Accept": "application/json",
+            "content-type": "application/json"
+        },
+        json={
+            "channelId": channel_id,
+            "message": foxbot_reply
+        }
+    )
+
+    try:
+        blaze_response = response.json()
+    except Exception:
+        blaze_response = response.text
+
+    return {
+        "success": response.status_code == 200,
+        "command_received": message,
+        "foxbot_reply": foxbot_reply,
+        "status_code": response.status_code,
+        "blaze_response": blaze_response
+    }
