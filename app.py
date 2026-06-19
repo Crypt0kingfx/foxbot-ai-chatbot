@@ -1,4 +1,6 @@
-﻿import os
+﻿import threading
+import socketio
+import os
 import requests
 from dotenv import load_dotenv
 
@@ -722,3 +724,236 @@ def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
         "status_code": response.status_code,
         "blaze_response": blaze_response
     }
+listener_thread = None
+
+listener_status = {
+    "running": False,
+    "connected": False,
+    "sessionId": None,
+    "subscribed": False,
+    "events_seen": 0,
+    "last_event": None,
+    "last_error": None,
+    "subscription_response": None
+}
+
+processed_blaze_messages = set()
+
+
+def send_blaze_chat_message(text: str):
+    client_id = os.getenv("BLAZE_CLIENT_ID")
+    channel_id = os.getenv("BLAZE_CHANNEL_ID")
+    access_token = bot_tokens.get("accessToken")
+
+    if not client_id or not channel_id or not access_token:
+        return {
+            "success": False,
+            "message": "Missing client_id, channel_id, or access token."
+        }
+
+    response = requests.post(
+        "https://api.blaze.stream/v1/chats/messages",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "Accept": "application/json",
+            "content-type": "application/json"
+        },
+        json={
+            "channelId": channel_id,
+            "message": text
+        }
+    )
+
+    try:
+        return response.json()
+    except Exception:
+        return {
+            "status_code": response.status_code,
+            "text": response.text
+        }
+
+
+def find_first_string(payload, possible_keys):
+    if isinstance(payload, dict):
+        for key in possible_keys:
+            value = payload.get(key)
+
+            if isinstance(value, str):
+                return value
+
+            if isinstance(value, dict):
+                nested_text = find_first_string(value, possible_keys)
+                if nested_text:
+                    return nested_text
+
+        for value in payload.values():
+            nested_text = find_first_string(value, possible_keys)
+            if nested_text:
+                return nested_text
+
+    if isinstance(payload, list):
+        for item in payload:
+            nested_text = find_first_string(item, possible_keys)
+            if nested_text:
+                return nested_text
+
+    return None
+
+
+def find_chat_message_text(payload):
+    return find_first_string(payload, ["text", "content", "body", "message"])
+
+
+def find_chat_username(payload):
+    return find_first_string(payload, ["displayName", "username", "slug", "name"]) or "viewer"
+
+
+def find_chat_message_id(payload):
+    return find_first_string(payload, ["messageId", "id"]) or str(payload)[:200]
+
+
+def subscribe_to_blaze_chat(session_id: str):
+    client_id = os.getenv("BLAZE_CLIENT_ID")
+    channel_id = os.getenv("BLAZE_CHANNEL_ID")
+    access_token = bot_tokens.get("accessToken")
+
+    response = requests.post(
+        "https://api.blaze.stream/v1/events/subscriptions",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "Accept": "application/json",
+            "content-type": "application/json"
+        },
+        json={
+            "sessionId": session_id,
+            "type": "channel.chat.message",
+            "channelId": channel_id
+        }
+    )
+
+    try:
+        listener_status["subscription_response"] = {
+            "status_code": response.status_code,
+            "response": response.json()
+        }
+    except Exception:
+        listener_status["subscription_response"] = {
+            "status_code": response.status_code,
+            "response": response.text
+        }
+
+    listener_status["subscribed"] = response.status_code in [200, 201]
+    return listener_status["subscription_response"]
+
+
+def handle_blaze_event(event_name, data):
+    listener_status["events_seen"] += 1
+    listener_status["last_event"] = {
+        "event_name": event_name,
+        "data": data
+    }
+
+    data_as_text = str(data)
+
+    if "channel.chat.message" not in event_name and "channel.chat.message" not in data_as_text:
+        return
+
+    message_text = find_chat_message_text(data)
+    username = find_chat_username(data)
+    message_id = find_chat_message_id(data)
+
+    if not message_text:
+        return
+
+    if message_id in processed_blaze_messages:
+        return
+
+    processed_blaze_messages.add(message_id)
+
+    if not message_text.startswith("!"):
+        return
+
+    foxbot_result = chat(message=message_text, username=username)
+    foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+
+    send_blaze_chat_message(foxbot_reply)
+
+
+def blaze_socket_worker():
+    try:
+        client_id = os.getenv("BLAZE_CLIENT_ID")
+        channel_id = os.getenv("BLAZE_CHANNEL_ID")
+        access_token = bot_tokens.get("accessToken")
+
+        if not client_id or not channel_id or not access_token:
+            listener_status["last_error"] = "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Visit /login/blaze first."
+            listener_status["running"] = False
+            return
+
+        sio = socketio.Client(reconnection=True)
+
+        @sio.event
+        def connect():
+            listener_status["connected"] = True
+            listener_status["running"] = True
+
+        @sio.event
+        def disconnect():
+            listener_status["connected"] = False
+
+        @sio.on("session_welcome")
+        def session_welcome(data):
+            session_id = data.get("sessionId") or data.get("session_id") or data.get("id")
+            listener_status["sessionId"] = session_id
+
+            if session_id:
+                subscribe_to_blaze_chat(session_id)
+
+        @sio.on("*")
+        def catch_all(event, data):
+            handle_blaze_event(event, data)
+
+        listener_status["running"] = True
+        sio.connect(
+            "https://blaze.stream",
+            socketio_path="ws",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "client-id": client_id
+            }
+        )
+
+        sio.wait()
+
+    except Exception as error:
+        listener_status["last_error"] = str(error)
+        listener_status["running"] = False
+        listener_status["connected"] = False
+
+
+@app.get("/blaze/start-listener")
+def start_blaze_listener():
+    global listener_thread
+
+    if listener_thread and listener_thread.is_alive():
+        return {
+            "success": True,
+            "message": "Blaze listener is already running.",
+            "status": listener_status
+        }
+
+    listener_thread = threading.Thread(target=blaze_socket_worker, daemon=True)
+    listener_thread.start()
+
+    return {
+        "success": True,
+        "message": "Blaze live chat listener starting.",
+        "status": listener_status
+    }
+
+
+@app.get("/blaze/listener-status")
+def get_blaze_listener_status():
+    return listener_status
