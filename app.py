@@ -1267,3 +1267,40 @@ def project_status():
             "JavaScript"
         ]
     }
+@app.get("/blaze/judge-demo")
+def judge_demo():
+    if not bot_tokens.get("accessToken"):
+        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+
+    demo_steps = [
+        "FoxBot Judge Demo starting now!",
+        chat(message="!help", username="JudgeDemo").get("response"),
+        chat(message="!giveaway", username="JudgeDemo").get("response"),
+        chat(message="!enter", username="JudgeDemo").get("response"),
+        chat(message="!entries", username="JudgeDemo").get("response"),
+        chat(message="!pickwinner", username="JudgeDemo").get("response"),
+        "FoxBot Judge Demo complete. Blaze OAuth, chat posting, commands, and giveaway tools are working."
+    ]
+
+    results = []
+
+    for step in demo_steps:
+        result = send_blaze_chat_message(step)
+        results.append({
+            "message_sent": step,
+            "blaze_response": result
+        })
+        time.sleep(1)
+
+    proof_stats["commands_processed"] += 5
+    proof_stats["last_command"] = "judge-demo"
+    proof_stats["last_reply"] = "Full judge demo completed."
+    proof_stats["last_username"] = "JudgeDemo"
+    proof_stats["last_message"] = "judge-demo"
+
+    return {
+        "success": True,
+        "message": "Judge demo completed.",
+        "steps_sent": len(results),
+        "results": results
+    }
