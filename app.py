@@ -1,25 +1,43 @@
-﻿import threading
-import socketio
-import os
+﻿import os
+import random
+import threading
+import time
+
 import requests
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-import random
-import os
-import requests
-from fastapi.responses import RedirectResponse
 
 app = FastAPI()
 
-# Logo should be here:
-# C:\Users\crypt\Desktop\foxbot\foxbot\static\foxbot-logo.png
 app.mount("/static", StaticFiles(directory="static", check_dir=False), name="static")
 
 giveaway_entries = []
+
+BLAZE_CLIENT_ID = os.environ.get("BLAZE_CLIENT_ID", "")
+BLAZE_CLIENT_SECRET = os.environ.get("BLAZE_CLIENT_SECRET", "")
+BLAZE_REDIRECT_URI = "https://foxbot-ai-chatbot.onrender.com/oauth/blaze/callback"
+
+oauth_session = {}
+bot_tokens = {}
+
+polling_thread = None
+
+polling_status = {
+    "running": False,
+    "checks": 0,
+    "messages_seen": 0,
+    "commands_processed": 0,
+    "last_error": None,
+    "last_response": None,
+    "last_message": None
+}
+
+processed_polling_messages = set()
+
 
 html_content = """
 <!DOCTYPE html>
@@ -216,11 +234,6 @@ html_content = """
             font-weight: bold;
         }
 
-        .quick-buttons button:hover,
-        .send-row button:hover {
-            opacity: 0.92;
-        }
-
         .chat-box {
             flex: 1;
             background: #0f172a;
@@ -322,8 +335,8 @@ html_content = """
                 </div>
 
                 <div class="info-card">
-                    <strong>AI Demo Mode</strong>
-                    <span>The !ask command shows how FoxBot will respond once live AI billing is enabled.</span>
+                    <strong>Blaze Integration</strong>
+                    <span>Connects with Blaze OAuth, sends chat messages, and can poll live chat for commands.</span>
                 </div>
 
                 <div class="section-title">Commands</div>
@@ -346,7 +359,7 @@ html_content = """
                         <h2>FoxBot AI Chatbot</h2>
                         <p>The ultimate Blaze creator assistant demo.</p>
                     </div>
-                    <div class="status">â— Live Local Demo</div>
+                    <div class="status">Live Blaze Build</div>
                 </div>
 
                 <div class="controls">
@@ -368,7 +381,7 @@ html_content = """
 
                 <div class="chat-box" id="chatBox">
                     <div class="message bot">Welcome to FoxBot. Try !help to see commands.</div>
-                    <div class="message bot">This version includes giveaway memory, winner selection, and AI demo mode for your Blaze competition build.</div>
+                    <div class="message bot">FoxBot now supports Blaze OAuth, real Blaze chat posting, and polling-based command detection.</div>
                 </div>
 
                 <div class="send-row">
@@ -377,7 +390,7 @@ html_content = """
                 </div>
 
                 <div class="footer-note">
-                    Demo running locally on your machine
+                    FoxBot AI Chatbot for the Blaze Builder Challenge
                 </div>
             </div>
 
@@ -440,7 +453,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     original_message = message.strip()
     lower_message = original_message.lower()
-    username = username.strip()
+    username = username.strip() or "viewer"
 
     if lower_message == "!help":
         return {
@@ -496,7 +509,7 @@ def chat(message: str = "", username: str = "viewer"):
         winner = random.choice(giveaway_entries)
 
         return {
-            "response": f"ðŸŽ‰ Winner selected: @{winner}!"
+            "response": f"Winner selected: @{winner}!"
         }
 
     if lower_message.startswith("!ask"):
@@ -514,14 +527,6 @@ def chat(message: str = "", username: str = "viewer"):
     return {
         "response": "Unknown command. Type !help"
     }
-
-
-BLAZE_CLIENT_ID = os.environ.get("BLAZE_CLIENT_ID", "")
-BLAZE_CLIENT_SECRET = os.environ.get("BLAZE_CLIENT_SECRET", "")
-BLAZE_REDIRECT_URI = "https://foxbot-ai-chatbot.onrender.com/oauth/blaze/callback"
-
-oauth_session = {}
-bot_tokens = {}
 
 
 @app.get("/login/blaze")
@@ -575,7 +580,6 @@ def blaze_oauth_callback(code: str = "", state: str = ""):
     }
 
 
-
 @app.get("/me")
 def get_my_profile():
     access_token = bot_tokens.get("accessToken")
@@ -586,14 +590,15 @@ def get_my_profile():
     response = requests.get(
         "https://api.blaze.stream/v1/users/profile",
         headers={
-            "secret": BLAZE_CLIENT_SECRET,
+            "Authorization": f"Bearer {access_token}",
             "client-id": BLAZE_CLIENT_ID,
-            "authorization": f"Bearer {access_token}",
-            "content-type": "application/json"
+            "Accept": "application/json"
         }
     )
 
     return response.json()
+
+
 @app.get("/blaze/find-channel")
 def find_blaze_channel():
     client_id = os.getenv("BLAZE_CLIENT_ID")
@@ -601,38 +606,27 @@ def find_blaze_channel():
     channel_slug = os.getenv("BLAZE_CHANNEL_SLUG")
 
     if not client_id:
-        return {
-            "success": False,
-            "message": "Missing BLAZE_CLIENT_ID in Render environment variables."
-        }
+        return {"success": False, "message": "Missing BLAZE_CLIENT_ID."}
 
     if not access_token:
-        return {
-            "success": False,
-            "message": "Not logged in yet. Visit /login/blaze first."
-        }
+        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
 
     if not channel_slug:
-        return {
-            "success": False,
-            "message": "Missing BLAZE_CHANNEL_SLUG in Render environment variables."
+        return {"success": False, "message": "Missing BLAZE_CHANNEL_SLUG."}
+
+    response = requests.get(
+        "https://api.blaze.stream/v1/channels",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "Accept": "application/json"
+        },
+        params={
+            "limit": 20,
+            "type": "all",
+            "slug[]": channel_slug
         }
-
-    url = "https://api.blaze.stream/v1/channels"
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "client-id": client_id,
-        "Accept": "application/json"
-    }
-
-    params = {
-        "limit": 20,
-        "type": "all",
-        "slug[]": channel_slug
-    }
-
-    response = requests.get(url, headers=headers, params=params)
+    )
 
     try:
         return response.json()
@@ -641,103 +635,6 @@ def find_blaze_channel():
             "status_code": response.status_code,
             "text": response.text
         }
-@app.get("/blaze/send-test-message")
-def send_test_blaze_message():
-    client_id = os.getenv("BLAZE_CLIENT_ID")
-    channel_id = os.getenv("BLAZE_CHANNEL_ID")
-    access_token = bot_tokens.get("accessToken")
-
-    if not client_id:
-        return {"success": False, "message": "Missing BLAZE_CLIENT_ID."}
-
-    if not channel_id:
-        return {"success": False, "message": "Missing BLAZE_CHANNEL_ID."}
-
-    if not access_token:
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
-
-    response = requests.post(
-        "https://api.blaze.stream/v1/chats/messages",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "client-id": client_id,
-            "Accept": "application/json",
-            "content-type": "application/json"
-        },
-        json={
-            "channelId": channel_id,
-            "message": "FoxBot is officially connected to Blaze chat!"
-        }
-    )
-
-    try:
-        return {
-            "status_code": response.status_code,
-            "response": response.json()
-        }
-    except Exception:
-        return {
-            "status_code": response.status_code,
-            "response": response.text
-        }
-@app.get("/blaze/run-command")
-def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
-    client_id = os.getenv("BLAZE_CLIENT_ID")
-    channel_id = os.getenv("BLAZE_CHANNEL_ID")
-    access_token = bot_tokens.get("accessToken")
-
-    if not client_id:
-        return {"success": False, "message": "Missing BLAZE_CLIENT_ID."}
-
-    if not channel_id:
-        return {"success": False, "message": "Missing BLAZE_CHANNEL_ID."}
-
-    if not access_token:
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
-
-    foxbot_result = chat(message=message, username=username)
-    foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
-
-    response = requests.post(
-        "https://api.blaze.stream/v1/chats/messages",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "client-id": client_id,
-            "Accept": "application/json",
-            "content-type": "application/json"
-        },
-        json={
-            "channelId": channel_id,
-            "message": foxbot_reply
-        }
-    )
-
-    try:
-        blaze_response = response.json()
-    except Exception:
-        blaze_response = response.text
-
-    return {
-        "success": response.status_code == 200,
-        "command_received": message,
-        "foxbot_reply": foxbot_reply,
-        "status_code": response.status_code,
-        "blaze_response": blaze_response
-    }
-listener_thread = None
-
-listener_status = {
-    "running": False,
-    "connected": False,
-    "sessionId": None,
-    "subscribed": False,
-    "events_seen": 0,
-    "last_event": None,
-    "last_error": None,
-    "subscription_response": None
-}
-
-processed_blaze_messages = set()
 
 
 def send_blaze_chat_message(text: str):
@@ -748,7 +645,7 @@ def send_blaze_chat_message(text: str):
     if not client_id or not channel_id or not access_token:
         return {
             "success": False,
-            "message": "Missing client_id, channel_id, or access token."
+            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token."
         }
 
     response = requests.post(
@@ -774,6 +671,34 @@ def send_blaze_chat_message(text: str):
         }
 
 
+@app.get("/blaze/send-test-message")
+def send_test_blaze_message():
+    result = send_blaze_chat_message("FoxBot is officially connected to Blaze chat!")
+
+    return {
+        "test_message": "FoxBot is officially connected to Blaze chat!",
+        "result": result
+    }
+
+
+@app.get("/blaze/run-command")
+def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
+    if not bot_tokens.get("accessToken"):
+        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+
+    foxbot_result = chat(message=message, username=username)
+    foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+
+    blaze_response = send_blaze_chat_message(foxbot_reply)
+
+    return {
+        "success": True,
+        "command_received": message,
+        "foxbot_reply": foxbot_reply,
+        "blaze_response": blaze_response
+    }
+
+
 def find_first_string(payload, possible_keys):
     if isinstance(payload, dict):
         for key in possible_keys:
@@ -782,7 +707,7 @@ def find_first_string(payload, possible_keys):
             if isinstance(value, str):
                 return value
 
-            if isinstance(value, dict):
+            if isinstance(value, dict) or isinstance(value, list):
                 nested_text = find_first_string(value, possible_keys)
                 if nested_text:
                     return nested_text
@@ -813,178 +738,139 @@ def find_chat_message_id(payload):
     return find_first_string(payload, ["messageId", "id"]) or str(payload)[:200]
 
 
-def subscribe_to_blaze_chat(session_id: str):
+def get_recent_blaze_messages():
     client_id = os.getenv("BLAZE_CLIENT_ID")
     channel_id = os.getenv("BLAZE_CHANNEL_ID")
     access_token = bot_tokens.get("accessToken")
 
-    response = requests.post(
-        "https://api.blaze.stream/v1/events/subscriptions",
+    if not client_id or not channel_id or not access_token:
+        return {
+            "success": False,
+            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Visit /login/blaze first."
+        }
+
+    response = requests.get(
+        "https://api.blaze.stream/v1/chats/messages",
         headers={
             "Authorization": f"Bearer {access_token}",
             "client-id": client_id,
-            "Accept": "application/json",
-            "content-type": "application/json"
+            "Accept": "application/json"
         },
-        json={
-            "sessionId": session_id,
-            "type": "channel.chat.message",
-            "channelId": channel_id
+        params={
+            "channelId": channel_id,
+            "limit": 20
         }
     )
 
     try:
-        listener_status["subscription_response"] = {
-            "status_code": response.status_code,
-            "response": response.json()
-        }
+        return response.json()
     except Exception:
-        listener_status["subscription_response"] = {
+        return {
+            "success": False,
             "status_code": response.status_code,
-            "response": response.text
+            "text": response.text
         }
 
-    listener_status["subscribed"] = response.status_code in [200, 201]
-    return listener_status["subscription_response"]
+
+def extract_rows_from_blaze_response(data):
+    if isinstance(data, dict):
+        if isinstance(data.get("data"), dict):
+            if isinstance(data["data"].get("rows"), list):
+                return data["data"]["rows"]
+
+            if isinstance(data["data"].get("messages"), list):
+                return data["data"]["messages"]
+
+        if isinstance(data.get("rows"), list):
+            return data["rows"]
+
+        if isinstance(data.get("messages"), list):
+            return data["messages"]
+
+    return []
 
 
-def handle_blaze_event(event_name, data):
-    listener_status["events_seen"] += 1
-    listener_status["last_event"] = {
-        "event_name": event_name,
-        "data": data
-    }
+def blaze_polling_worker():
+    polling_status["running"] = True
+    polling_status["last_error"] = None
 
-    data_as_text = str(data)
+    while polling_status["running"]:
+        try:
+            data = get_recent_blaze_messages()
+            polling_status["checks"] += 1
+            polling_status["last_response"] = data
 
-    if "channel.chat.message" not in event_name and "channel.chat.message" not in data_as_text:
-        return
+            rows = extract_rows_from_blaze_response(data)
+            polling_status["messages_seen"] = len(rows)
 
-    message_text = find_chat_message_text(data)
-    username = find_chat_username(data)
-    message_id = find_chat_message_id(data)
+            for item in reversed(rows):
+                message_id = find_chat_message_id(item)
+                message_text = find_chat_message_text(item)
+                username = find_chat_username(item)
 
-    if not message_text:
-        return
+                polling_status["last_message"] = item
 
-    if message_id in processed_blaze_messages:
-        return
+                if not message_id or message_id in processed_polling_messages:
+                    continue
 
-    processed_blaze_messages.add(message_id)
+                processed_polling_messages.add(message_id)
 
-    if not message_text.startswith("!"):
-        return
+                if not message_text:
+                    continue
 
-    foxbot_result = chat(message=message_text, username=username)
-    foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+                if not message_text.startswith("!"):
+                    continue
 
-    send_blaze_chat_message(foxbot_reply)
+                foxbot_result = chat(message=message_text, username=username)
+                foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
 
+                send_blaze_chat_message(foxbot_reply)
+                polling_status["commands_processed"] += 1
 
-def blaze_socket_worker():
-    try:
-        client_id = os.getenv("BLAZE_CLIENT_ID")
-        channel_id = os.getenv("BLAZE_CHANNEL_ID")
-        access_token = bot_tokens.get("accessToken")
+            time.sleep(5)
 
-        listener_status["last_error"] = None
-        listener_status["connected"] = False
-        listener_status["sessionId"] = None
-        listener_status["subscribed"] = False
-        listener_status["connection_step"] = "checking settings"
-
-        if not client_id or not channel_id or not access_token:
-            listener_status["last_error"] = "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Visit /login/blaze first."
-            listener_status["running"] = False
-            return
-
-        listener_status["connection_step"] = "creating socket client"
-
-        sio = socketio.Client(
-            reconnection=True,
-            logger=True,
-            engineio_logger=True
-        )
-
-        @sio.event
-        def connect():
-            listener_status["connected"] = True
-            listener_status["running"] = True
-            listener_status["connection_step"] = "connected to Blaze Socket.IO"
-
-        @sio.event
-        def connect_error(data):
-            listener_status["last_error"] = f"Socket connect_error: {data}"
-            listener_status["connection_step"] = "connect_error"
-
-        @sio.event
-        def disconnect():
-            listener_status["connected"] = False
-            listener_status["connection_step"] = "disconnected"
-
-        @sio.on("session_welcome")
-        def session_welcome(data):
-            listener_status["last_event"] = {
-                "event_name": "session_welcome",
-                "data": data
-            }
-
-            session_id = data.get("sessionId") or data.get("session_id") or data.get("id")
-            listener_status["sessionId"] = session_id
-            listener_status["connection_step"] = "received session_welcome"
-
-            if session_id:
-                subscribe_to_blaze_chat(session_id)
-
-        @sio.on("*")
-        def catch_all(event, data):
-            handle_blaze_event(event, data)
-
-        listener_status["running"] = True
-        listener_status["connection_step"] = "connecting to https://blaze.stream with path /ws"
-
-        sio.connect(
-            "https://blaze.stream",
-            socketio_path="ws",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "client-id": client_id
-            },
-            wait_timeout=15,
-            transports=["websocket"]
-        )
-
-        listener_status["connection_step"] = "waiting for events"
-        sio.wait()
-
-    except Exception as error:
-        listener_status["last_error"] = str(error)
-        listener_status["connection_step"] = "exception"
-        listener_status["running"] = False
-        listener_status["connected"] = False
+        except Exception as error:
+            polling_status["last_error"] = str(error)
+            time.sleep(5)
 
 
-@app.get("/blaze/start-listener")
-def start_blaze_listener():
-    global listener_thread
+@app.get("/blaze/check-recent-messages")
+def check_recent_blaze_messages():
+    return get_recent_blaze_messages()
 
-    if listener_thread and listener_thread.is_alive():
+
+@app.get("/blaze/start-polling-listener")
+def start_polling_listener():
+    global polling_thread
+
+    if polling_thread and polling_thread.is_alive():
         return {
             "success": True,
-            "message": "Blaze listener is already running.",
-            "status": listener_status
+            "message": "Polling listener is already running.",
+            "status": polling_status
         }
 
-    listener_thread = threading.Thread(target=blaze_socket_worker, daemon=True)
-    listener_thread.start()
+    polling_thread = threading.Thread(target=blaze_polling_worker, daemon=True)
+    polling_thread.start()
 
     return {
         "success": True,
-        "message": "Blaze live chat listener starting.",
-        "status": listener_status
+        "message": "FoxBot polling listener started.",
+        "status": polling_status
     }
 
 
-@app.get("/blaze/listener-status")
-def get_blaze_listener_status():
-    return listener_status
+@app.get("/blaze/stop-polling-listener")
+def stop_polling_listener():
+    polling_status["running"] = False
+
+    return {
+        "success": True,
+        "message": "FoxBot polling listener stopped.",
+        "status": polling_status
+    }
+
+
+@app.get("/blaze/polling-status")
+def get_polling_status():
+    return polling_status
