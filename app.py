@@ -1218,3 +1218,51 @@ judges_html = """
 @app.get("/judges", response_class=HTMLResponse)
 def judges_page():
     return judges_html
+@app.get("/project-status")
+def project_status():
+    return {
+        "project": "FoxBot AI Chatbot",
+        "status": "working",
+        "live_app": "https://foxbot-ai-chatbot.onrender.com",
+        "pages": {
+            "homepage": "/",
+            "dashboard": "/dashboard",
+            "judges_page": "/judges",
+            "project_status": "/project-status"
+        },
+        "blaze_integration": {
+            "oauth_login": True,
+            "channel_lookup": True,
+            "send_chat_messages": True,
+            "read_recent_chat": True,
+            "polling_listener": True,
+            "automatic_command_replies": True
+        },
+        "commands": [
+            "!help",
+            "!schedule",
+            "!faq",
+            "!giveaway",
+            "!enter",
+            "!entries",
+            "!pickwinner",
+            "!ask"
+        ],
+        "creator_tools": [
+            "giveaway tracking",
+            "duplicate entry protection",
+            "random winner picker",
+            "control dashboard",
+            "live chat command listener"
+        ],
+        "tech_stack": [
+            "Python",
+            "FastAPI",
+            "Render",
+            "Blaze OAuth",
+            "Blaze Chat API",
+            "HTML",
+            "CSS",
+            "JavaScript"
+        ]
+    }
