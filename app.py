@@ -483,6 +483,7 @@ dashboard_html = """
             <button class="secondary" onclick="callEndpoint('/blaze/check-recent-messages')">Check Recent Chat</button>
             <button onclick="callEndpoint('/blaze/send-test-message')">Send Test Message</button>
             <button onclick="callEndpoint('/blaze/run-command?message=!help&username=Ryan')">Run !help</button>
+            <button onclick="callEndpoint('/blaze/judge-demo')">Run Judge Demo</button>
             <a class="button secondary" href="/">Open Demo Chat</a>
             <a class="button secondary" href="/judges">Judges Page</a>
         </div>
