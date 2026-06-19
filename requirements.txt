@@ -3,4 +3,3 @@ uvicorn
 requests
 python-dotenv
 python-multipart
-python-socketio[client]
