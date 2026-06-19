@@ -1033,4 +1033,188 @@ dashboard_html = """
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    return dashboard_html
+    return 
+judges_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot For Judges</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
+            color: white;
+            padding: 30px;
+        }
+
+        .page {
+            max-width: 950px;
+            margin: 0 auto;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+
+        .brand img {
+            width: 82px;
+            height: 82px;
+            border-radius: 20px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.45);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 36px;
+        }
+
+        h2 {
+            margin-top: 30px;
+            color: #fdba74;
+        }
+
+        p, li {
+            color: #d1d5db;
+            line-height: 1.6;
+            font-size: 16px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(249, 115, 22, 0.16);
+            color: #fdba74;
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .button {
+            display: inline-block;
+            text-decoration: none;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            padding: 14px 18px;
+            border-radius: 14px;
+            font-weight: bold;
+        }
+
+        .secondary {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        }
+
+        .box {
+            background: #0f172a;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 18px;
+            margin-top: 16px;
+        }
+
+        code {
+            color: #93c5fd;
+            background: #020617;
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <div class="brand">
+            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
+            <div>
+                <h1>FoxBot AI Chatbot</h1>
+                <div class="badge">Blaze Builder Challenge Submission</div>
+            </div>
+        </div>
+
+        <p>
+            FoxBot AI Chatbot is a Blaze-connected creator assistant that helps streamers automate chat engagement,
+            run giveaways, answer common questions, and respond to live chat commands.
+        </p>
+
+        <div class="links">
+            <a class="button" href="/">Open Demo Chat</a>
+            <a class="button secondary" href="/dashboard">Open Control Dashboard</a>
+            <a class="button secondary" href="/blaze/polling-status">Check Listener Status</a>
+        </div>
+
+        <h2>What This Project Proves</h2>
+        <div class="box">
+            <p>
+                FoxBot connects to a real Blaze account using OAuth, finds the creator's Blaze channel,
+                sends messages into real Blaze chat, checks recent chat messages, and responds to commands.
+            </p>
+        </div>
+
+        <h2>Core Features</h2>
+        <ul>
+            <li>Blaze OAuth login</li>
+            <li>Real Blaze channel lookup</li>
+            <li>Real Blaze chat message posting</li>
+            <li>Polling-based live chat command detection</li>
+            <li>Automatic command replies in Blaze chat</li>
+            <li>Giveaway entry tracking</li>
+            <li>Duplicate entry protection</li>
+            <li>Random winner selection</li>
+            <li>Creator control dashboard</li>
+        </ul>
+
+        <h2>Test Commands</h2>
+        <p>Viewers can type these commands in Blaze chat:</p>
+        <ul>
+            <li><code>!help</code> — shows available commands</li>
+            <li><code>!schedule</code> — shows the stream schedule</li>
+            <li><code>!faq</code> — explains FoxBot</li>
+            <li><code>!giveaway</code> — starts a giveaway</li>
+            <li><code>!enter</code> — enters a viewer into the giveaway</li>
+            <li><code>!entries</code> — shows current giveaway entries</li>
+            <li><code>!pickwinner</code> — randomly selects a winner</li>
+            <li><code>!ask</code> — demo AI response mode</li>
+        </ul>
+
+        <h2>How To Demo</h2>
+        <ol>
+            <li>Open the dashboard.</li>
+            <li>Click <strong>Login with Blaze</strong>.</li>
+            <li>Click <strong>Start Listener</strong>.</li>
+            <li>Type <code>!help</code> in Blaze chat.</li>
+            <li>FoxBot replies directly in Blaze chat.</li>
+        </ol>
+
+        <h2>Tech Stack</h2>
+        <p>
+            Python, FastAPI, Render, Blaze OAuth, Blaze Chat API, HTML, CSS, and JavaScript.
+        </p>
+    </div>
+</body>
+</html>
+"""
+
+
+@app.get("/judges", response_class=HTMLResponse)
+def judges_page():
+    return judges_html
