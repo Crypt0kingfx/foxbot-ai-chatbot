@@ -887,26 +887,51 @@ def blaze_socket_worker():
         channel_id = os.getenv("BLAZE_CHANNEL_ID")
         access_token = bot_tokens.get("accessToken")
 
+        listener_status["last_error"] = None
+        listener_status["connected"] = False
+        listener_status["sessionId"] = None
+        listener_status["subscribed"] = False
+        listener_status["connection_step"] = "checking settings"
+
         if not client_id or not channel_id or not access_token:
             listener_status["last_error"] = "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Visit /login/blaze first."
             listener_status["running"] = False
             return
 
-        sio = socketio.Client(reconnection=True)
+        listener_status["connection_step"] = "creating socket client"
+
+        sio = socketio.Client(
+            reconnection=True,
+            logger=True,
+            engineio_logger=True
+        )
 
         @sio.event
         def connect():
             listener_status["connected"] = True
             listener_status["running"] = True
+            listener_status["connection_step"] = "connected to Blaze Socket.IO"
+
+        @sio.event
+        def connect_error(data):
+            listener_status["last_error"] = f"Socket connect_error: {data}"
+            listener_status["connection_step"] = "connect_error"
 
         @sio.event
         def disconnect():
             listener_status["connected"] = False
+            listener_status["connection_step"] = "disconnected"
 
         @sio.on("session_welcome")
         def session_welcome(data):
+            listener_status["last_event"] = {
+                "event_name": "session_welcome",
+                "data": data
+            }
+
             session_id = data.get("sessionId") or data.get("session_id") or data.get("id")
             listener_status["sessionId"] = session_id
+            listener_status["connection_step"] = "received session_welcome"
 
             if session_id:
                 subscribe_to_blaze_chat(session_id)
@@ -916,19 +941,25 @@ def blaze_socket_worker():
             handle_blaze_event(event, data)
 
         listener_status["running"] = True
+        listener_status["connection_step"] = "connecting to https://blaze.stream with path /ws"
+
         sio.connect(
             "https://blaze.stream",
             socketio_path="ws",
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "client-id": client_id
-            }
+            },
+            wait_timeout=15,
+            transports=["websocket"]
         )
 
+        listener_status["connection_step"] = "waiting for events"
         sio.wait()
 
     except Exception as error:
         listener_status["last_error"] = str(error)
+        listener_status["connection_step"] = "exception"
         listener_status["running"] = False
         listener_status["connected"] = False
 
