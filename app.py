@@ -15,6 +15,10 @@ app = FastAPI()
 
 app.mount("/static", StaticFiles(directory="static", check_dir=False), name="static")
 
+# ----------------------------
+# App state
+# ----------------------------
+
 giveaway_entries = []
 
 BLAZE_CLIENT_ID = os.environ.get("BLAZE_CLIENT_ID", "")
@@ -38,6 +42,24 @@ polling_status = {
 
 processed_polling_messages = set()
 
+proof_stats = {
+    "blaze_connected": False,
+    "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
+    "channel_slug": os.getenv("BLAZE_CHANNEL_SLUG"),
+    "listener_running": False,
+    "messages_checked": 0,
+    "messages_seen": 0,
+    "commands_processed": 0,
+    "last_command": None,
+    "last_reply": None,
+    "last_username": None,
+    "last_message": None
+}
+
+
+# ----------------------------
+# HTML pages
+# ----------------------------
 
 html_content = """
 <!DOCTYPE html>
@@ -46,24 +68,15 @@ html_content = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FoxBot AI Chatbot</title>
-
     <style>
-        * {
-            box-sizing: border-box;
-        }
-
+        * { box-sizing: border-box; }
         body {
             margin: 0;
             font-family: Arial, sans-serif;
             background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
             color: white;
         }
-
-        .page {
-            min-height: 100vh;
-            padding: 24px;
-        }
-
+        .page { min-height: 100vh; padding: 24px; }
         .app-shell {
             max-width: 1200px;
             margin: 0 auto;
@@ -71,25 +84,19 @@ html_content = """
             grid-template-columns: 320px 1fr;
             gap: 20px;
         }
-
         .panel {
             background: rgba(17, 24, 39, 0.92);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 20px;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
         }
-
-        .sidebar {
-            padding: 22px;
-        }
-
+        .sidebar { padding: 22px; }
         .brand {
             display: flex;
             align-items: center;
             gap: 14px;
             margin-bottom: 20px;
         }
-
         .brand-logo {
             width: 70px;
             height: 70px;
@@ -99,19 +106,8 @@ html_content = """
             box-shadow: 0 10px 28px rgba(249, 115, 22, 0.30);
             background: #111827;
         }
-
-        .brand h1 {
-            margin: 0;
-            font-size: 28px;
-            line-height: 1;
-        }
-
-        .brand p {
-            margin: 6px 0 0;
-            color: #cbd5e1;
-            font-size: 14px;
-        }
-
+        .brand h1 { margin: 0; font-size: 28px; line-height: 1; }
+        .brand p { margin: 6px 0 0; color: #cbd5e1; font-size: 14px; }
         .badge {
             display: inline-block;
             background: rgba(249, 115, 22, 0.16);
@@ -122,7 +118,6 @@ html_content = """
             font-size: 13px;
             margin-bottom: 18px;
         }
-
         .section-title {
             margin: 20px 0 10px;
             font-size: 14px;
@@ -130,31 +125,15 @@ html_content = """
             text-transform: uppercase;
             letter-spacing: 1px;
         }
-
         .info-card {
             background: rgba(255, 255, 255, 0.04);
             border-radius: 16px;
             padding: 14px;
             margin-bottom: 12px;
         }
-
-        .info-card strong {
-            display: block;
-            margin-bottom: 6px;
-            color: #ffffff;
-        }
-
-        .info-card span {
-            color: #cbd5e1;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-
-        .command-list {
-            display: grid;
-            gap: 10px;
-        }
-
+        .info-card strong { display: block; margin-bottom: 6px; color: #ffffff; }
+        .info-card span { color: #cbd5e1; font-size: 14px; line-height: 1.4; }
+        .command-list { display: grid; gap: 10px; }
         .command-chip {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 12px;
@@ -162,14 +141,12 @@ html_content = """
             color: #e5e7eb;
             font-size: 14px;
         }
-
         .main {
             padding: 22px;
             display: flex;
             flex-direction: column;
             min-height: 760px;
         }
-
         .topbar {
             display: flex;
             justify-content: space-between;
@@ -178,17 +155,8 @@ html_content = """
             margin-bottom: 18px;
             flex-wrap: wrap;
         }
-
-        .title-block h2 {
-            margin: 0;
-            font-size: 30px;
-        }
-
-        .title-block p {
-            margin: 8px 0 0;
-            color: #cbd5e1;
-        }
-
+        .title-block h2 { margin: 0; font-size: 30px; }
+        .title-block p { margin: 8px 0 0; color: #cbd5e1; }
         .status {
             background: rgba(34, 197, 94, 0.12);
             color: #86efac;
@@ -197,14 +165,12 @@ html_content = """
             border-radius: 999px;
             font-size: 14px;
         }
-
         .controls {
             display: grid;
             grid-template-columns: 1fr;
             gap: 14px;
             margin-bottom: 16px;
         }
-
         .username-box input {
             width: 100%;
             padding: 14px;
@@ -215,15 +181,8 @@ html_content = """
             background: #0f172a;
             color: white;
         }
-
-        .quick-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
-        .quick-buttons button,
-        .send-row button {
+        .quick-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+        .quick-buttons button, .send-row button, .link-button {
             background: linear-gradient(135deg, #f97316, #ea580c);
             color: white;
             border: none;
@@ -232,8 +191,9 @@ html_content = """
             cursor: pointer;
             font-size: 14px;
             font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
         }
-
         .chat-box {
             flex: 1;
             background: #0f172a;
@@ -243,7 +203,6 @@ html_content = """
             min-height: 420px;
             border: 1px solid rgba(255, 255, 255, 0.06);
         }
-
         .message {
             margin: 12px 0;
             padding: 14px 16px;
@@ -253,26 +212,14 @@ html_content = """
             white-space: pre-wrap;
             word-wrap: break-word;
         }
-
-        .bot {
-            background: #1f2937;
-            color: #f8fafc;
-            margin-right: auto;
-        }
-
+        .bot { background: #1f2937; color: #f8fafc; margin-right: auto; }
         .user {
             background: linear-gradient(135deg, #2563eb, #1d4ed8);
             color: white;
             margin-left: auto;
             text-align: right;
         }
-
-        .send-row {
-            display: flex;
-            gap: 12px;
-            margin-top: 16px;
-        }
-
+        .send-row { display: flex; gap: 12px; margin-top: 16px; }
         .send-row input {
             flex: 1;
             padding: 15px;
@@ -283,34 +230,17 @@ html_content = """
             background: #0f172a;
             color: white;
         }
-
-        .footer-note {
-            margin-top: 14px;
-            color: #94a3b8;
-            font-size: 13px;
-            text-align: center;
-        }
-
+        .footer-note { margin-top: 14px; color: #94a3b8; font-size: 13px; text-align: center; }
         @media (max-width: 920px) {
-            .app-shell {
-                grid-template-columns: 1fr;
-            }
-
-            .main {
-                min-height: auto;
-            }
-
-            .message {
-                max-width: 90%;
-            }
+            .app-shell { grid-template-columns: 1fr; }
+            .main { min-height: auto; }
+            .message { max-width: 90%; }
         }
     </style>
 </head>
-
 <body>
     <div class="page">
         <div class="app-shell">
-
             <div class="panel sidebar">
                 <div class="brand">
                     <img src="/static/foxbot-logo.png" alt="FoxBot Logo" class="brand-logo">
@@ -319,28 +249,19 @@ html_content = """
                         <p>AI Chatbot Demo</p>
                     </div>
                 </div>
-
                 <div class="badge">Blaze Builder Challenge</div>
 
                 <div class="section-title">What it does</div>
+                <div class="info-card"><strong>Community Assistant</strong><span>Helps creators manage chat, answer common questions, and improve engagement.</span></div>
+                <div class="info-card"><strong>Giveaway System</strong><span>Starts giveaways, tracks entries, blocks duplicate signups, and picks a winner.</span></div>
+                <div class="info-card"><strong>Blaze Integration</strong><span>Uses Blaze OAuth and the Blaze Chat API to post and respond in real chat.</span></div>
 
-                <div class="info-card">
-                    <strong>Community Assistant</strong>
-                    <span>Helps creators manage chat, answer common questions, and improve engagement.</span>
-                </div>
-
-                <div class="info-card">
-                    <strong>Giveaway System</strong>
-                    <span>Starts giveaways, tracks entries, blocks duplicate signups, and picks a winner.</span>
-                </div>
-
-                <div class="info-card">
-                    <strong>Blaze Integration</strong>
-                    <span>Connects with Blaze OAuth, sends chat messages, and can poll live chat for commands.</span>
-                </div>
+                <div class="section-title">Pages</div>
+                <a class="link-button" href="/dashboard">Dashboard</a>
+                <a class="link-button" href="/judges">Judges Page</a>
+                <a class="link-button" href="/project-status">Status</a>
 
                 <div class="section-title">Commands</div>
-
                 <div class="command-list">
                     <div class="command-chip">!help</div>
                     <div class="command-chip">!schedule</div>
@@ -366,7 +287,6 @@ html_content = """
                     <div class="username-box">
                         <input id="username" type="text" value="Ryan" placeholder="Enter your username">
                     </div>
-
                     <div class="quick-buttons">
                         <button onclick="sendQuickMessage('!help')">!help</button>
                         <button onclick="sendQuickMessage('!schedule')">!schedule</button>
@@ -381,7 +301,7 @@ html_content = """
 
                 <div class="chat-box" id="chatBox">
                     <div class="message bot">Welcome to FoxBot. Try !help to see commands.</div>
-                    <div class="message bot">FoxBot now supports Blaze OAuth, real Blaze chat posting, and polling-based command detection.</div>
+                    <div class="message bot">FoxBot supports Blaze OAuth, chat posting, command replies, polling-based chat reading, and giveaway tools.</div>
                 </div>
 
                 <div class="send-row">
@@ -389,11 +309,8 @@ html_content = """
                     <button onclick="sendMessage()">Send</button>
                 </div>
 
-                <div class="footer-note">
-                    FoxBot AI Chatbot for the Blaze Builder Challenge
-                </div>
+                <div class="footer-note">FoxBot AI Chatbot for the Blaze Builder Challenge</div>
             </div>
-
         </div>
     </div>
 
@@ -402,7 +319,6 @@ html_content = """
             const input = document.getElementById("messageInput");
             const username = document.getElementById("username").value.trim() || "viewer";
             const message = input.value.trim();
-
             if (!message) return;
 
             addMessage(message, "user");
@@ -441,11 +357,347 @@ html_content = """
 </html>
 """
 
+dashboard_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Control Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
+            color: white;
+            padding: 30px;
+        }
+        .dashboard {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 28px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+        }
+        .brand { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+        .brand img {
+            width: 76px;
+            height: 76px;
+            border-radius: 18px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.45);
+        }
+        h1 { margin: 0; font-size: 32px; }
+        p { color: #cbd5e1; line-height: 1.5; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 14px;
+            margin-top: 24px;
+        }
+        button, a.button {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            padding: 15px 16px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 15px;
+        }
+        .secondary { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+        .danger { background: linear-gradient(135deg, #dc2626, #991b1b); }
+        .proof-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 24px;
+        }
+        .proof-card {
+            background: #0f172a;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 16px;
+        }
+        .proof-card strong {
+            display: block;
+            color: #94a3b8;
+            font-size: 13px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .proof-card span {
+            font-size: 20px;
+            font-weight: bold;
+            color: #fdba74;
+        }
+        .output {
+            margin-top: 24px;
+            background: #0f172a;
+            border-radius: 16px;
+            padding: 18px;
+            min-height: 180px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #e5e7eb;
+        }
+        .note { margin-top: 18px; color: #94a3b8; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="brand">
+            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
+            <div>
+                <h1>FoxBot Control Dashboard</h1>
+                <p>Manage your Blaze-connected AI chatbot from one place.</p>
+            </div>
+        </div>
+
+        <p>
+            Use this dashboard to connect FoxBot to Blaze, start the chat listener,
+            check status, and test real chat commands.
+        </p>
+
+        <div class="proof-grid">
+            <div class="proof-card"><strong>Blaze Connected</strong><span id="proofConnected">Loading</span></div>
+            <div class="proof-card"><strong>Listener</strong><span id="proofListener">Loading</span></div>
+            <div class="proof-card"><strong>Messages Checked</strong><span id="proofChecks">0</span></div>
+            <div class="proof-card"><strong>Commands Processed</strong><span id="proofCommands">0</span></div>
+            <div class="proof-card"><strong>Last Command</strong><span id="proofLastCommand">None</span></div>
+            <div class="proof-card"><strong>Last User</strong><span id="proofLastUser">None</span></div>
+        </div>
+
+        <div class="grid">
+            <a class="button" href="/login/blaze">Login with Blaze</a>
+            <button onclick="callEndpoint('/blaze/start-polling-listener')">Start Listener</button>
+            <button class="danger" onclick="callEndpoint('/blaze/stop-polling-listener')">Stop Listener</button>
+            <button class="secondary" onclick="callEndpoint('/blaze/polling-status')">Check Status</button>
+            <button class="secondary" onclick="callEndpoint('/blaze/check-recent-messages')">Check Recent Chat</button>
+            <button onclick="callEndpoint('/blaze/send-test-message')">Send Test Message</button>
+            <button onclick="callEndpoint('/blaze/run-command?message=!help&username=Ryan')">Run !help</button>
+            <a class="button secondary" href="/">Open Demo Chat</a>
+            <a class="button secondary" href="/judges">Judges Page</a>
+        </div>
+
+        <div class="output" id="output">FoxBot dashboard ready.</div>
+
+        <div class="note">
+            After every Render restart, click Login with Blaze first, then Start Listener.
+        </div>
+    </div>
+
+    <script>
+        async function refreshProof() {
+            try {
+                const response = await fetch('/proof');
+                const data = await response.json();
+                const proof = data.proof || {};
+                document.getElementById("proofConnected").textContent = proof.blaze_connected ? "Yes" : "No";
+                document.getElementById("proofListener").textContent = proof.listener_running ? "Running" : "Stopped";
+                document.getElementById("proofChecks").textContent = proof.messages_checked ?? 0;
+                document.getElementById("proofCommands").textContent = proof.commands_processed ?? 0;
+                document.getElementById("proofLastCommand").textContent = proof.last_command || "None";
+                document.getElementById("proofLastUser").textContent = proof.last_username || "None";
+            } catch (error) {
+                document.getElementById("proofConnected").textContent = "Error";
+            }
+        }
+
+        async function callEndpoint(url) {
+            const output = document.getElementById("output");
+            output.textContent = "Loading " + url + "...";
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+                refreshProof();
+            } catch (error) {
+                output.textContent = "Error: " + error;
+            }
+        }
+
+        refreshProof();
+        setInterval(refreshProof, 5000);
+    </script>
+</body>
+</html>
+"""
+
+judges_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot For Judges</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
+            color: white;
+            padding: 30px;
+        }
+        .page {
+            max-width: 950px;
+            margin: 0 auto;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+        }
+        .brand { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
+        .brand img {
+            width: 82px;
+            height: 82px;
+            border-radius: 20px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.45);
+        }
+        h1 { margin: 0; font-size: 36px; }
+        h2 { margin-top: 30px; color: #fdba74; }
+        p, li { color: #d1d5db; line-height: 1.6; font-size: 16px; }
+        .badge {
+            display: inline-block;
+            background: rgba(249, 115, 22, 0.16);
+            color: #fdba74;
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+        .button {
+            display: inline-block;
+            text-decoration: none;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            padding: 14px 18px;
+            border-radius: 14px;
+            font-weight: bold;
+        }
+        .secondary { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+        .box {
+            background: #0f172a;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 18px;
+            margin-top: 16px;
+        }
+        code {
+            color: #93c5fd;
+            background: #020617;
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="brand">
+            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
+            <div>
+                <h1>FoxBot AI Chatbot</h1>
+                <div class="badge">Blaze Builder Challenge Submission</div>
+            </div>
+        </div>
+
+        <p>
+            FoxBot AI Chatbot is a Blaze-connected creator assistant that helps streamers automate chat engagement,
+            run giveaways, answer common questions, and respond to live chat commands.
+        </p>
+
+        <div class="links">
+            <a class="button" href="/">Open Demo Chat</a>
+            <a class="button secondary" href="/dashboard">Open Control Dashboard</a>
+            <a class="button secondary" href="/project-status">Project Status</a>
+            <a class="button secondary" href="/proof">Live Proof JSON</a>
+        </div>
+
+        <h2>What This Project Proves</h2>
+        <div class="box">
+            <p>
+                FoxBot connects to a real Blaze account using OAuth, finds the creator's Blaze channel,
+                sends messages into real Blaze chat, checks recent chat messages, and responds to commands.
+            </p>
+        </div>
+
+        <h2>Core Features</h2>
+        <ul>
+            <li>Blaze OAuth login</li>
+            <li>Real Blaze channel lookup</li>
+            <li>Real Blaze chat message posting</li>
+            <li>Polling-based live chat command detection</li>
+            <li>Automatic command replies in Blaze chat</li>
+            <li>Giveaway entry tracking</li>
+            <li>Duplicate entry protection</li>
+            <li>Random winner selection</li>
+            <li>Creator control dashboard</li>
+            <li>Live proof panel for judges</li>
+        </ul>
+
+        <h2>Test Commands</h2>
+        <ul>
+            <li><code>!help</code> — shows available commands</li>
+            <li><code>!schedule</code> — shows the stream schedule</li>
+            <li><code>!faq</code> — explains FoxBot</li>
+            <li><code>!giveaway</code> — starts a giveaway</li>
+            <li><code>!enter</code> — enters a viewer into the giveaway</li>
+            <li><code>!entries</code> — shows current giveaway entries</li>
+            <li><code>!pickwinner</code> — randomly selects a winner</li>
+            <li><code>!ask</code> — demo AI response mode</li>
+        </ul>
+
+        <h2>How To Demo</h2>
+        <ol>
+            <li>Open the dashboard.</li>
+            <li>Click <strong>Login with Blaze</strong>.</li>
+            <li>Click <strong>Start Listener</strong>.</li>
+            <li>Type <code>!help</code> in Blaze chat.</li>
+            <li>FoxBot replies directly in Blaze chat.</li>
+            <li>Watch the Live Proof Panel update.</li>
+        </ol>
+
+        <h2>Tech Stack</h2>
+        <p>Python, FastAPI, Render, Blaze OAuth, Blaze Chat API, HTML, CSS, and JavaScript.</p>
+    </div>
+</body>
+</html>
+"""
+
+
+# ----------------------------
+# Basic pages
+# ----------------------------
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     return html_content
 
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    return dashboard_html
+
+
+@app.get("/judges", response_class=HTMLResponse)
+def judges_page():
+    return judges_html
+
+
+# ----------------------------
+# FoxBot command logic
+# ----------------------------
 
 @app.get("/chat")
 def chat(message: str = "", username: str = "viewer"):
@@ -457,23 +709,23 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!help":
         return {
-            "response": "Commands: !help, !schedule, !faq, !giveaway, !enter, !entries, !pickwinner, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !giveaway, !enter, !entries, !pickwinner, !ask"
         }
 
     if lower_message == "!schedule":
         return {
-            "response": "Wednesday 10AM PST | Friday 1PM PST | Sunday 2PM PST"
+            "response": "Ryan streams Web3 gaming on Blaze. Watch for Off The Grid, Illuvium, Star Atlas, Wilder World, and GTA 6 content."
         }
 
     if lower_message == "!faq":
         return {
-            "response": "FoxBot is your Blaze AI chatbot for creators and viewers."
+            "response": "FoxBot is a Blaze-connected AI chatbot that helps creators reply to chat, run giveaways, and boost engagement."
         }
 
     if lower_message == "!giveaway":
         giveaway_entries = []
         return {
-            "response": "Giveaway started. Type !enter to join."
+            "response": "FoxBot giveaway started! Type !enter to join."
         }
 
     if lower_message == "!enter":
@@ -493,23 +745,23 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!entries":
         if giveaway_entries:
             return {
-                "response": f"Current entries: {len(giveaway_entries)} | Names: {', '.join(giveaway_entries)}"
+                "response": f"Current giveaway entries: {len(giveaway_entries)} | Names: {', '.join(giveaway_entries)}"
             }
 
         return {
-            "response": "Current entries: 0 | Names: No entries yet"
+            "response": "Current giveaway entries: 0 | Names: No entries yet"
         }
 
     if lower_message == "!pickwinner":
         if not giveaway_entries:
             return {
-                "response": "No giveaway entries yet."
+                "response": "No giveaway entries yet. Type !enter to join first."
             }
 
         winner = random.choice(giveaway_entries)
 
         return {
-            "response": f"Winner selected: @{winner}!"
+            "response": f"The fox has chosen... @{winner} wins!"
         }
 
     if lower_message.startswith("!ask"):
@@ -521,7 +773,7 @@ def chat(message: str = "", username: str = "viewer"):
             }
 
         return {
-            "response": f"Demo mode: FoxBot would answer this question about '{question}' using AI once API billing is active."
+            "response": f"FoxBot AI demo mode: I would answer this question next once full AI billing is enabled: {question}"
         }
 
     return {
@@ -529,8 +781,18 @@ def chat(message: str = "", username: str = "viewer"):
     }
 
 
+# ----------------------------
+# Blaze OAuth
+# ----------------------------
+
 @app.get("/login/blaze")
 def login_blaze():
+    if not BLAZE_CLIENT_ID or not BLAZE_CLIENT_SECRET:
+        return {
+            "success": False,
+            "message": "Missing BLAZE_CLIENT_ID or BLAZE_CLIENT_SECRET in Render environment variables."
+        }
+
     response = requests.post(
         "https://blaze.stream/bapi/oauth2/generate-auth-url",
         json={
@@ -545,6 +807,13 @@ def login_blaze():
 
     oauth_session["state"] = data.get("state")
     oauth_session["codeVerifier"] = data.get("codeVerifier")
+
+    if not data.get("url"):
+        return {
+            "success": False,
+            "message": "Blaze did not return a login URL.",
+            "response": data
+        }
 
     return RedirectResponse(data.get("url"))
 
@@ -574,6 +843,10 @@ def blaze_oauth_callback(code: str = "", state: str = ""):
     bot_tokens["accessToken"] = token_data.get("accessToken")
     bot_tokens["refreshToken"] = token_data.get("refreshToken")
 
+    proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
+    proof_stats["channel_id"] = os.getenv("BLAZE_CHANNEL_ID")
+    proof_stats["channel_slug"] = os.getenv("BLAZE_CHANNEL_SLUG")
+
     return {
         "message": "Blaze login successful! FoxBot is now connected to your account.",
         "scopes": token_data.get("scopes")
@@ -598,6 +871,10 @@ def get_my_profile():
 
     return response.json()
 
+
+# ----------------------------
+# Blaze channel and chat helpers
+# ----------------------------
 
 @app.get("/blaze/find-channel")
 def find_blaze_channel():
@@ -629,12 +906,22 @@ def find_blaze_channel():
     )
 
     try:
-        return response.json()
+        data = response.json()
     except Exception:
         return {
             "status_code": response.status_code,
             "text": response.text
         }
+
+    try:
+        rows = data.get("data", {}).get("rows", [])
+        if rows:
+            proof_stats["channel_id"] = rows[0].get("id")
+            proof_stats["channel_slug"] = rows[0].get("slug")
+    except Exception:
+        pass
+
+    return data
 
 
 def send_blaze_chat_message(text: str):
@@ -691,6 +978,12 @@ def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
 
     blaze_response = send_blaze_chat_message(foxbot_reply)
 
+    proof_stats["commands_processed"] += 1
+    proof_stats["last_command"] = message
+    proof_stats["last_reply"] = foxbot_reply
+    proof_stats["last_username"] = username
+    proof_stats["last_message"] = message
+
     return {
         "success": True,
         "command_received": message,
@@ -698,6 +991,10 @@ def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
         "blaze_response": blaze_response
     }
 
+
+# ----------------------------
+# Recent chat polling listener
+# ----------------------------
 
 def find_first_string(payload, possible_keys):
     if isinstance(payload, dict):
@@ -793,6 +1090,7 @@ def extract_rows_from_blaze_response(data):
 def blaze_polling_worker():
     polling_status["running"] = True
     polling_status["last_error"] = None
+    proof_stats["listener_running"] = True
 
     while polling_status["running"]:
         try:
@@ -802,6 +1100,11 @@ def blaze_polling_worker():
 
             rows = extract_rows_from_blaze_response(data)
             polling_status["messages_seen"] = len(rows)
+
+            proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
+            proof_stats["listener_running"] = polling_status["running"]
+            proof_stats["messages_checked"] = polling_status["checks"]
+            proof_stats["messages_seen"] = len(rows)
 
             for item in reversed(rows):
                 message_id = find_chat_message_id(item)
@@ -827,11 +1130,19 @@ def blaze_polling_worker():
                 send_blaze_chat_message(foxbot_reply)
                 polling_status["commands_processed"] += 1
 
+                proof_stats["commands_processed"] += 1
+                proof_stats["last_command"] = message_text
+                proof_stats["last_reply"] = foxbot_reply
+                proof_stats["last_username"] = username
+                proof_stats["last_message"] = message_text
+
             time.sleep(5)
 
         except Exception as error:
             polling_status["last_error"] = str(error)
             time.sleep(5)
+
+    proof_stats["listener_running"] = False
 
 
 @app.get("/blaze/check-recent-messages")
@@ -844,12 +1155,14 @@ def start_polling_listener():
     global polling_thread
 
     if polling_thread and polling_thread.is_alive():
+        proof_stats["listener_running"] = True
         return {
             "success": True,
             "message": "Polling listener is already running.",
             "status": polling_status
         }
 
+    polling_status["running"] = True
     polling_thread = threading.Thread(target=blaze_polling_worker, daemon=True)
     polling_thread.start()
 
@@ -863,6 +1176,7 @@ def start_polling_listener():
 @app.get("/blaze/stop-polling-listener")
 def stop_polling_listener():
     polling_status["running"] = False
+    proof_stats["listener_running"] = False
 
     return {
         "success": True,
@@ -874,350 +1188,34 @@ def stop_polling_listener():
 @app.get("/blaze/polling-status")
 def get_polling_status():
     return polling_status
-dashboard_html = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FoxBot Control Dashboard</title>
 
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
-            color: white;
-            padding: 30px;
+
+# ----------------------------
+# Judge / proof endpoints
+# ----------------------------
+
+@app.get("/proof")
+def proof_panel():
+    proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
+    proof_stats["listener_running"] = polling_status.get("running", False)
+    proof_stats["messages_checked"] = polling_status.get("checks", 0)
+    proof_stats["messages_seen"] = polling_status.get("messages_seen", 0)
+    proof_stats["channel_id"] = os.getenv("BLAZE_CHANNEL_ID")
+    proof_stats["channel_slug"] = os.getenv("BLAZE_CHANNEL_SLUG")
+
+    return {
+        "project": "FoxBot AI Chatbot",
+        "proof": proof_stats,
+        "polling_status": {
+            "running": polling_status.get("running"),
+            "checks": polling_status.get("checks"),
+            "messages_seen": polling_status.get("messages_seen"),
+            "commands_processed": polling_status.get("commands_processed"),
+            "last_error": polling_status.get("last_error")
         }
-
-        .dashboard {
-            max-width: 900px;
-            margin: 0 auto;
-            background: rgba(17, 24, 39, 0.95);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 22px;
-            padding: 28px;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-
-        .brand img {
-            width: 76px;
-            height: 76px;
-            border-radius: 18px;
-            object-fit: cover;
-            border: 2px solid rgba(249, 115, 22, 0.45);
-        }
-
-        h1 {
-            margin: 0;
-            font-size: 32px;
-        }
-
-        p {
-            color: #cbd5e1;
-            line-height: 1.5;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-            gap: 14px;
-            margin-top: 24px;
-        }
-
-        button, a.button {
-            display: block;
-            text-align: center;
-            text-decoration: none;
-            background: linear-gradient(135deg, #f97316, #ea580c);
-            color: white;
-            border: none;
-            border-radius: 14px;
-            padding: 15px 16px;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 15px;
-        }
-
-        button:hover, a.button:hover {
-            opacity: 0.92;
-        }
-
-        .secondary {
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-        }
-
-        .danger {
-            background: linear-gradient(135deg, #dc2626, #991b1b);
-        }
-
-        .output {
-            margin-top: 24px;
-            background: #0f172a;
-            border-radius: 16px;
-            padding: 18px;
-            min-height: 180px;
-            white-space: pre-wrap;
-            overflow-x: auto;
-            border: 1px solid rgba(255,255,255,0.08);
-            color: #e5e7eb;
-        }
-
-        .note {
-            margin-top: 18px;
-            color: #94a3b8;
-            font-size: 14px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="dashboard">
-        <div class="brand">
-            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
-            <div>
-                <h1>FoxBot Control Dashboard</h1>
-                <p>Manage your Blaze-connected AI chatbot from one place.</p>
-            </div>
-        </div>
-
-        <p>
-            Use this dashboard to connect FoxBot to Blaze, start the chat listener,
-            check status, and test real chat commands.
-        </p>
-
-        <div class="grid">
-            <a class="button" href="/login/blaze">Login with Blaze</a>
-            <button onclick="callEndpoint('/blaze/start-polling-listener')">Start Listener</button>
-            <button class="danger" onclick="callEndpoint('/blaze/stop-polling-listener')">Stop Listener</button>
-            <button class="secondary" onclick="callEndpoint('/blaze/polling-status')">Check Status</button>
-            <button class="secondary" onclick="callEndpoint('/blaze/check-recent-messages')">Check Recent Chat</button>
-            <button onclick="callEndpoint('/blaze/send-test-message')">Send Test Message</button>
-            <button onclick="callEndpoint('/blaze/run-command?message=!help&username=Ryan')">Run !help</button>
-            <a class="button secondary" href="/">Open Demo Chat</a>
-        </div>
-
-        <div class="output" id="output">FoxBot dashboard ready.</div>
-
-        <div class="note">
-            After every Render restart, click Login with Blaze first, then Start Listener.
-        </div>
-    </div>
-
-    <script>
-        async function callEndpoint(url) {
-            const output = document.getElementById("output");
-            output.textContent = "Loading " + url + "...";
-
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                output.textContent = JSON.stringify(data, null, 2);
-            } catch (error) {
-                output.textContent = "Error: " + error;
-            }
-        }
-    </script>
-</body>
-</html>
-"""
+    }
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
-    return 
-judges_html = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FoxBot For Judges</title>
-
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
-            color: white;
-            padding: 30px;
-        }
-
-        .page {
-            max-width: 950px;
-            margin: 0 auto;
-            background: rgba(17, 24, 39, 0.95);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 24px;
-            padding: 32px;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 18px;
-            margin-bottom: 24px;
-        }
-
-        .brand img {
-            width: 82px;
-            height: 82px;
-            border-radius: 20px;
-            object-fit: cover;
-            border: 2px solid rgba(249, 115, 22, 0.45);
-        }
-
-        h1 {
-            margin: 0;
-            font-size: 36px;
-        }
-
-        h2 {
-            margin-top: 30px;
-            color: #fdba74;
-        }
-
-        p, li {
-            color: #d1d5db;
-            line-height: 1.6;
-            font-size: 16px;
-        }
-
-        .badge {
-            display: inline-block;
-            background: rgba(249, 115, 22, 0.16);
-            color: #fdba74;
-            border: 1px solid rgba(249, 115, 22, 0.3);
-            padding: 8px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-
-        .links {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-top: 24px;
-        }
-
-        .button {
-            display: inline-block;
-            text-decoration: none;
-            background: linear-gradient(135deg, #f97316, #ea580c);
-            color: white;
-            padding: 14px 18px;
-            border-radius: 14px;
-            font-weight: bold;
-        }
-
-        .secondary {
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-        }
-
-        .box {
-            background: #0f172a;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 16px;
-            padding: 18px;
-            margin-top: 16px;
-        }
-
-        code {
-            color: #93c5fd;
-            background: #020617;
-            padding: 2px 6px;
-            border-radius: 6px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="page">
-        <div class="brand">
-            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
-            <div>
-                <h1>FoxBot AI Chatbot</h1>
-                <div class="badge">Blaze Builder Challenge Submission</div>
-            </div>
-        </div>
-
-        <p>
-            FoxBot AI Chatbot is a Blaze-connected creator assistant that helps streamers automate chat engagement,
-            run giveaways, answer common questions, and respond to live chat commands.
-        </p>
-
-        <div class="links">
-            <a class="button" href="/">Open Demo Chat</a>
-            <a class="button secondary" href="/dashboard">Open Control Dashboard</a>
-            <a class="button secondary" href="/blaze/polling-status">Check Listener Status</a>
-        </div>
-
-        <h2>What This Project Proves</h2>
-        <div class="box">
-            <p>
-                FoxBot connects to a real Blaze account using OAuth, finds the creator's Blaze channel,
-                sends messages into real Blaze chat, checks recent chat messages, and responds to commands.
-            </p>
-        </div>
-
-        <h2>Core Features</h2>
-        <ul>
-            <li>Blaze OAuth login</li>
-            <li>Real Blaze channel lookup</li>
-            <li>Real Blaze chat message posting</li>
-            <li>Polling-based live chat command detection</li>
-            <li>Automatic command replies in Blaze chat</li>
-            <li>Giveaway entry tracking</li>
-            <li>Duplicate entry protection</li>
-            <li>Random winner selection</li>
-            <li>Creator control dashboard</li>
-        </ul>
-
-        <h2>Test Commands</h2>
-        <p>Viewers can type these commands in Blaze chat:</p>
-        <ul>
-            <li><code>!help</code> — shows available commands</li>
-            <li><code>!schedule</code> — shows the stream schedule</li>
-            <li><code>!faq</code> — explains FoxBot</li>
-            <li><code>!giveaway</code> — starts a giveaway</li>
-            <li><code>!enter</code> — enters a viewer into the giveaway</li>
-            <li><code>!entries</code> — shows current giveaway entries</li>
-            <li><code>!pickwinner</code> — randomly selects a winner</li>
-            <li><code>!ask</code> — demo AI response mode</li>
-        </ul>
-
-        <h2>How To Demo</h2>
-        <ol>
-            <li>Open the dashboard.</li>
-            <li>Click <strong>Login with Blaze</strong>.</li>
-            <li>Click <strong>Start Listener</strong>.</li>
-            <li>Type <code>!help</code> in Blaze chat.</li>
-            <li>FoxBot replies directly in Blaze chat.</li>
-        </ol>
-
-        <h2>Tech Stack</h2>
-        <p>
-            Python, FastAPI, Render, Blaze OAuth, Blaze Chat API, HTML, CSS, and JavaScript.
-        </p>
-    </div>
-</body>
-</html>
-"""
-
-
-@app.get("/judges", response_class=HTMLResponse)
-def judges_page():
-    return judges_html
 @app.get("/project-status")
 def project_status():
     return {
@@ -1228,7 +1226,8 @@ def project_status():
             "homepage": "/",
             "dashboard": "/dashboard",
             "judges_page": "/judges",
-            "project_status": "/project-status"
+            "project_status": "/project-status",
+            "live_proof": "/proof"
         },
         "blaze_integration": {
             "oauth_login": True,
@@ -1236,7 +1235,8 @@ def project_status():
             "send_chat_messages": True,
             "read_recent_chat": True,
             "polling_listener": True,
-            "automatic_command_replies": True
+            "automatic_command_replies": True,
+            "live_proof_panel": True
         },
         "commands": [
             "!help",
@@ -1253,7 +1253,8 @@ def project_status():
             "duplicate entry protection",
             "random winner picker",
             "control dashboard",
-            "live chat command listener"
+            "live chat command listener",
+            "live proof panel"
         ],
         "tech_stack": [
             "Python",
