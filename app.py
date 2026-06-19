@@ -874,3 +874,163 @@ def stop_polling_listener():
 @app.get("/blaze/polling-status")
 def get_polling_status():
     return polling_status
+dashboard_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Control Dashboard</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
+            color: white;
+            padding: 30px;
+        }
+
+        .dashboard {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 28px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .brand img {
+            width: 76px;
+            height: 76px;
+            border-radius: 18px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.45);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 32px;
+        }
+
+        p {
+            color: #cbd5e1;
+            line-height: 1.5;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 14px;
+            margin-top: 24px;
+        }
+
+        button, a.button {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            padding: 15px 16px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        button:hover, a.button:hover {
+            opacity: 0.92;
+        }
+
+        .secondary {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        }
+
+        .danger {
+            background: linear-gradient(135deg, #dc2626, #991b1b);
+        }
+
+        .output {
+            margin-top: 24px;
+            background: #0f172a;
+            border-radius: 16px;
+            padding: 18px;
+            min-height: 180px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #e5e7eb;
+        }
+
+        .note {
+            margin-top: 18px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <div class="brand">
+            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
+            <div>
+                <h1>FoxBot Control Dashboard</h1>
+                <p>Manage your Blaze-connected AI chatbot from one place.</p>
+            </div>
+        </div>
+
+        <p>
+            Use this dashboard to connect FoxBot to Blaze, start the chat listener,
+            check status, and test real chat commands.
+        </p>
+
+        <div class="grid">
+            <a class="button" href="/login/blaze">Login with Blaze</a>
+            <button onclick="callEndpoint('/blaze/start-polling-listener')">Start Listener</button>
+            <button class="danger" onclick="callEndpoint('/blaze/stop-polling-listener')">Stop Listener</button>
+            <button class="secondary" onclick="callEndpoint('/blaze/polling-status')">Check Status</button>
+            <button class="secondary" onclick="callEndpoint('/blaze/check-recent-messages')">Check Recent Chat</button>
+            <button onclick="callEndpoint('/blaze/send-test-message')">Send Test Message</button>
+            <button onclick="callEndpoint('/blaze/run-command?message=!help&username=Ryan')">Run !help</button>
+            <a class="button secondary" href="/">Open Demo Chat</a>
+        </div>
+
+        <div class="output" id="output">FoxBot dashboard ready.</div>
+
+        <div class="note">
+            After every Render restart, click Login with Blaze first, then Start Listener.
+        </div>
+    </div>
+
+    <script>
+        async function callEndpoint(url) {
+            const output = document.getElementById("output");
+            output.textContent = "Loading " + url + "...";
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                output.textContent = "Error: " + error;
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    return dashboard_html
