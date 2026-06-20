@@ -2211,3 +2211,287 @@ def stream_info_endpoint():
         ]
     }
 
+
+judge_demo_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Judge Demo</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: radial-gradient(circle at top, #1f2937, #020617 70%);
+            color: white;
+        }
+
+        .wrap {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 40px 22px;
+        }
+
+        .hero {
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(249, 115, 22, 0.5);
+            border-radius: 28px;
+            padding: 34px;
+            box-shadow: 0 20px 70px rgba(0,0,0,0.35);
+        }
+
+        .top {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            width: 92px;
+            height: 92px;
+            border-radius: 24px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.7);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 46px;
+            color: #fdba74;
+        }
+
+        .subtitle {
+            margin-top: 8px;
+            color: #cbd5e1;
+            font-size: 19px;
+            line-height: 1.5;
+        }
+
+        .nav {
+            margin-top: 24px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 999px;
+            padding: 10px 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            margin-top: 22px;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 22px;
+            padding: 22px;
+        }
+
+        .panel h2 {
+            margin: 0 0 14px;
+            color: #fdba74;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            cursor: pointer;
+            border: 0;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            font-weight: 800;
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 8px 22px rgba(249,115,22,0.18);
+        }
+
+        button.secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .output {
+            min-height: 170px;
+            background: rgba(2, 6, 23, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 18px;
+            padding: 16px;
+            white-space: pre-wrap;
+            color: #e2e8f0;
+            line-height: 1.5;
+            overflow: auto;
+        }
+
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .feature {
+            background: rgba(255,255,255,0.06);
+            border-radius: 14px;
+            padding: 12px;
+            color: #e2e8f0;
+        }
+
+        code {
+            color: #fdba74;
+            font-weight: bold;
+        }
+
+        @media (max-width: 800px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+
+            .feature-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <section class="hero">
+            <div class="top">
+                <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+                <div>
+                    <h1>FoxBot Judge Demo</h1>
+                    <div class="subtitle">
+                        A Blaze-connected AI creator chatbot built for live stream engagement, giveaways,
+                        OBS overlays, viewer stats, custom commands, and creator moderation tools.
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav">
+                <a href="/">Home</a>
+                <a href="/demo">Judge Demo</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/demo">Demo</a>
+                <a href="/features">Features</a>
+                <a href="/judges">Judges</a>
+                <a href="/proof">Live Proof</a>
+                <a href="/overlay/giveaway">OBS Overlay</a>
+            </div>
+        </section>
+
+        <div class="grid">
+            <section class="panel">
+                <h2>One-Click Command Tests</h2>
+                <div class="buttons">
+                    <button onclick="runCommand('!help')">!help</button>
+                    <button onclick="runCommand('!socials')">!socials</button>
+                    <button onclick="runCommand('!mode')">!mode</button>
+                    <button onclick="runCommand('!mode hype')">!mode hype</button>
+                    <button onclick="runCommand('!giveaway')">!giveaway</button>
+                    <button onclick="runCommand('!enter')">!enter</button>
+                    <button onclick="runCommand('!entries')">!entries</button>
+                    <button onclick="runCommand('!pickwinner')">!pickwinner</button>
+                    <button onclick="runCommand('!leaderboard')">!leaderboard</button>
+                    <button onclick="runCommand('!hugs')">!hugs</button>
+                    <button onclick="runCommand('!shoutout avisi')">!shoutout</button>
+                    <button onclick="runCommand('!setgame Off The Grid')">!setgame</button>
+                    <button onclick="runCommand('!game')">!game</button>
+                    <button onclick="runCommand('!settitle Playing Off The Grid with FoxBot live')">!settitle</button>
+                    <button onclick="runCommand('!title')">!title</button>
+                    <button onclick="runCommand('!lurk')">!lurk</button>
+                    <button onclick="runCommand('!lurkers')">!lurkers</button>
+                    <button onclick="runCommand('!addcmd discord Join the Discord here: your-link')">add !discord</button>
+                    <button onclick="runCommand('!commands')">!commands</button>
+                    <button onclick="runCommand('!discord')">!discord</button>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>Result</h2>
+                <div id="output" class="output">Click a command button to test FoxBot.</div>
+                <div class="buttons" style="margin-top: 14px;">
+                    <button class="secondary" onclick="openEndpoint('/proof')">Open /proof</button>
+                    <button class="secondary" onclick="openEndpoint('/viewer-stats')">Open /viewer-stats</button>
+                    <button class="secondary" onclick="openEndpoint('/stream-info')">Open /stream-info</button>
+                    <button class="secondary" onclick="openEndpoint('/custom-commands')">Open /custom-commands</button>
+                    <button class="secondary" onclick="openEndpoint('/bot-mode')">Open /bot-mode</button>
+                    <button class="secondary" onclick="runBlazeDemo()">Run Blaze Demo</button>
+                </div>
+            </section>
+        </div>
+
+        <section class="panel" style="margin-top: 22px;">
+            <h2>Finished Feature List</h2>
+            <div class="feature-list">
+                <div class="feature"><code>Blaze OAuth</code> ? login and connect FoxBot to a Blaze account.</div>
+                <div class="feature"><code>Live Chat Listener</code> ? polls Blaze chat and replies to commands.</div>
+                <div class="feature"><code>Giveaways</code> ? start, enter, count entries, and pick winners.</div>
+                <div class="feature"><code>OBS Overlay</code> ? browser-source giveaway overlay for streams.</div>
+                <div class="feature"><code>Leaderboard</code> ? tracks viewer command activity.</div>
+                <div class="feature"><code>Socials</code> ? creator link command for viewers.</div>
+                <div class="feature"><code>Shoutouts</code> ? admin-only shoutout command.</div>
+                <div class="feature"><code>Personality Modes</code> ? hype, chill, and pro response styles.</div>
+                <div class="feature"><code>Custom Commands</code> ? add and delete commands live from chat.</div>
+                <div class="feature"><code>Stream Info</code> ? game, title, lurk, unlurk, and lurker count.</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        async function runCommand(command) {
+            const output = document.getElementById("output");
+            output.textContent = "Running " + command + "...";
+
+            try {
+                const response = await fetch("/chat?username=Ryan&message=" + encodeURIComponent(command));
+                const data = await response.json();
+                output.textContent = "Command: " + command + "\\n\\nResponse:\\n" + data.response;
+            } catch (error) {
+                output.textContent = "Error running command: " + error;
+            }
+        }
+
+        function openEndpoint(path) {
+            window.open(path, "_blank");
+        }
+
+        async function runBlazeDemo() {
+            const output = document.getElementById("output");
+            output.textContent = "Running Blaze judge demo... This requires Blaze login first.";
+
+            try {
+                const response = await fetch("/blaze/judge-demo");
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                output.textContent = "Error running Blaze demo: " + error;
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/demo", response_class=HTMLResponse)
+def judge_demo_page():
+    return judge_demo_html
+
