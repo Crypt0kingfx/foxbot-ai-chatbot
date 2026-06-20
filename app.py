@@ -282,6 +282,7 @@ html_content = """
                     <div class="command-chip">!stats</div>
                     <div class="command-chip">!leaderboard</div>
                     <div class="command-chip">!pickwinner</div>
+                    <div class="command-chip">!shoutout</div>
                     <div class="command-chip">!hugs</div>
                     <div class="command-chip">!ask</div>
                 </div>
@@ -311,6 +312,7 @@ html_content = """
                         <button onclick="sendQuickMessage('!stats')">!stats</button>
                         <button onclick="sendQuickMessage('!leaderboard')">!leaderboard</button>
                         <button onclick="sendQuickMessage('!pickwinner')">!pickwinner</button>
+                        <button onclick="sendQuickMessage('!shoutout avisi')">!shoutout</button>
                         <button onclick="sendQuickMessage('!hugs')">!hugs</button>
                         <button onclick="sendQuickMessage('!ask What does FoxBot do?')">!ask demo</button>
                     </div>
@@ -774,7 +776,7 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout"
             }
 
         return {
@@ -849,6 +851,25 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message.startswith("!shoutout"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can use shoutouts."
+            }
+
+        target = original_message.replace("!shoutout", "", 1).strip()
+
+        if not target:
+            return {
+                "response": "Use !shoutout followed by a username. Example: !shoutout avisi"
+            }
+
+        target = target.lstrip("@")
+
+        return {
+            "response": f"Huge shoutout to @{target}! Go show them some Blaze love!"
         }
 
     if lower_message == "!socials":
