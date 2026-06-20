@@ -259,6 +259,7 @@ html_content = """
                 <div class="section-title">Pages</div>
                 <a class="link-button" href="/dashboard">Dashboard</a>
                 <a class="link-button" href="/judges">Judges Page</a>
+                <a class="link-button" href="/features">Features</a>
                 <a class="link-button" href="/project-status">Status</a>
 
                 <div class="section-title">Commands</div>
@@ -486,6 +487,7 @@ dashboard_html = """
             <button onclick="callEndpoint('/blaze/judge-demo')">Run Judge Demo</button>
             <a class="button secondary" href="/">Open Demo Chat</a>
             <a class="button secondary" href="/judges">Judges Page</a>
+            <a class="button secondary" href="/features">Features</a>
         </div>
 
         <div class="output" id="output">FoxBot dashboard ready.</div>
@@ -623,6 +625,7 @@ judges_html = """
             <a class="button secondary" href="/dashboard">Open Control Dashboard</a>
             <a class="button secondary" href="/project-status">Project Status</a>
             <a class="button secondary" href="/proof">Live Proof JSON</a>
+            <a class="button secondary" href="/features">Features</a>
         </div>
 
         <h2>What This Project Proves</h2>
@@ -1310,3 +1313,258 @@ def judge_demo():
         "steps_sent": len(results),
         "results": results
     }
+
+
+features_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Features</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
+            color: white;
+            padding: 30px;
+        }
+
+        .page {
+            max-width: 1050px;
+            margin: 0 auto;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+
+        .brand img {
+            width: 82px;
+            height: 82px;
+            border-radius: 20px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.45);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 38px;
+        }
+
+        h2 {
+            color: #fdba74;
+            margin-top: 30px;
+        }
+
+        p, li {
+            color: #d1d5db;
+            line-height: 1.6;
+            font-size: 16px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(249, 115, 22, 0.16);
+            color: #fdba74;
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 22px;
+        }
+
+        .card {
+            background: #0f172a;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 18px;
+            padding: 20px;
+        }
+
+        .card h3 {
+            color: #fdba74;
+            margin-top: 0;
+        }
+
+        .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 26px;
+        }
+
+        .button {
+            display: inline-block;
+            text-decoration: none;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            padding: 14px 18px;
+            border-radius: 14px;
+            font-weight: bold;
+        }
+
+        .secondary {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        }
+
+        code {
+            color: #93c5fd;
+            background: #020617;
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <div class="brand">
+            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
+            <div>
+                <h1>FoxBot Features</h1>
+                <div class="badge">A Blaze creator assistant built for real stream engagement</div>
+            </div>
+        </div>
+
+        <p>
+            FoxBot AI Chatbot is built to help Blaze creators automate chat engagement,
+            run giveaways, answer repeated questions, and create more interactive live streams.
+        </p>
+
+        <div class="links">
+            <a class="button" href="/dashboard">Open Dashboard</a>
+            <a class="button secondary" href="/judges">Judges Page</a>
+            <a class="button secondary" href="/features">Features</a>
+            <a class="button secondary" href="/proof">Live Proof</a>
+            <a class="button secondary" href="/">Demo Chat</a>
+        </div>
+
+        <h2>Who FoxBot Helps</h2>
+
+        <div class="grid">
+            <div class="card">
+                <h3>For Creators</h3>
+                <ul>
+                    <li>Automates repeated chat replies</li>
+                    <li>Runs giveaways during streams</li>
+                    <li>Tracks entries and blocks duplicate entries</li>
+                    <li>Protects admin-only commands</li>
+                    <li>Posts directly into real Blaze chat</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h3>For Viewers</h3>
+                <ul>
+                    <li>Simple commands like <code>!help</code> and <code>!enter</code></li>
+                    <li>Fast answers to common questions</li>
+                    <li>Interactive giveaway participation</li>
+                    <li>More active and fun live chat</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h3>For Judges</h3>
+                <ul>
+                    <li>Live Render deployment</li>
+                    <li>Real Blaze OAuth connection</li>
+                    <li>Real Blaze chat message posting</li>
+                    <li>Live proof panel showing activity</li>
+                    <li>One-click Judge Demo Mode</li>
+                </ul>
+            </div>
+        </div>
+
+        <h2>Live Features</h2>
+
+        <div class="grid">
+            <div class="card">
+                <h3>Blaze OAuth</h3>
+                <p>FoxBot connects to Blaze through OAuth so the creator can authorize the bot securely.</p>
+            </div>
+
+            <div class="card">
+                <h3>Chat Commands</h3>
+                <p>FoxBot supports public commands like <code>!help</code>, <code>!schedule</code>, <code>!faq</code>, <code>!enter</code>, and <code>!entries</code>.</p>
+            </div>
+
+            <div class="card">
+                <h3>Protected Admin Commands</h3>
+                <p>Commands like <code>!giveaway</code> and <code>!pickwinner</code> are protected for the creator or approved admins.</p>
+            </div>
+
+            <div class="card">
+                <h3>Giveaway System</h3>
+                <p>FoxBot can start giveaways, track entries, stop duplicate entries, show entries, and pick a random winner.</p>
+            </div>
+
+            <div class="card">
+                <h3>Live Proof Panel</h3>
+                <p>The dashboard shows Blaze connection status, listener status, messages checked, commands processed, last user, and last command.</p>
+            </div>
+
+            <div class="card">
+                <h3>Judge Demo Mode</h3>
+                <p>One endpoint runs a full automated demo by sending test messages, running commands, starting a giveaway, entering a user, and picking a winner.</p>
+            </div>
+        </div>
+
+        <h2>Roadmap</h2>
+
+        <div class="grid">
+            <div class="card">
+                <h3>Persistent Token Storage</h3>
+                <p>Store refresh tokens securely so creators do not need to reconnect after Render restarts.</p>
+            </div>
+
+            <div class="card">
+                <h3>Full AI Response Mode</h3>
+                <p>Upgrade <code>!ask</code> from demo mode into a real AI assistant once billing is enabled.</p>
+            </div>
+
+            <div class="card">
+                <h3>OBS Overlay</h3>
+                <p>Add a browser-source overlay for live giveaways, latest entries, and winner announcements.</p>
+            </div>
+
+            <div class="card">
+                <h3>Follower and Subscriber Shoutouts</h3>
+                <p>Use Blaze activity data to celebrate new followers, subscribers, gifts, and other community events.</p>
+            </div>
+
+            <div class="card">
+                <h3>True Socket.IO Events</h3>
+                <p>Move from polling to full real-time events once the Socket.IO connection details are fully stable.</p>
+            </div>
+
+            <div class="card">
+                <h3>Creator Settings UI</h3>
+                <p>Let creators edit schedules, FAQs, prizes, social links, and bot personality directly from the dashboard.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+
+@app.get("/features", response_class=HTMLResponse)
+def features_page():
+    return features_html
+
