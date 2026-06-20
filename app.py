@@ -52,6 +52,8 @@ viewer_stats = {}
 
 bot_mode = os.getenv("FOXBOT_MODE", "hype").lower()
 
+custom_commands = {}
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -279,6 +281,7 @@ html_content = """
                     <div class="command-chip">!faq</div>
                     <div class="command-chip">!socials</div>
                     <div class="command-chip">!mode</div>
+                    <div class="command-chip">!commands</div>
                     <div class="command-chip">!giveaway</div>
                     <div class="command-chip">!enter</div>
                     <div class="command-chip">!entries</div>
@@ -286,6 +289,7 @@ html_content = """
                     <div class="command-chip">!leaderboard</div>
                     <div class="command-chip">!pickwinner</div>
                     <div class="command-chip">!shoutout</div>
+                    <div class="command-chip">!addcmd</div>
                     <div class="command-chip">!hugs</div>
                     <div class="command-chip">!ask</div>
                 </div>
@@ -310,6 +314,8 @@ html_content = """
                         <button onclick="sendQuickMessage('!faq')">!faq</button>
                         <button onclick="sendQuickMessage('!socials')">!socials</button>
                         <button onclick="sendQuickMessage('!mode')">!mode</button>
+                        <button onclick="sendQuickMessage('!commands')">!commands</button>
+                        <button onclick="sendQuickMessage('!addcmd discord Join the Discord here: your-link')">add !discord</button>
                         <button onclick="sendQuickMessage('!mode hype')">hype mode</button>
                         <button onclick="sendQuickMessage('!giveaway')">!giveaway</button>
                         <button onclick="sendQuickMessage('!enter')">!enter</button>
@@ -725,6 +731,26 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def normalize_custom_command(command_name: str):
+    cleaned = command_name.strip().lower()
+
+    if not cleaned:
+        return ""
+
+    if not cleaned.startswith("!"):
+        cleaned = "!" + cleaned
+
+    return cleaned
+
+
+def format_custom_commands():
+    if not custom_commands:
+        return "No custom commands yet. Admins can add one with !addcmd name response"
+
+    command_names = sorted(custom_commands.keys())
+    return "Custom FoxBot commands: " + ", ".join(command_names)
+
+
 def mode_style_response(message_type: str, username: str = "viewer", target: str = "", question: str = ""):
     mode = bot_mode.lower()
 
@@ -797,6 +823,7 @@ def chat(message: str = "", username: str = "viewer"):
     global giveaway_entries
     global giveaway_overlay
     global bot_mode
+    global custom_commands
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -809,11 +836,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -884,6 +911,79 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message.startswith("!addcmd"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can add custom commands."
+            }
+
+        parts = original_message.split(" ", 2)
+
+        if len(parts) < 3:
+            return {
+                "response": "Use !addcmd name response. Example: !addcmd discord Join the Discord here: your-link"
+            }
+
+        command_name = normalize_custom_command(parts[1])
+        command_response = parts[2].strip()
+
+        reserved_commands = {
+            "!help", "!schedule", "!faq", "!socials", "!mode",
+            "!giveaway", "!enter", "!entries", "!pickwinner",
+            "!stats", "!leaderboard", "!hugs", "!ask",
+            "!shoutout", "!addcmd", "!delcmd", "!commands"
+        }
+
+        if command_name in reserved_commands:
+            return {
+                "response": f"{command_name} is a built-in FoxBot command and cannot be replaced."
+            }
+
+        if not command_response:
+            return {
+                "response": "Custom command response cannot be empty."
+            }
+
+        custom_commands[command_name] = {
+            "response": command_response,
+            "created_by": username
+        }
+
+        return {
+            "response": f"Custom command {command_name} added."
+        }
+
+    if lower_message.startswith("!delcmd"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can delete custom commands."
+            }
+
+        parts = original_message.split(" ", 1)
+
+        if len(parts) < 2:
+            return {
+                "response": "Use !delcmd name. Example: !delcmd discord"
+            }
+
+        command_name = normalize_custom_command(parts[1])
+
+        if command_name not in custom_commands:
+            return {
+                "response": f"{command_name} is not a custom command."
+            }
+
+        del custom_commands[command_name]
+
+        return {
+            "response": f"Custom command {command_name} deleted."
+        }
+
+    if lower_message == "!commands":
+        return {
+            "response": format_custom_commands()
         }
 
     if lower_message.startswith("!mode"):
@@ -977,6 +1077,11 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": mode_style_response("ask", username=username, question=question)
+        }
+
+    if lower_message in custom_commands:
+        return {
+            "response": custom_commands[lower_message]["response"]
         }
 
     return {
@@ -1980,5 +2085,19 @@ def bot_mode_endpoint():
         "available_modes": ["hype", "chill", "pro"],
         "public_command": "!mode",
         "admin_commands": ["!mode hype", "!mode chill", "!mode pro"]
+    }
+
+
+@app.get("/custom-commands")
+def custom_commands_endpoint():
+    return {
+        "count": len(custom_commands),
+        "commands": custom_commands,
+        "examples": [
+            "!addcmd discord Join the Discord here: your-link",
+            "!commands",
+            "!discord",
+            "!delcmd discord"
+        ]
     }
 
