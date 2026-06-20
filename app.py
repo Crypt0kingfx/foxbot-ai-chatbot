@@ -699,6 +699,10 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def is_admin(username: str):
+    admin_usernames = os.getenv("ADMIN_USERNAMES", "crypt0k1ng96,Ryan")
+    admins = [name.strip().lower() for name in admin_usernames.split(",")]
+    return username.strip().lower() in admins
 
 @app.get("/chat")
 def chat(message: str = "", username: str = "viewer"):
