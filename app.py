@@ -275,6 +275,7 @@ html_content = """
                     <div class="command-chip">!help</div>
                     <div class="command-chip">!schedule</div>
                     <div class="command-chip">!faq</div>
+                    <div class="command-chip">!socials</div>
                     <div class="command-chip">!giveaway</div>
                     <div class="command-chip">!enter</div>
                     <div class="command-chip">!entries</div>
@@ -303,6 +304,7 @@ html_content = """
                         <button onclick="sendQuickMessage('!help')">!help</button>
                         <button onclick="sendQuickMessage('!schedule')">!schedule</button>
                         <button onclick="sendQuickMessage('!faq')">!faq</button>
+                        <button onclick="sendQuickMessage('!socials')">!socials</button>
                         <button onclick="sendQuickMessage('!giveaway')">!giveaway</button>
                         <button onclick="sendQuickMessage('!enter')">!enter</button>
                         <button onclick="sendQuickMessage('!entries')">!entries</button>
@@ -772,11 +774,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -847,6 +849,15 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message == "!socials":
+        socials = os.getenv(
+            "SOCIAL_LINKS",
+            "Blaze: https://blaze.stream/crypt0k1ng96 | X: add your X link | YouTube: add your YouTube link"
+        )
+        return {
+            "response": f"Follow the creator here: {socials}"
         }
 
     if lower_message == "!stats":
@@ -1856,6 +1867,17 @@ def viewer_stats_endpoint():
             viewer_stats.values(),
             key=lambda item: item.get("commands", 0),
             reverse=True
+        )
+    }
+
+
+@app.get("/socials")
+def socials_endpoint():
+    return {
+        "command": "!socials",
+        "social_links": os.getenv(
+            "SOCIAL_LINKS",
+            "Blaze: https://blaze.stream/crypt0k1ng96 | X: add your X link | YouTube: add your YouTube link"
         )
     }
 
