@@ -42,6 +42,12 @@ polling_status = {
 
 processed_polling_messages = set()
 
+giveaway_overlay = {
+    "active": False,
+    "latest_entry": None,
+    "winner": None
+}
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -709,17 +715,25 @@ def is_admin(username: str):
     admins = [name.strip().lower() for name in admin_usernames.split(",")]
     return username.strip().lower() in admins
 
+
 @app.get("/chat")
 def chat(message: str = "", username: str = "viewer"):
     global giveaway_entries
+    global giveaway_overlay
 
     original_message = message.strip()
     lower_message = original_message.lower()
     username = username.strip() or "viewer"
+    admin = is_admin(username)
 
     if lower_message == "!help":
+        if admin:
+            return {
+                "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !hugs, !ask | Admin: !giveaway, !pickwinner"
+            }
+
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !giveaway, !enter, !entries, !pickwinner, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -733,7 +747,16 @@ def chat(message: str = "", username: str = "viewer"):
         }
 
     if lower_message == "!giveaway":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can start giveaways."
+            }
+
         giveaway_entries = []
+        giveaway_overlay["active"] = True
+        giveaway_overlay["latest_entry"] = None
+        giveaway_overlay["winner"] = None
+
         prize = os.getenv("GIVEAWAY_PRIZE", "a Blaze community prize")
         return {
             "response": f"FoxBot giveaway started for {prize}! Type !enter to join."
@@ -748,6 +771,8 @@ def chat(message: str = "", username: str = "viewer"):
             }
 
         giveaway_entries.append(username)
+        giveaway_overlay["latest_entry"] = username
+        giveaway_overlay["active"] = True
 
         return {
             "response": f"@{username}, you are entered into the giveaway!"
@@ -764,12 +789,18 @@ def chat(message: str = "", username: str = "viewer"):
         }
 
     if lower_message == "!pickwinner":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can pick giveaway winners."
+            }
+
         if not giveaway_entries:
             return {
                 "response": "No giveaway entries yet. Type !enter to join first."
             }
 
         winner = random.choice(giveaway_entries)
+        giveaway_overlay["winner"] = winner
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
@@ -777,7 +808,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!hugs":
         return {
-            "response": f"@{username} sends a big FoxBot hug to the chat! ????"
+            "response": f"@{username} sends a big FoxBot hug to the chat!"
         }
 
     if lower_message.startswith("!ask"):
@@ -1575,4 +1606,190 @@ features_html = """
 @app.get("/features", response_class=HTMLResponse)
 def features_page():
     return features_html
+
+
+giveaway_overlay_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Giveaway Overlay</title>
+    <style>
+        body {
+            margin: 0;
+            background: transparent;
+            font-family: Arial, sans-serif;
+            color: white;
+            overflow: hidden;
+        }
+
+        .overlay {
+            width: 100vw;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+        }
+
+        .card {
+            width: 720px;
+            background: rgba(15, 23, 42, 0.92);
+            border: 2px solid rgba(249, 115, 22, 0.65);
+            border-radius: 30px;
+            padding: 32px;
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+            text-align: center;
+        }
+
+        .logo {
+            width: 90px;
+            height: 90px;
+            border-radius: 22px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.65);
+            margin-bottom: 14px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 46px;
+            color: #fdba74;
+        }
+
+        .subtitle {
+            margin-top: 8px;
+            color: #cbd5e1;
+            font-size: 20px;
+        }
+
+        .prize {
+            margin-top: 24px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-top: 28px;
+        }
+
+        .stat {
+            background: rgba(255,255,255,0.06);
+            border-radius: 18px;
+            padding: 18px;
+        }
+
+        .label {
+            color: #94a3b8;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .value {
+            font-size: 26px;
+            font-weight: bold;
+            color: white;
+            word-break: break-word;
+        }
+
+        .winner {
+            margin-top: 28px;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(249,115,22,0.22), rgba(234,88,12,0.18));
+            border: 1px solid rgba(249,115,22,0.45);
+            border-radius: 22px;
+        }
+
+        .winner .value {
+            font-size: 34px;
+            color: #fdba74;
+        }
+
+        .footer {
+            margin-top: 22px;
+            color: #94a3b8;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay">
+        <div class="card">
+            <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+            <h1>FoxBot Giveaway</h1>
+            <div class="subtitle">Type !enter in Blaze chat to join</div>
+
+            <div class="prize" id="prize">Prize loading...</div>
+
+            <div class="stats">
+                <div class="stat">
+                    <div class="label">Status</div>
+                    <div class="value" id="status">Loading</div>
+                </div>
+
+                <div class="stat">
+                    <div class="label">Entries</div>
+                    <div class="value" id="entries">0</div>
+                </div>
+
+                <div class="stat">
+                    <div class="label">Latest Entry</div>
+                    <div class="value" id="latest">None</div>
+                </div>
+            </div>
+
+            <div class="winner">
+                <div class="label">Winner</div>
+                <div class="value" id="winner">Not picked yet</div>
+            </div>
+
+            <div class="footer">Powered by FoxBot AI Chatbot on Blaze</div>
+        </div>
+    </div>
+
+    <script>
+        async function refreshOverlay() {
+            try {
+                const response = await fetch('/overlay/giveaway-data');
+                const data = await response.json();
+
+                document.getElementById("prize").textContent = "Prize: " + data.prize;
+                document.getElementById("status").textContent = data.active ? "Live" : "Waiting";
+                document.getElementById("entries").textContent = data.entry_count;
+                document.getElementById("latest").textContent = data.latest_entry ? "@" + data.latest_entry : "None";
+                document.getElementById("winner").textContent = data.winner ? "@" + data.winner : "Not picked yet";
+            } catch (error) {
+                document.getElementById("status").textContent = "Error";
+            }
+        }
+
+        refreshOverlay();
+        setInterval(refreshOverlay, 3000);
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/overlay/giveaway", response_class=HTMLResponse)
+def giveaway_overlay_page():
+    return giveaway_overlay_html
+
+
+@app.get("/overlay/giveaway-data")
+def giveaway_overlay_data():
+    return {
+        "active": giveaway_overlay.get("active", False),
+        "prize": os.getenv("GIVEAWAY_PRIZE", "a Blaze community prize"),
+        "entry_count": len(giveaway_entries),
+        "entries": giveaway_entries,
+        "latest_entry": giveaway_overlay.get("latest_entry"),
+        "winner": giveaway_overlay.get("winner")
+    }
 
