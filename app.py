@@ -60,6 +60,17 @@ stream_info = {
     "lurkers": {}
 }
 
+arcade_stats = {
+    "plays": 0,
+    "coinflip": 0,
+    "roll": 0,
+    "eightball": 0,
+    "rps": 0,
+    "rps_wins": 0,
+    "rps_losses": 0,
+    "rps_ties": 0
+}
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -288,6 +299,11 @@ html_content = """
                     <div class="command-chip">!socials</div>
                     <div class="command-chip">!mode</div>
                     <div class="command-chip">!commands</div>
+                    <div class="command-chip">!arcade</div>
+                    <div class="command-chip">!coinflip</div>
+                    <div class="command-chip">!roll</div>
+                    <div class="command-chip">!8ball</div>
+                    <div class="command-chip">!rps</div>
                     <div class="command-chip">!game</div>
                     <div class="command-chip">!title</div>
                     <div class="command-chip">!lurk</div>
@@ -326,6 +342,11 @@ html_content = """
                         <button onclick="sendQuickMessage('!socials')">!socials</button>
                         <button onclick="sendQuickMessage('!mode')">!mode</button>
                         <button onclick="sendQuickMessage('!commands')">!commands</button>
+                        <button onclick="sendQuickMessage('!arcade')">!arcade</button>
+                        <button onclick="sendQuickMessage('!coinflip')">!coinflip</button>
+                        <button onclick="sendQuickMessage('!roll 20')">!roll 20</button>
+                        <button onclick="sendQuickMessage('!8ball Will FoxBot win?')">!8ball</button>
+                        <button onclick="sendQuickMessage('!rps rock')">!rps</button>
                         <button onclick="sendQuickMessage('!game')">!game</button>
                         <button onclick="sendQuickMessage('!title')">!title</button>
                         <button onclick="sendQuickMessage('!lurk')">!lurk</button>
@@ -841,6 +862,7 @@ def chat(message: str = "", username: str = "viewer"):
     global bot_mode
     global custom_commands
     global stream_info
+    global arcade_stats
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -853,11 +875,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !coinflip, !roll, !8ball, !rps, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !coinflip, !roll, !8ball, !rps, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -928,6 +950,119 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message == "!arcade":
+        return {
+            "response": "FoxBot Arcade commands: !coinflip, !roll, !roll 20, !8ball your question, !rps rock/paper/scissors"
+        }
+
+    if lower_message == "!coinflip":
+        arcade_stats["plays"] += 1
+        arcade_stats["coinflip"] += 1
+
+        result = random.choice(["Heads", "Tails"])
+
+        return {
+            "response": f"FoxBot flips a coin... {result}!"
+        }
+
+    if lower_message.startswith("!roll"):
+        arcade_stats["plays"] += 1
+        arcade_stats["roll"] += 1
+
+        parts = original_message.split()
+        sides = 6
+
+        if len(parts) >= 2:
+            try:
+                sides = int(parts[1])
+            except ValueError:
+                return {
+                    "response": "Use !roll or !roll followed by a number. Example: !roll 20"
+                }
+
+        if sides < 2:
+            return {
+                "response": "Dice must have at least 2 sides."
+            }
+
+        if sides > 1000:
+            return {
+                "response": "FoxBot dice can only go up to 1000 sides."
+            }
+
+        result = random.randint(1, sides)
+
+        return {
+            "response": f"@{username} rolled a D{sides} and got {result}!"
+        }
+
+    if lower_message.startswith("!8ball"):
+        arcade_stats["plays"] += 1
+        arcade_stats["eightball"] += 1
+
+        question = original_message.replace("!8ball", "", 1).strip()
+
+        if not question:
+            return {
+                "response": "Ask FoxBot 8-ball a question. Example: !8ball Will I win?"
+            }
+
+        answers = [
+            "Absolutely.",
+            "The fox says yes.",
+            "Looking strong.",
+            "Signs point to yes.",
+            "Not looking great.",
+            "Ask again after this match.",
+            "FoxBot says maybe.",
+            "Big W energy.",
+            "Careful... that one is risky.",
+            "No doubt."
+        ]
+
+        return {
+            "response": f"FoxBot 8-ball says: {random.choice(answers)}"
+        }
+
+    if lower_message.startswith("!rps"):
+        arcade_stats["plays"] += 1
+        arcade_stats["rps"] += 1
+
+        parts = original_message.split()
+
+        if len(parts) < 2:
+            return {
+                "response": "Use !rps rock, !rps paper, or !rps scissors."
+            }
+
+        player_choice = parts[1].strip().lower()
+        choices = ["rock", "paper", "scissors"]
+
+        if player_choice not in choices:
+            return {
+                "response": "Choose rock, paper, or scissors. Example: !rps rock"
+            }
+
+        bot_choice = random.choice(choices)
+
+        if player_choice == bot_choice:
+            arcade_stats["rps_ties"] += 1
+            result = "It's a tie!"
+        elif (
+            (player_choice == "rock" and bot_choice == "scissors") or
+            (player_choice == "paper" and bot_choice == "rock") or
+            (player_choice == "scissors" and bot_choice == "paper")
+        ):
+            arcade_stats["rps_wins"] += 1
+            result = f"@{username} wins!"
+        else:
+            arcade_stats["rps_losses"] += 1
+            result = "FoxBot wins!"
+
+        return {
+            "response": f"Rock Paper Scissors: @{username} chose {player_choice}, FoxBot chose {bot_choice}. {result}"
         }
 
     if lower_message == "!game":
@@ -1023,7 +1158,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!coinflip", "!roll", "!8ball", "!rps",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -2410,6 +2545,11 @@ judge_demo_html = """
                     <button onclick="runCommand('!entries')">!entries</button>
                     <button onclick="runCommand('!pickwinner')">!pickwinner</button>
                     <button onclick="runCommand('!leaderboard')">!leaderboard</button>
+                    <button onclick="runCommand('!arcade')">!arcade</button>
+                    <button onclick="runCommand('!coinflip')">!coinflip</button>
+                    <button onclick="runCommand('!roll 20')">!roll 20</button>
+                    <button onclick="runCommand('!8ball Will FoxBot win?')">!8ball</button>
+                    <button onclick="runCommand('!rps rock')">!rps</button>
                     <button onclick="runCommand('!hugs')">!hugs</button>
                     <button onclick="runCommand('!shoutout avisi')">!shoutout</button>
                     <button onclick="runCommand('!setgame Off The Grid')">!setgame</button>
@@ -2494,4 +2634,21 @@ judge_demo_html = """
 @app.get("/demo", response_class=HTMLResponse)
 def judge_demo_page():
     return judge_demo_html
+
+
+@app.get("/arcade-stats")
+def arcade_stats_endpoint():
+    return {
+        "commands": [
+            "!arcade",
+            "!coinflip",
+            "!roll",
+            "!roll 20",
+            "!8ball Will I win?",
+            "!rps rock",
+            "!rps paper",
+            "!rps scissors"
+        ],
+        "stats": arcade_stats
+    }
 
