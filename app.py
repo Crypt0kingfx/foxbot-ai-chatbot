@@ -50,6 +50,8 @@ giveaway_overlay = {
 
 viewer_stats = {}
 
+bot_mode = os.getenv("FOXBOT_MODE", "hype").lower()
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -276,6 +278,7 @@ html_content = """
                     <div class="command-chip">!schedule</div>
                     <div class="command-chip">!faq</div>
                     <div class="command-chip">!socials</div>
+                    <div class="command-chip">!mode</div>
                     <div class="command-chip">!giveaway</div>
                     <div class="command-chip">!enter</div>
                     <div class="command-chip">!entries</div>
@@ -306,6 +309,8 @@ html_content = """
                         <button onclick="sendQuickMessage('!schedule')">!schedule</button>
                         <button onclick="sendQuickMessage('!faq')">!faq</button>
                         <button onclick="sendQuickMessage('!socials')">!socials</button>
+                        <button onclick="sendQuickMessage('!mode')">!mode</button>
+                        <button onclick="sendQuickMessage('!mode hype')">hype mode</button>
                         <button onclick="sendQuickMessage('!giveaway')">!giveaway</button>
                         <button onclick="sendQuickMessage('!enter')">!enter</button>
                         <button onclick="sendQuickMessage('!entries')">!entries</button>
@@ -720,6 +725,33 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def mode_style_response(message_type: str, username: str = "viewer", target: str = "", question: str = ""):
+    mode = bot_mode.lower()
+
+    if message_type == "hug":
+        if mode == "chill":
+            return f"@{username} sends a chill FoxBot hug to the chat."
+        if mode == "pro":
+            return f"@{username} sends a respectful FoxBot hug to the community."
+        return f"@{username} sends a big FoxBot hug to the chat! FoxBot energy is high!"
+
+    if message_type == "shoutout":
+        if mode == "chill":
+            return f"Shoutout to @{target}. Appreciate you hanging with the Blaze community."
+        if mode == "pro":
+            return f"Creator shoutout: @{target}. Thank you for supporting the stream."
+        return f"HUGE shoutout to @{target}! Go show them some Blaze love!"
+
+    if message_type == "ask":
+        if mode == "chill":
+            return f"FoxBot AI demo mode: good question. Once full AI billing is enabled, I would answer: {question}"
+        if mode == "pro":
+            return f"FoxBot AI demo mode: AI responses are prepared for future activation. Question received: {question}"
+        return f"FoxBot AI demo mode: awesome question! Once full AI billing is enabled, I would answer this next: {question}"
+
+    return message_type
+
+
 def track_viewer_command(username: str, command: str):
     clean_name = username.strip() or "viewer"
     clean_key = clean_name.lower()
@@ -764,6 +796,7 @@ def is_admin(username: str):
 def chat(message: str = "", username: str = "viewer"):
     global giveaway_entries
     global giveaway_overlay
+    global bot_mode
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -776,11 +809,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -853,6 +886,43 @@ def chat(message: str = "", username: str = "viewer"):
             "response": f"The fox has chosen... @{winner} wins!"
         }
 
+    if lower_message.startswith("!mode"):
+        parts = original_message.split()
+
+        if len(parts) == 1:
+            return {
+                "response": f"FoxBot mode is currently {bot_mode.upper()}. Available modes: hype, chill, pro"
+            }
+
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can change FoxBot mode."
+            }
+
+        requested_mode = parts[1].strip().lower()
+        allowed_modes = ["hype", "chill", "pro"]
+
+        if requested_mode not in allowed_modes:
+            return {
+                "response": "Available FoxBot modes: hype, chill, pro"
+            }
+
+        bot_mode = requested_mode
+
+        if bot_mode == "hype":
+            return {
+                "response": "FoxBot mode set to HYPE! Replies will bring more energy."
+            }
+
+        if bot_mode == "chill":
+            return {
+                "response": "FoxBot mode set to CHILL. Replies will be more relaxed."
+            }
+
+        return {
+            "response": "FoxBot mode set to PRO. Replies will be cleaner and more professional."
+        }
+
     if lower_message.startswith("!shoutout"):
         if not admin:
             return {
@@ -869,7 +939,7 @@ def chat(message: str = "", username: str = "viewer"):
         target = target.lstrip("@")
 
         return {
-            "response": f"Huge shoutout to @{target}! Go show them some Blaze love!"
+            "response": mode_style_response("shoutout", username=username, target=target)
         }
 
     if lower_message == "!socials":
@@ -894,7 +964,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!hugs":
         return {
-            "response": f"@{username} sends a big FoxBot hug to the chat!"
+            "response": mode_style_response("hug", username=username)
         }
 
     if lower_message.startswith("!ask"):
@@ -906,7 +976,7 @@ def chat(message: str = "", username: str = "viewer"):
             }
 
         return {
-            "response": f"FoxBot AI demo mode: I would answer this question next once full AI billing is enabled: {question}"
+            "response": mode_style_response("ask", username=username, question=question)
         }
 
     return {
@@ -1900,5 +1970,15 @@ def socials_endpoint():
             "SOCIAL_LINKS",
             "Blaze: https://blaze.stream/crypt0k1ng96 | X: add your X link | YouTube: add your YouTube link"
         )
+    }
+
+
+@app.get("/bot-mode")
+def bot_mode_endpoint():
+    return {
+        "current_mode": bot_mode,
+        "available_modes": ["hype", "chill", "pro"],
+        "public_command": "!mode",
+        "admin_commands": ["!mode hype", "!mode chill", "!mode pro"]
     }
 
