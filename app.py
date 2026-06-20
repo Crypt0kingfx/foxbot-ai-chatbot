@@ -68,7 +68,15 @@ arcade_stats = {
     "rps": 0,
     "rps_wins": 0,
     "rps_losses": 0,
-    "rps_ties": 0
+    "rps_ties": 0,
+    "foxhunt": 0
+}
+
+foxcoin_economy = {
+    "currency_name": os.getenv("POINTS_NAME", "FoxCoins"),
+    "balances": {},
+    "daily_claims": {},
+    "transactions": []
 }
 
 proof_stats = {
@@ -768,6 +776,64 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def normalize_viewer_name(name: str):
+    clean = (name or "viewer").strip().lstrip("@")
+    return clean or "viewer"
+
+
+def viewer_key(name: str):
+    return normalize_viewer_name(name).lower()
+
+
+def get_currency_name():
+    return foxcoin_economy.get("currency_name", "FoxCoins")
+
+
+def get_balance(name: str):
+    key = viewer_key(name)
+    return int(foxcoin_economy["balances"].get(key, 0))
+
+
+def add_points(name: str, amount: int, reason: str = "activity"):
+    clean_name = normalize_viewer_name(name)
+    key = viewer_key(clean_name)
+
+    current = int(foxcoin_economy["balances"].get(key, 0))
+    new_balance = max(0, current + int(amount))
+    foxcoin_economy["balances"][key] = new_balance
+
+    foxcoin_economy["transactions"].append({
+        "viewer": clean_name,
+        "amount": int(amount),
+        "reason": reason,
+        "balance": new_balance
+    })
+
+    # Keep transaction history small
+    foxcoin_economy["transactions"] = foxcoin_economy["transactions"][-50:]
+
+    return new_balance
+
+
+def format_coin_leaderboard(limit: int = 5):
+    currency = get_currency_name()
+
+    if not foxcoin_economy["balances"]:
+        return f"No {currency} balances yet. Type !daily or !foxhunt to earn some."
+
+    sorted_balances = sorted(
+        foxcoin_economy["balances"].items(),
+        key=lambda item: item[1],
+        reverse=True
+    )
+
+    parts = []
+    for index, (name, balance) in enumerate(sorted_balances[:limit], start=1):
+        parts.append(f"{index}. {name} ? {balance} {currency}")
+
+    return f"{currency} leaderboard: " + " | ".join(parts)
+
+
 def normalize_custom_command(command_name: str):
     cleaned = command_name.strip().lower()
 
@@ -863,6 +929,7 @@ def chat(message: str = "", username: str = "viewer"):
     global custom_commands
     global stream_info
     global arcade_stats
+    global foxcoin_economy
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -875,11 +942,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !coinflip, !roll, !8ball, !rps, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !coinflip, !roll, !8ball, !rps, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -952,9 +1019,142 @@ def chat(message: str = "", username: str = "viewer"):
             "response": f"The fox has chosen... @{winner} wins!"
         }
 
+    if lower_message in ["!balance", "!points", "!foxcoins"]:
+        balance = get_balance(username)
+        currency = get_currency_name()
+
+        return {
+            "response": f"@{username}, you have {balance} {currency}."
+        }
+
+    if lower_message.startswith("!balance ") or lower_message.startswith("!points ") or lower_message.startswith("!foxcoins "):
+        parts = original_message.split()
+
+        if len(parts) >= 2:
+            target = normalize_viewer_name(parts[1])
+            balance = get_balance(target)
+            currency = get_currency_name()
+
+            return {
+                "response": f"@{target} has {balance} {currency}."
+            }
+
+    if lower_message == "!daily":
+        key = viewer_key(username)
+        currency = get_currency_name()
+
+        if foxcoin_economy["daily_claims"].get(key):
+            return {
+                "response": f"@{username}, you already claimed your daily {currency} this session."
+            }
+
+        reward = 25
+        new_balance = add_points(username, reward, "daily")
+        foxcoin_economy["daily_claims"][key] = True
+
+        return {
+            "response": f"@{username} claimed {reward} {currency}! New balance: {new_balance} {currency}."
+        }
+
+    if lower_message == "!coinleaderboard":
+        return {
+            "response": format_coin_leaderboard()
+        }
+
+    if lower_message.startswith("!givepoints"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can give points."
+            }
+
+        parts = original_message.split()
+
+        if len(parts) < 3:
+            return {
+                "response": "Use !givepoints username amount. Example: !givepoints avisi 100"
+            }
+
+        target = normalize_viewer_name(parts[1])
+
+        try:
+            amount = int(parts[2])
+        except ValueError:
+            return {
+                "response": "Point amount must be a number. Example: !givepoints avisi 100"
+            }
+
+        if amount <= 0:
+            return {
+                "response": "Point amount must be greater than 0."
+            }
+
+        new_balance = add_points(target, amount, f"given by {username}")
+        currency = get_currency_name()
+
+        return {
+            "response": f"@{target} received {amount} {currency}! New balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!takepoints"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can remove points."
+            }
+
+        parts = original_message.split()
+
+        if len(parts) < 3:
+            return {
+                "response": "Use !takepoints username amount. Example: !takepoints avisi 50"
+            }
+
+        target = normalize_viewer_name(parts[1])
+
+        try:
+            amount = int(parts[2])
+        except ValueError:
+            return {
+                "response": "Point amount must be a number. Example: !takepoints avisi 50"
+            }
+
+        if amount <= 0:
+            return {
+                "response": "Point amount must be greater than 0."
+            }
+
+        new_balance = add_points(target, -amount, f"removed by {username}")
+        currency = get_currency_name()
+
+        return {
+            "response": f"@{target} lost {amount} {currency}. New balance: {new_balance} {currency}."
+        }
+
+    if lower_message == "!foxhunt":
+        arcade_stats["plays"] += 1
+        arcade_stats["foxhunt"] += 1
+
+        currency = get_currency_name()
+
+        outcomes = [
+            ("found a glowing fox chest", 50),
+            ("caught a silver Blaze fox", 35),
+            ("found hidden stream loot", 25),
+            ("tracked paw prints through the chat", 15),
+            ("got tricked by a sneaky fox", 5),
+            ("fell into a fox trap but escaped", 1),
+            ("found the legendary golden fox", 100)
+        ]
+
+        event, reward = random.choice(outcomes)
+        new_balance = add_points(username, reward, "foxhunt")
+
+        return {
+            "response": f"@{username} went on a fox hunt and {event}! +{reward} {currency}. Balance: {new_balance} {currency}."
+        }
+
     if lower_message == "!arcade":
         return {
-            "response": "FoxBot Arcade commands: !coinflip, !roll, !roll 20, !8ball your question, !rps rock/paper/scissors"
+            "response": "FoxBot Arcade commands: !foxhunt, !coinflip, !roll, !roll 20, !8ball your question, !rps rock/paper/scissors"
         }
 
     if lower_message == "!coinflip":
@@ -1158,7 +1358,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!coinflip", "!roll", "!8ball", "!rps",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -2546,6 +2746,11 @@ judge_demo_html = """
                     <button onclick="runCommand('!pickwinner')">!pickwinner</button>
                     <button onclick="runCommand('!leaderboard')">!leaderboard</button>
                     <button onclick="runCommand('!arcade')">!arcade</button>
+                    <button onclick="runCommand('!foxhunt')">!foxhunt</button>
+                    <button onclick="runCommand('!daily')">!daily</button>
+                    <button onclick="runCommand('!balance')">!balance</button>
+                    <button onclick="runCommand('!coinleaderboard')">!coinleaderboard</button>
+                    <button onclick="runCommand('!givepoints avisi 100')">give points</button>
                     <button onclick="runCommand('!coinflip')">!coinflip</button>
                     <button onclick="runCommand('!roll 20')">!roll 20</button>
                     <button onclick="runCommand('!8ball Will FoxBot win?')">!8ball</button>
@@ -2650,5 +2855,24 @@ def arcade_stats_endpoint():
             "!rps scissors"
         ],
         "stats": arcade_stats
+    }
+
+
+@app.get("/foxcoins")
+def foxcoins_endpoint():
+    return {
+        "currency_name": get_currency_name(),
+        "balances": foxcoin_economy["balances"],
+        "daily_claims": foxcoin_economy["daily_claims"],
+        "recent_transactions": foxcoin_economy["transactions"][-10:],
+        "commands": [
+            "!foxhunt",
+            "!balance",
+            "!points",
+            "!daily",
+            "!coinleaderboard",
+            "!givepoints avisi 100",
+            "!takepoints avisi 50"
+        ]
     }
 
