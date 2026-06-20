@@ -48,6 +48,8 @@ giveaway_overlay = {
     "winner": None
 }
 
+viewer_stats = {}
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -276,6 +278,8 @@ html_content = """
                     <div class="command-chip">!giveaway</div>
                     <div class="command-chip">!enter</div>
                     <div class="command-chip">!entries</div>
+                    <div class="command-chip">!stats</div>
+                    <div class="command-chip">!leaderboard</div>
                     <div class="command-chip">!pickwinner</div>
                     <div class="command-chip">!hugs</div>
                     <div class="command-chip">!ask</div>
@@ -302,6 +306,8 @@ html_content = """
                         <button onclick="sendQuickMessage('!giveaway')">!giveaway</button>
                         <button onclick="sendQuickMessage('!enter')">!enter</button>
                         <button onclick="sendQuickMessage('!entries')">!entries</button>
+                        <button onclick="sendQuickMessage('!stats')">!stats</button>
+                        <button onclick="sendQuickMessage('!leaderboard')">!leaderboard</button>
                         <button onclick="sendQuickMessage('!pickwinner')">!pickwinner</button>
                         <button onclick="sendQuickMessage('!hugs')">!hugs</button>
                         <button onclick="sendQuickMessage('!ask What does FoxBot do?')">!ask demo</button>
@@ -710,6 +716,40 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def track_viewer_command(username: str, command: str):
+    clean_name = username.strip() or "viewer"
+    clean_key = clean_name.lower()
+
+    if clean_key not in viewer_stats:
+        viewer_stats[clean_key] = {
+            "display_name": clean_name,
+            "commands": 0,
+            "last_command": None
+        }
+
+    viewer_stats[clean_key]["commands"] += 1
+    viewer_stats[clean_key]["last_command"] = command
+
+
+def format_leaderboard(limit: int = 5):
+    if not viewer_stats:
+        return "FoxBot leaderboard is empty. Type !help to get started."
+
+    sorted_users = sorted(
+        viewer_stats.values(),
+        key=lambda item: item.get("commands", 0),
+        reverse=True
+    )
+
+    top_users = sorted_users[:limit]
+
+    parts = []
+    for index, user in enumerate(top_users, start=1):
+        parts.append(f"{index}. {user['display_name']} ? {user['commands']} commands")
+
+    return "FoxBot leaderboard: " + " | ".join(parts)
+
+
 def is_admin(username: str):
     admin_usernames = os.getenv("ADMIN_USERNAMES", "crypt0k1ng96,Ryan")
     admins = [name.strip().lower() for name in admin_usernames.split(",")]
@@ -726,14 +766,17 @@ def chat(message: str = "", username: str = "viewer"):
     username = username.strip() or "viewer"
     admin = is_admin(username)
 
+    if lower_message.startswith("!"):
+        track_viewer_command(username, lower_message)
+
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !hugs, !ask | Admin: !giveaway, !pickwinner"
+                "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -804,6 +847,17 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message == "!stats":
+        user_data = viewer_stats.get(username.lower(), {"commands": 0})
+        return {
+            "response": f"@{username}, you have used {user_data.get('commands', 0)} FoxBot commands."
+        }
+
+    if lower_message == "!leaderboard":
+        return {
+            "response": format_leaderboard()
         }
 
     if lower_message == "!hugs":
@@ -1791,5 +1845,17 @@ def giveaway_overlay_data():
         "entries": giveaway_entries,
         "latest_entry": giveaway_overlay.get("latest_entry"),
         "winner": giveaway_overlay.get("winner")
+    }
+
+
+@app.get("/viewer-stats")
+def viewer_stats_endpoint():
+    return {
+        "viewer_count": len(viewer_stats),
+        "leaderboard": sorted(
+            viewer_stats.values(),
+            key=lambda item: item.get("commands", 0),
+            reverse=True
+        )
     }
 
