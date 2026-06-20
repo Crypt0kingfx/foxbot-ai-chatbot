@@ -54,6 +54,12 @@ bot_mode = os.getenv("FOXBOT_MODE", "hype").lower()
 
 custom_commands = {}
 
+stream_info = {
+    "game": os.getenv("STREAM_GAME", "Off The Grid"),
+    "title": os.getenv("STREAM_TITLE", "FoxBot is live on Blaze!"),
+    "lurkers": {}
+}
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -282,6 +288,9 @@ html_content = """
                     <div class="command-chip">!socials</div>
                     <div class="command-chip">!mode</div>
                     <div class="command-chip">!commands</div>
+                    <div class="command-chip">!game</div>
+                    <div class="command-chip">!title</div>
+                    <div class="command-chip">!lurk</div>
                     <div class="command-chip">!giveaway</div>
                     <div class="command-chip">!enter</div>
                     <div class="command-chip">!entries</div>
@@ -290,6 +299,8 @@ html_content = """
                     <div class="command-chip">!pickwinner</div>
                     <div class="command-chip">!shoutout</div>
                     <div class="command-chip">!addcmd</div>
+                    <div class="command-chip">!setgame</div>
+                    <div class="command-chip">!settitle</div>
                     <div class="command-chip">!hugs</div>
                     <div class="command-chip">!ask</div>
                 </div>
@@ -315,6 +326,11 @@ html_content = """
                         <button onclick="sendQuickMessage('!socials')">!socials</button>
                         <button onclick="sendQuickMessage('!mode')">!mode</button>
                         <button onclick="sendQuickMessage('!commands')">!commands</button>
+                        <button onclick="sendQuickMessage('!game')">!game</button>
+                        <button onclick="sendQuickMessage('!title')">!title</button>
+                        <button onclick="sendQuickMessage('!lurk')">!lurk</button>
+                        <button onclick="sendQuickMessage('!setgame Off The Grid')">set game</button>
+                        <button onclick="sendQuickMessage('!settitle Playing Off The Grid with FoxBot live')">set title</button>
                         <button onclick="sendQuickMessage('!addcmd discord Join the Discord here: your-link')">add !discord</button>
                         <button onclick="sendQuickMessage('!mode hype')">hype mode</button>
                         <button onclick="sendQuickMessage('!giveaway')">!giveaway</button>
@@ -824,6 +840,7 @@ def chat(message: str = "", username: str = "viewer"):
     global giveaway_overlay
     global bot_mode
     global custom_commands
+    global stream_info
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -836,11 +853,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -911,6 +928,80 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message == "!game":
+        creator_name = os.getenv("CREATOR_NAME", "Ryan")
+        return {
+            "response": f"{creator_name} is currently playing: {stream_info.get('game', 'Not set yet')}"
+        }
+
+    if lower_message.startswith("!setgame"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can update the stream game."
+            }
+
+        new_game = original_message.replace("!setgame", "", 1).strip()
+
+        if not new_game:
+            return {
+                "response": "Use !setgame followed by the game name. Example: !setgame Off The Grid"
+            }
+
+        stream_info["game"] = new_game
+
+        return {
+            "response": f"Stream game set to: {new_game}"
+        }
+
+    if lower_message == "!title":
+        creator_name = os.getenv("CREATOR_NAME", "Ryan")
+        return {
+            "response": f"{creator_name}'s stream title: {stream_info.get('title', 'Not set yet')}"
+        }
+
+    if lower_message.startswith("!settitle"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can update the stream title."
+            }
+
+        new_title = original_message.replace("!settitle", "", 1).strip()
+
+        if not new_title:
+            return {
+                "response": "Use !settitle followed by the stream title. Example: !settitle Playing Off The Grid with FoxBot live"
+            }
+
+        stream_info["title"] = new_title
+
+        return {
+            "response": f"Stream title set to: {new_title}"
+        }
+
+    if lower_message == "!lurk":
+        clean_key = username.lower()
+        stream_info["lurkers"][clean_key] = username
+
+        return {
+            "response": f"@{username} is now lurking. Thanks for supporting the stream!"
+        }
+
+    if lower_message == "!unlurk":
+        clean_key = username.lower()
+
+        if clean_key in stream_info["lurkers"]:
+            del stream_info["lurkers"][clean_key]
+
+        return {
+            "response": f"@{username} is back from lurking. Welcome back!"
+        }
+
+    if lower_message == "!lurkers":
+        lurker_count = len(stream_info.get("lurkers", {}))
+        return {
+            "response": f"Current lurkers supporting the stream: {lurker_count}"
         }
 
     if lower_message.startswith("!addcmd"):
@@ -2098,6 +2189,25 @@ def custom_commands_endpoint():
             "!commands",
             "!discord",
             "!delcmd discord"
+        ]
+    }
+
+
+@app.get("/stream-info")
+def stream_info_endpoint():
+    return {
+        "game": stream_info.get("game"),
+        "title": stream_info.get("title"),
+        "lurker_count": len(stream_info.get("lurkers", {})),
+        "lurkers": list(stream_info.get("lurkers", {}).values()),
+        "commands": [
+            "!game",
+            "!setgame Off The Grid",
+            "!title",
+            "!settitle Playing Off The Grid with FoxBot live",
+            "!lurk",
+            "!unlurk",
+            "!lurkers"
         ]
     }
 
