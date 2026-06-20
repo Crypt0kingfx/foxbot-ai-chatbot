@@ -271,6 +271,7 @@ html_content = """
                     <div class="command-chip">!enter</div>
                     <div class="command-chip">!entries</div>
                     <div class="command-chip">!pickwinner</div>
+                    <div class="command-chip">!hugs</div>
                     <div class="command-chip">!ask</div>
                 </div>
             </div>
@@ -296,6 +297,7 @@ html_content = """
                         <button onclick="sendQuickMessage('!enter')">!enter</button>
                         <button onclick="sendQuickMessage('!entries')">!entries</button>
                         <button onclick="sendQuickMessage('!pickwinner')">!pickwinner</button>
+                        <button onclick="sendQuickMessage('!hugs')">!hugs</button>
                         <button onclick="sendQuickMessage('!ask What does FoxBot do?')">!ask demo</button>
                     </div>
                 </div>
@@ -717,7 +719,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!help":
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !giveaway, !enter, !entries, !pickwinner, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !giveaway, !enter, !entries, !pickwinner, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -771,6 +773,11 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message == "!hugs":
+        return {
+            "response": f"@{username} sends a big FoxBot hug to the chat! ????"
         }
 
     if lower_message.startswith("!ask"):
@@ -1255,6 +1262,7 @@ def project_status():
             "!enter",
             "!entries",
             "!pickwinner",
+            "!hugs",
             "!ask"
         ],
         "creator_tools": [
