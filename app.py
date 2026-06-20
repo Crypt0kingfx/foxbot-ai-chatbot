@@ -719,18 +719,19 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!schedule":
         return {
-            "response": "Ryan streams Web3 gaming on Blaze. Watch for Off The Grid, Illuvium, Star Atlas, Wilder World, and GTA 6 content."
+            "response": os.getenv("STREAM_SCHEDULE", "Ryan streams Web3 gaming on Blaze.")
         }
 
     if lower_message == "!faq":
         return {
-            "response": "FoxBot is a Blaze-connected AI chatbot that helps creators reply to chat, run giveaways, and boost engagement."
+            "response": os.getenv("FOXBOT_FAQ", "FoxBot is a Blaze-connected AI chatbot for creators.")
         }
 
     if lower_message == "!giveaway":
         giveaway_entries = []
+        prize = os.getenv("GIVEAWAY_PRIZE", "a Blaze community prize")
         return {
-            "response": "FoxBot giveaway started! Type !enter to join."
+            "response": f"FoxBot giveaway started for {prize}! Type !enter to join."
         }
 
     if lower_message == "!enter":
