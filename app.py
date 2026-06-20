@@ -79,6 +79,29 @@ foxcoin_economy = {
     "transactions": []
 }
 
+reward_shop = {
+    "hug": {
+        "cost": 10,
+        "response": "@{username} redeemed a FoxBot hug from the shop!"
+    },
+    "hype": {
+        "cost": 25,
+        "response": "@{username} redeemed HYPE MODE energy for the chat!"
+    },
+    "flex": {
+        "cost": 50,
+        "response": "@{username} redeemed a FoxBot flex. Big creator energy!"
+    },
+    "mysterybox": {
+        "cost": 75,
+        "response": "@{username} opened a mystery box!"
+    },
+    "sponsor": {
+        "cost": 150,
+        "response": "@{username} redeemed a fake sponsor read: This stream is powered by FoxCoins!"
+    }
+}
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -815,6 +838,33 @@ def add_points(name: str, amount: int, reason: str = "activity"):
     return new_balance
 
 
+def format_reward_shop():
+    currency = get_currency_name()
+
+    if not reward_shop:
+        return f"The reward shop is empty. Admins can add rewards with !addreward name cost message"
+
+    parts = []
+
+    for reward_name, reward_data in sorted(reward_shop.items(), key=lambda item: item[1].get("cost", 0)):
+        cost = reward_data.get("cost", 0)
+        parts.append(f"{reward_name} ? {cost} {currency}")
+
+    return "FoxBot Reward Shop: " + " | ".join(parts) + " | Use !redeem rewardname"
+
+
+def format_reward_response(template: str, username: str, cost: int, balance: int):
+    currency = get_currency_name()
+
+    return (
+        template
+        .replace("{username}", username)
+        .replace("{cost}", str(cost))
+        .replace("{balance}", str(balance))
+        .replace("{currency}", currency)
+    )
+
+
 def format_coin_leaderboard(limit: int = 5):
     currency = get_currency_name()
 
@@ -930,6 +980,7 @@ def chat(message: str = "", username: str = "viewer"):
     global stream_info
     global arcade_stats
     global foxcoin_economy
+    global reward_shop
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -942,11 +993,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -1127,6 +1178,140 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"@{target} lost {amount} {currency}. New balance: {new_balance} {currency}."
+        }
+
+    if lower_message == "!shop":
+        return {
+            "response": format_reward_shop()
+        }
+
+    if lower_message.startswith("!redeem"):
+        parts = original_message.split(" ", 1)
+
+        if len(parts) < 2:
+            return {
+                "response": "Use !redeem followed by a reward name. Example: !redeem hug"
+            }
+
+        reward_name = parts[1].strip().lower()
+
+        if reward_name not in reward_shop:
+            return {
+                "response": f"That reward does not exist. Type !shop to see rewards."
+            }
+
+        reward = reward_shop[reward_name]
+        cost = int(reward.get("cost", 0))
+        currency = get_currency_name()
+        balance = get_balance(username)
+
+        if balance < cost:
+            return {
+                "response": f"@{username}, you need {cost} {currency} to redeem {reward_name}. Your balance: {balance} {currency}."
+            }
+
+        new_balance = add_points(username, -cost, f"redeemed {reward_name}")
+        response_template = reward.get("response", "@{username} redeemed a reward!")
+
+        if reward_name == "mysterybox":
+            mystery_roll = random.randint(1, 100)
+
+            if mystery_roll <= 10:
+                bonus = 150
+                new_balance = add_points(username, bonus, "mysterybox jackpot")
+                return {
+                    "response": f"@{username} opened a mystery box and hit the JACKPOT! +{bonus} {currency}. Balance: {new_balance} {currency}."
+                }
+
+            if mystery_roll <= 35:
+                bonus = 50
+                new_balance = add_points(username, bonus, "mysterybox prize")
+                return {
+                    "response": f"@{username} opened a mystery box and found {bonus} {currency}! Balance: {new_balance} {currency}."
+                }
+
+            if mystery_roll <= 70:
+                return {
+                    "response": f"@{username} opened a mystery box and found bonus hype for the chat! Balance: {new_balance} {currency}."
+                }
+
+            return {
+                "response": f"@{username} opened a mystery box... and the fox ran away with the loot. Balance: {new_balance} {currency}."
+            }
+
+        return {
+            "response": format_reward_response(response_template, username, cost, new_balance) + f" Balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!addreward"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can add rewards."
+            }
+
+        parts = original_message.split(" ", 3)
+
+        if len(parts) < 4:
+            return {
+                "response": "Use !addreward name cost message. Example: !addreward hydrate 25 @{username} redeemed hydrate!"
+            }
+
+        reward_name = parts[1].strip().lower().lstrip("!")
+        reward_cost_text = parts[2].strip()
+        reward_response = parts[3].strip()
+
+        try:
+            reward_cost = int(reward_cost_text)
+        except ValueError:
+            return {
+                "response": "Reward cost must be a number. Example: !addreward hydrate 25 message"
+            }
+
+        if reward_cost <= 0:
+            return {
+                "response": "Reward cost must be greater than 0."
+            }
+
+        if not reward_response:
+            return {
+                "response": "Reward message cannot be empty."
+            }
+
+        reward_shop[reward_name] = {
+            "cost": reward_cost,
+            "response": reward_response
+        }
+
+        currency = get_currency_name()
+
+        return {
+            "response": f"Reward {reward_name} added for {reward_cost} {currency}."
+        }
+
+    if lower_message.startswith("!delreward"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can delete rewards."
+            }
+
+        parts = original_message.split(" ", 1)
+
+        if len(parts) < 2:
+            return {
+                "response": "Use !delreward rewardname. Example: !delreward hydrate"
+            }
+
+        reward_name = parts[1].strip().lower().lstrip("!")
+
+        if reward_name not in reward_shop:
+            return {
+                "response": f"{reward_name} is not in the reward shop."
+            }
+
+        del reward_shop[reward_name]
+
+        return {
+            "response": f"Reward {reward_name} deleted."
         }
 
     if lower_message == "!foxhunt":
@@ -1358,7 +1543,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -2749,6 +2934,10 @@ judge_demo_html = """
                     <button onclick="runCommand('!foxhunt')">!foxhunt</button>
                     <button onclick="runCommand('!daily')">!daily</button>
                     <button onclick="runCommand('!balance')">!balance</button>
+                    <button onclick="runCommand('!shop')">!shop</button>
+                    <button onclick="runCommand('!redeem hug')">redeem hug</button>
+                    <button onclick="runCommand('!redeem mysterybox')">mysterybox</button>
+                    <button onclick="runCommand('!addreward hydrate 25 @{username} redeemed hydrate. Drink water!')">add hydrate reward</button>
                     <button onclick="runCommand('!coinleaderboard')">!coinleaderboard</button>
                     <button onclick="runCommand('!givepoints avisi 100')">give points</button>
                     <button onclick="runCommand('!coinflip')">!coinflip</button>
@@ -2865,6 +3054,7 @@ def foxcoins_endpoint():
         "balances": foxcoin_economy["balances"],
         "daily_claims": foxcoin_economy["daily_claims"],
         "recent_transactions": foxcoin_economy["transactions"][-10:],
+        "reward_shop": reward_shop,
         "commands": [
             "!foxhunt",
             "!balance",
@@ -2873,6 +3063,25 @@ def foxcoins_endpoint():
             "!coinleaderboard",
             "!givepoints avisi 100",
             "!takepoints avisi 50"
+        ]
+    }
+
+
+@app.get("/rewards")
+def rewards_endpoint():
+    return {
+        "currency_name": get_currency_name(),
+        "reward_count": len(reward_shop),
+        "rewards": reward_shop,
+        "commands": [
+            "!shop",
+            "!redeem hug",
+            "!redeem hype",
+            "!redeem flex",
+            "!redeem mysterybox",
+            "!redeem sponsor",
+            "!addreward hydrate 25 @{username} redeemed hydrate. Drink water!",
+            "!delreward hydrate"
         ]
     }
 
