@@ -113,10 +113,22 @@ cooldown_settings = {
     "!rps": 5,
     "!redeem": 15,
     "!daily": 60,
-    "!lurk": 30
+    "!lurk": 30,
+    "!attack": 5,
+    "!powerattack": 10
 }
 
 cooldown_tracker = {}
+
+boss_battle = {
+    "active": False,
+    "name": "Cyber Fox Dragon",
+    "max_hp": 500,
+    "hp": 0,
+    "damage_log": {},
+    "defeated_count": 0,
+    "last_winner": None
+}
 
 
 DATA_FILE = os.getenv("FOXBOT_DATA_FILE", "foxbot_data.json")
@@ -131,7 +143,8 @@ def get_persistent_snapshot():
         "foxcoin_economy": globals().get("foxcoin_economy", {}),
         "reward_shop": globals().get("reward_shop", {}),
         "redemption_queue": globals().get("redemption_queue", []),
-        "cooldown_settings": globals().get("cooldown_settings", {})
+        "cooldown_settings": globals().get("cooldown_settings", {}),
+        "boss_battle": globals().get("boss_battle", {})
     }
 
 
@@ -145,6 +158,7 @@ def apply_persistent_snapshot(data):
     global redemption_queue
     global cooldown_settings
     global cooldown_tracker
+    global boss_battle
 
     if not isinstance(data, dict):
         return False
@@ -179,6 +193,16 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("cooldown_settings"), dict):
         cooldown_settings.update(data["cooldown_settings"])
+
+    if isinstance(data.get("boss_battle"), dict):
+        boss_battle.update(data["boss_battle"])
+        boss_battle.setdefault("active", False)
+        boss_battle.setdefault("name", "Cyber Fox Dragon")
+        boss_battle.setdefault("max_hp", 500)
+        boss_battle.setdefault("hp", 0)
+        boss_battle.setdefault("damage_log", {})
+        boss_battle.setdefault("defeated_count", 0)
+        boss_battle.setdefault("last_winner", None)
 
     return True
 
@@ -933,6 +957,82 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def format_boss_status():
+    currency = get_currency_name()
+
+    if not boss_battle.get("active"):
+        defeated_count = boss_battle.get("defeated_count", 0)
+        last_winner = boss_battle.get("last_winner")
+
+        if last_winner:
+            return f"No boss is active. Last MVP: @{last_winner}. Bosses defeated: {defeated_count}. Admins can use !startboss Cyber Fox Dragon"
+
+        return f"No boss is active. Bosses defeated: {defeated_count}. Admins can use !startboss Cyber Fox Dragon"
+
+    name = boss_battle.get("name", "Unknown Boss")
+    hp = int(boss_battle.get("hp", 0))
+    max_hp = int(boss_battle.get("max_hp", 500))
+
+    return f"Boss Battle: {name} has {hp}/{max_hp} HP. Type !attack to fight or !powerattack to spend 25 {currency} for bigger damage."
+
+
+def format_boss_leaderboard(limit: int = 5):
+    damage_log = boss_battle.get("damage_log", {})
+
+    if not damage_log:
+        return "No boss damage yet. Type !attack to get on the board."
+
+    sorted_damage = sorted(
+        damage_log.items(),
+        key=lambda item: int(item[1]),
+        reverse=True
+    )
+
+    parts = []
+
+    for index, (viewer, damage) in enumerate(sorted_damage[:limit], start=1):
+        parts.append(f"{index}. {viewer} ? {damage} damage")
+
+    return "Boss damage leaderboard: " + " | ".join(parts)
+
+
+def add_boss_damage(username: str, damage: int):
+    clean_name = normalize_viewer_name(username)
+    key = clean_name.lower()
+
+    damage_log = boss_battle.setdefault("damage_log", {})
+    current_damage = int(damage_log.get(key, 0))
+    damage_log[key] = current_damage + int(damage)
+
+    boss_battle["hp"] = max(0, int(boss_battle.get("hp", 0)) - int(damage))
+
+    return damage_log[key]
+
+
+def finish_boss_if_defeated():
+    if int(boss_battle.get("hp", 0)) > 0:
+        return None
+
+    damage_log = boss_battle.get("damage_log", {})
+
+    if damage_log:
+        top_player = max(damage_log.items(), key=lambda item: int(item[1]))[0]
+    else:
+        top_player = "unknown"
+
+    boss_battle["active"] = False
+    boss_battle["defeated_count"] = int(boss_battle.get("defeated_count", 0)) + 1
+    boss_battle["last_winner"] = top_player
+
+    bonus = 100
+    currency = get_currency_name()
+
+    if top_player != "unknown":
+        add_points(top_player, bonus, "boss battle mvp")
+
+    return f"Boss defeated! MVP @{top_player} earned a {bonus} {currency} bonus. Total bosses defeated: {boss_battle['defeated_count']}."
+
+
 def command_root(message: str):
     clean = (message or "").strip().lower()
 
@@ -1193,6 +1293,7 @@ def chat(message: str = "", username: str = "viewer"):
     global redemption_queue
     global cooldown_settings
     global cooldown_tracker
+    global boss_battle
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -1264,11 +1365,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !clearredeems, !setcooldown, !clearcooldowns, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !boss, !attack, !powerattack, !bossleaderboard, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !startboss, !endboss, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !clearredeems, !setcooldown, !clearcooldowns, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !boss, !attack, !powerattack, !bossleaderboard, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -1339,6 +1440,125 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": f"The fox has chosen... @{winner} wins!"
+        }
+
+    if lower_message in ["!boss", "!bossstatus"]:
+        return {
+            "response": format_boss_status()
+        }
+
+    if lower_message == "!bossleaderboard":
+        return {
+            "response": format_boss_leaderboard()
+        }
+
+    if lower_message.startswith("!startboss"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can start boss battles."
+            }
+
+        boss_name = original_message.replace("!startboss", "", 1).strip()
+
+        if not boss_name:
+            boss_name = "Cyber Fox Dragon"
+
+        boss_hp = 500
+
+        # Optional format: !startboss 750 Cyber Fox Dragon
+        parts = boss_name.split(" ", 1)
+
+        if parts and parts[0].isdigit():
+            boss_hp = int(parts[0])
+            boss_name = parts[1].strip() if len(parts) > 1 else "Cyber Fox Dragon"
+
+        if boss_hp < 100:
+            boss_hp = 100
+
+        if boss_hp > 5000:
+            boss_hp = 5000
+
+        boss_battle["active"] = True
+        boss_battle["name"] = boss_name
+        boss_battle["max_hp"] = boss_hp
+        boss_battle["hp"] = boss_hp
+        boss_battle["damage_log"] = {}
+        boss_battle["last_winner"] = None
+
+        return {
+            "response": f"A boss has appeared: {boss_name} with {boss_hp} HP! Type !attack to fight."
+        }
+
+    if lower_message == "!endboss":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can end boss battles."
+            }
+
+        boss_battle["active"] = False
+
+        return {
+            "response": "Boss battle ended."
+        }
+
+    if lower_message == "!attack":
+        if not boss_battle.get("active"):
+            return {
+                "response": "No boss is active right now. Admins can start one with !startboss Cyber Fox Dragon"
+            }
+
+        damage = random.randint(15, 45)
+        reward = random.randint(5, 18)
+        currency = get_currency_name()
+        boss_name = boss_battle.get("name", "Boss")
+
+        total_damage = add_boss_damage(username, damage)
+        new_balance = add_points(username, reward, "boss attack")
+        boss_hp = int(boss_battle.get("hp", 0))
+        defeat_message = finish_boss_if_defeated()
+
+        response = f"@{username} attacked {boss_name} for {damage} damage and earned {reward} {currency}! Boss HP: {boss_hp}/{boss_battle.get('max_hp', 500)}. Your total boss damage: {total_damage}. Balance: {new_balance} {currency}."
+
+        if defeat_message:
+            response += " " + defeat_message
+
+        return {
+            "response": response
+        }
+
+    if lower_message == "!powerattack":
+        if not boss_battle.get("active"):
+            return {
+                "response": "No boss is active right now. Admins can start one with !startboss Cyber Fox Dragon"
+            }
+
+        currency = get_currency_name()
+        power_cost = 25
+        balance = get_balance(username)
+
+        if balance < power_cost:
+            return {
+                "response": f"@{username}, power attack costs {power_cost} {currency}. Your balance: {balance} {currency}."
+            }
+
+        add_points(username, -power_cost, "power attack cost")
+
+        damage = random.randint(50, 110)
+        reward = random.randint(15, 35)
+        boss_name = boss_battle.get("name", "Boss")
+
+        total_damage = add_boss_damage(username, damage)
+        new_balance = add_points(username, reward, "boss power attack reward")
+        boss_hp = int(boss_battle.get("hp", 0))
+        defeat_message = finish_boss_if_defeated()
+
+        response = f"@{username} used POWER ATTACK on {boss_name} for {damage} damage! Cost: {power_cost} {currency}. Reward: {reward} {currency}. Boss HP: {boss_hp}/{boss_battle.get('max_hp', 500)}. Your total boss damage: {total_damage}. Balance: {new_balance} {currency}."
+
+        if defeat_message:
+            response += " " + defeat_message
+
+        return {
+            "response": response
         }
 
     if lower_message in ["!balance", "!points", "!foxcoins"]:
@@ -1842,7 +2062,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -3231,7 +3451,15 @@ judge_demo_html = """
                     <button onclick="runCommand('!pickwinner')">!pickwinner</button>
                     <button onclick="runCommand('!leaderboard')">!leaderboard</button>
                     <button onclick="runCommand('!arcade')">!arcade</button>
+                    <button onclick="runCommand('!startboss Cyber Fox Dragon')">start boss</button>
+                    <button onclick="runCommand('!boss')">!boss</button>
+                    <button onclick="runCommand('!attack')">!attack</button>
+                    <button onclick="runCommand('!powerattack')">!powerattack</button>
+                    <button onclick="runCommand('!bossleaderboard')">boss leaderboard</button>
                     <button onclick="runCommand('!foxhunt')">!foxhunt</button>
+                    <button onclick="runCommand('!startboss 500 Cyber Fox Dragon')">start boss</button>
+                    <button onclick="runCommand('!attack')">attack boss</button>
+                    <button onclick="runCommand('!powerattack')">power attack</button>
                     <button onclick="runCommand('!daily')">!daily</button>
                     <button onclick="runCommand('!balance')">!balance</button>
                     <button onclick="runCommand('!shop')">!shop</button>
@@ -3946,4 +4174,23 @@ economy_dashboard_html = """
 @app.get("/economy", response_class=HTMLResponse)
 def economy_dashboard_page():
     return economy_dashboard_html
+
+
+@app.get("/boss")
+def boss_endpoint():
+    return {
+        "boss_battle": boss_battle,
+        "status": format_boss_status(),
+        "leaderboard": format_boss_leaderboard(),
+        "commands": [
+            "!boss",
+            "!bossstatus",
+            "!startboss Cyber Fox Dragon",
+            "!startboss 1000 Cyber Fox Dragon",
+            "!attack",
+            "!powerattack",
+            "!bossleaderboard",
+            "!endboss"
+        ]
+    }
 
