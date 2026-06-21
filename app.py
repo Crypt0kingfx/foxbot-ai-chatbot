@@ -1,4 +1,5 @@
 ﻿import os
+import json
 import random
 import threading
 import time
@@ -103,6 +104,118 @@ reward_shop = {
 }
 
 redemption_queue = []
+
+
+DATA_FILE = os.getenv("FOXBOT_DATA_FILE", "foxbot_data.json")
+
+
+def get_persistent_snapshot():
+    return {
+        "bot_mode": globals().get("bot_mode", "hype"),
+        "custom_commands": globals().get("custom_commands", {}),
+        "stream_info": globals().get("stream_info", {}),
+        "arcade_stats": globals().get("arcade_stats", {}),
+        "foxcoin_economy": globals().get("foxcoin_economy", {}),
+        "reward_shop": globals().get("reward_shop", {}),
+        "redemption_queue": globals().get("redemption_queue", [])
+    }
+
+
+def apply_persistent_snapshot(data):
+    global bot_mode
+    global custom_commands
+    global stream_info
+    global arcade_stats
+    global foxcoin_economy
+    global reward_shop
+    global redemption_queue
+
+    if not isinstance(data, dict):
+        return False
+
+    if isinstance(data.get("bot_mode"), str):
+        bot_mode = data["bot_mode"].lower()
+
+    if isinstance(data.get("custom_commands"), dict):
+        custom_commands = data["custom_commands"]
+
+    if isinstance(data.get("stream_info"), dict):
+        stream_info = data["stream_info"]
+        stream_info.setdefault("game", os.getenv("STREAM_GAME", "Off The Grid"))
+        stream_info.setdefault("title", os.getenv("STREAM_TITLE", "FoxBot is live on Blaze!"))
+        stream_info.setdefault("lurkers", {})
+
+    if isinstance(data.get("arcade_stats"), dict):
+        arcade_stats.update(data["arcade_stats"])
+
+    if isinstance(data.get("foxcoin_economy"), dict):
+        foxcoin_economy.update(data["foxcoin_economy"])
+        foxcoin_economy.setdefault("currency_name", os.getenv("POINTS_NAME", "FoxCoins"))
+        foxcoin_economy.setdefault("balances", {})
+        foxcoin_economy.setdefault("daily_claims", {})
+        foxcoin_economy.setdefault("transactions", [])
+
+    if isinstance(data.get("reward_shop"), dict):
+        reward_shop = data["reward_shop"]
+
+    if isinstance(data.get("redemption_queue"), list):
+        redemption_queue = data["redemption_queue"][:10]
+
+    return True
+
+
+def save_persistent_data():
+    try:
+        data = get_persistent_snapshot()
+
+        temp_file = DATA_FILE + ".tmp"
+
+        with open(temp_file, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+
+        os.replace(temp_file, DATA_FILE)
+
+        return True
+    except Exception as exc:
+        print(f"FoxBot data save failed: {exc}")
+        return False
+
+
+def load_persistent_data():
+    if not os.path.exists(DATA_FILE):
+        print("FoxBot data file not found. Starting fresh.")
+        return False
+
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        loaded = apply_persistent_snapshot(data)
+
+        if loaded:
+            print(f"FoxBot data loaded from {DATA_FILE}")
+
+        return loaded
+    except Exception as exc:
+        print(f"FoxBot data load failed: {exc}")
+        return False
+
+
+load_persistent_data()
+
+
+@app.middleware("http")
+async def foxbot_auto_save_middleware(request, call_next):
+    response = await call_next(request)
+
+    try:
+        if not request.url.path.startswith("/static"):
+            save_persistent_data()
+    except Exception as exc:
+        print(f"FoxBot auto-save middleware failed: {exc}")
+
+    return response
+
 
 proof_stats = {
     "blaze_connected": False,
@@ -3332,4 +3445,41 @@ redemptions_overlay_html = """
 @app.get("/overlay/redemptions", response_class=HTMLResponse)
 def redemptions_overlay_page():
     return redemptions_overlay_html
+
+
+# Save data when chat() is called directly by background listeners.
+if "chat" in globals() and not globals().get("_foxbot_chat_save_wrapped", False):
+    _foxbot_original_chat = chat
+
+    def chat(*args, **kwargs):
+        result = _foxbot_original_chat(*args, **kwargs)
+        save_persistent_data()
+        return result
+
+    _foxbot_chat_save_wrapped = True
+
+
+@app.get("/data-status")
+def data_status_endpoint():
+    exists = os.path.exists(DATA_FILE)
+
+    return {
+        "data_file": DATA_FILE,
+        "exists": exists,
+        "custom_command_count": len(custom_commands),
+        "viewer_balance_count": len(foxcoin_economy.get("balances", {})),
+        "reward_count": len(reward_shop),
+        "redemption_count": len(redemption_queue),
+        "bot_mode": bot_mode,
+        "saved_now": save_persistent_data()
+    }
+
+
+@app.get("/save-data")
+def save_data_endpoint():
+    return {
+        "saved": save_persistent_data(),
+        "data_file": DATA_FILE
+    }
+
 
