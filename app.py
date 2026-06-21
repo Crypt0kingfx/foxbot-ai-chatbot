@@ -105,6 +105,19 @@ reward_shop = {
 
 redemption_queue = []
 
+cooldown_settings = {
+    "!foxhunt": 30,
+    "!coinflip": 5,
+    "!roll": 5,
+    "!8ball": 10,
+    "!rps": 5,
+    "!redeem": 15,
+    "!daily": 60,
+    "!lurk": 30
+}
+
+cooldown_tracker = {}
+
 
 DATA_FILE = os.getenv("FOXBOT_DATA_FILE", "foxbot_data.json")
 
@@ -117,7 +130,8 @@ def get_persistent_snapshot():
         "arcade_stats": globals().get("arcade_stats", {}),
         "foxcoin_economy": globals().get("foxcoin_economy", {}),
         "reward_shop": globals().get("reward_shop", {}),
-        "redemption_queue": globals().get("redemption_queue", [])
+        "redemption_queue": globals().get("redemption_queue", []),
+        "cooldown_settings": globals().get("cooldown_settings", {})
     }
 
 
@@ -129,6 +143,8 @@ def apply_persistent_snapshot(data):
     global foxcoin_economy
     global reward_shop
     global redemption_queue
+    global cooldown_settings
+    global cooldown_tracker
 
     if not isinstance(data, dict):
         return False
@@ -160,6 +176,9 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("redemption_queue"), list):
         redemption_queue = data["redemption_queue"][:10]
+
+    if isinstance(data.get("cooldown_settings"), dict):
+        cooldown_settings.update(data["cooldown_settings"])
 
     return True
 
@@ -914,6 +933,53 @@ def judges_page():
 # ----------------------------
 # FoxBot command logic
 # ----------------------------
+def command_root(message: str):
+    clean = (message or "").strip().lower()
+
+    if not clean.startswith("!"):
+        return ""
+
+    return clean.split()[0]
+
+
+def format_cooldowns():
+    if not cooldown_settings:
+        return "No FoxBot cooldowns are active."
+
+    parts = []
+
+    for command, seconds in sorted(cooldown_settings.items()):
+        parts.append(f"{command}: {seconds}s")
+
+    return "FoxBot cooldowns: " + " | ".join(parts)
+
+
+def check_command_cooldown(username: str, message: str, admin: bool = False):
+    if admin:
+        return None
+
+    command = command_root(message)
+
+    if command not in cooldown_settings:
+        return None
+
+    seconds = int(cooldown_settings.get(command, 0))
+
+    if seconds <= 0:
+        return None
+
+    key = f"{viewer_key(username)}:{command}"
+    now = time.time()
+    last_used = float(cooldown_tracker.get(key, 0))
+    remaining = int(seconds - (now - last_used))
+
+    if remaining > 0:
+        return f"@{username}, {command} is on cooldown. Try again in {remaining}s."
+
+    cooldown_tracker[key] = now
+    return None
+
+
 def normalize_viewer_name(name: str):
     clean = (name or "viewer").strip().lstrip("@")
     return clean or "viewer"
@@ -1125,23 +1191,84 @@ def chat(message: str = "", username: str = "viewer"):
     global foxcoin_economy
     global reward_shop
     global redemption_queue
+    global cooldown_settings
+    global cooldown_tracker
 
     original_message = message.strip()
     lower_message = original_message.lower()
     username = username.strip() or "viewer"
     admin = is_admin(username)
 
+    cooldown_message = check_command_cooldown(username, lower_message, admin)
+    if cooldown_message:
+        return {
+            "response": cooldown_message
+        }
+
     if lower_message.startswith("!"):
         track_viewer_command(username, lower_message)
+
+    if lower_message == "!cooldowns":
+        return {
+            "response": format_cooldowns()
+        }
+
+    if lower_message.startswith("!setcooldown"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can change cooldowns."
+            }
+
+        parts = original_message.split()
+
+        if len(parts) < 3:
+            return {
+                "response": "Use !setcooldown command seconds. Example: !setcooldown foxhunt 60"
+            }
+
+        command_name = parts[1].strip().lower()
+
+        if not command_name.startswith("!"):
+            command_name = "!" + command_name
+
+        try:
+            seconds = int(parts[2])
+        except ValueError:
+            return {
+                "response": "Cooldown seconds must be a number. Example: !setcooldown foxhunt 60"
+            }
+
+        if seconds < 0:
+            return {
+                "response": "Cooldown seconds cannot be negative."
+            }
+
+        cooldown_settings[command_name] = seconds
+
+        return {
+            "response": f"Cooldown for {command_name} set to {seconds}s."
+        }
+
+    if lower_message == "!clearcooldowns":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can clear cooldown timers."
+            }
+
+        cooldown_tracker.clear()
+
+        return {
+            "response": "FoxBot cooldown timers cleared."
+        }
 
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !clearredeems, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !clearredeems, !setcooldown, !clearcooldowns, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -1715,7 +1842,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -3112,6 +3239,9 @@ judge_demo_html = """
                     <button onclick="runCommand('!redeem mysterybox')">mysterybox</button>
                     <button onclick="runCommand('!addreward hydrate 25 @{username} redeemed hydrate. Drink water!')">add hydrate reward</button>
                     <button onclick="runCommand('!coinleaderboard')">!coinleaderboard</button>
+                    <button onclick="runCommand('!cooldowns')">!cooldowns</button>
+                    <button onclick="runCommand('!setcooldown foxhunt 10')">set foxhunt cooldown</button>
+                    <button onclick="runCommand('!clearcooldowns')">clear cooldowns</button>
                     <button onclick="runCommand('!givepoints avisi 100')">give points</button>
                     <button onclick="runCommand('!coinflip')">!coinflip</button>
                     <button onclick="runCommand('!roll 20')">!roll 20</button>
@@ -3482,4 +3612,16 @@ def save_data_endpoint():
         "data_file": DATA_FILE
     }
 
+
+@app.get("/cooldowns")
+def cooldowns_endpoint():
+    return {
+        "cooldown_settings": cooldown_settings,
+        "active_timers": len(cooldown_tracker),
+        "commands": [
+            "!cooldowns",
+            "!setcooldown foxhunt 60",
+            "!clearcooldowns"
+        ]
+    }
 
