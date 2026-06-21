@@ -1,101 +1,204 @@
 # FoxBot AI Chatbot
 
-FoxBot AI Chatbot is a Blaze-connected creator assistant built for the Blaze Builder Challenge.
+FoxBot AI Chatbot is a Blaze-connected creator assistant built for live stream engagement.
 
-FoxBot helps streamers automate community engagement by responding to chat commands, managing giveaways, answering common questions, and posting directly into Blaze chat through the Blaze API.
-
-## Live App
-
-https://foxbot-ai-chatbot.onrender.com
+Live app: https://foxbot-ai-chatbot.onrender.com
+Judge demo: https://foxbot-ai-chatbot.onrender.com/demo
+Dashboard: https://foxbot-ai-chatbot.onrender.com/dashboard
+Smoke test: https://foxbot-ai-chatbot.onrender.com/smoke-test
+Economy dashboard: https://foxbot-ai-chatbot.onrender.com/economy
 
 ## What FoxBot Does
 
-FoxBot currently supports:
+FoxBot connects to Blaze, listens to live chat, responds to commands, runs giveaways, tracks viewer engagement, powers a FoxCoins economy, supports custom commands, and provides OBS overlays for live streams.
 
-* Blaze OAuth login
-* Real Blaze channel lookup
-* Sending messages into Blaze chat
-* Running chatbot commands from the web app
-* Polling recent Blaze chat messages
-* Automatically responding to commands in live chat
-* Giveaway entry tracking
-* Duplicate giveaway entry protection
-* Random winner selection
-* A creator control dashboard
+The goal is to give Blaze creators a fun all-in-one engagement bot that can help keep chat active during streams.
 
-## Main Commands
-
-Viewers can type:
-
-* `!help` — shows available commands
-* `!schedule` — shows the creator schedule
-* `!faq` — explains what FoxBot does
-* `!giveaway` — starts a new giveaway
-* `!enter` — enters the viewer into the giveaway
-* `!entries` — shows current giveaway entries
-* `!pickwinner` — randomly selects a giveaway winner
-* `!ask` — demo AI response mode
-
-## Dashboard
-
-FoxBot includes a control dashboard:
-
-https://foxbot-ai-chatbot.onrender.com/dashboard
-
-The dashboard lets the creator:
-
-* Login with Blaze
-* Start the chat listener
-* Stop the listener
-* Check listener status
-* Check recent chat messages
-* Send a test Blaze chat message
-* Run a test command
-
-## How It Works
-
-FoxBot connects to Blaze using OAuth. Once the creator logs in, FoxBot receives permission to read basic user data and moderate the creator’s channel.
-
-FoxBot then uses the Blaze API to:
-
-1. Find the creator’s Blaze channel.
-2. Send messages into the creator’s Blaze chat.
-3. Check recent chat messages.
-4. Detect commands starting with `!`.
-5. Generate a FoxBot response.
-6. Post the response back into Blaze chat.
-
-## Tech Stack
-
-* Python
-* FastAPI
-* Render
-* Blaze OAuth
-* Blaze Chat API
-* HTML, CSS, and JavaScript
-
-## Project Goal
-
-The goal of FoxBot is to give Blaze creators an easy chatbot assistant that can improve stream engagement, automate repeated answers, and run simple community tools like giveaways.
-
-This version proves the core concept: FoxBot can connect to a real Blaze account, post into real Blaze chat, and respond to real chat commands.
-
-## Final Judge Demo
-
-Live demo page: https://foxbot-ai-chatbot.onrender.com/demo
-
-Finished FoxBot features:
+## Main Features
 
 - Blaze OAuth login
 - Blaze live chat polling listener
 - Live command replies in Blaze chat
 - Giveaway system with entries and winner picking
-- OBS giveaway overlay at `/overlay/giveaway`
+- OBS giveaway overlay
 - Viewer stats and leaderboard
-- Creator social links with `!socials`
-- Admin-only shoutouts with `!shoutout`
-- Bot personality modes with `!mode hype`, `!mode chill`, and `!mode pro`
-- Live custom commands with `!addcmd`, `!delcmd`, and `!commands`
-- Stream info commands with `!game`, `!title`, `!lurk`, `!unlurk`, and `!lurkers`
-- Proof endpoints for judges: `/proof`, `/viewer-stats`, `/stream-info`, `/custom-commands`, `/bot-mode`
+- Creator socials command
+- Admin-only shoutout command
+- Bot personality modes: hype, chill, and pro
+- Custom commands created from chat
+- Stream info commands for game, title, and lurk status
+- FoxBot Arcade mini games
+- FoxCoins points economy
+- Reward shop and redemption system
+- OBS redemptions overlay
+- Persistent data storage using foxbot_data.json
+- Command cooldowns
+- Admin economy dashboard
+- Boss battle mini game
+- OBS boss battle overlay
+- Goodnight / end stream button
+- Smoke test page for checking key commands
+- Judge demo page with one-click tests
 
+## Live Pages
+
+Home: https://foxbot-ai-chatbot.onrender.com
+
+Dashboard: https://foxbot-ai-chatbot.onrender.com/dashboard
+
+Judge Demo: https://foxbot-ai-chatbot.onrender.com/demo
+
+Features: https://foxbot-ai-chatbot.onrender.com/features
+
+Economy Dashboard: https://foxbot-ai-chatbot.onrender.com/economy
+
+Smoke Test: https://foxbot-ai-chatbot.onrender.com/smoke-test
+
+Goodnight Button: https://foxbot-ai-chatbot.onrender.com/goodnight
+
+Giveaway Overlay: https://foxbot-ai-chatbot.onrender.com/overlay/giveaway
+
+Redemptions Overlay: https://foxbot-ai-chatbot.onrender.com/overlay/redemptions
+
+Boss Battle Overlay: https://foxbot-ai-chatbot.onrender.com/overlay/boss
+
+Live Proof: https://foxbot-ai-chatbot.onrender.com/proof
+
+## Core Viewer Commands
+
+!help
+!schedule
+!faq
+!socials
+!mode
+!stats
+!leaderboard
+!hugs
+
+## Giveaway Commands
+
+!giveaway
+!enter
+!entries
+!pickwinner
+
+Admin only: !giveaway and !pickwinner
+
+## FoxBot Arcade Commands
+
+!arcade
+!coinflip
+!roll
+!roll 20
+!8ball Will FoxBot win?
+!rps rock
+!foxhunt
+
+## FoxCoins Economy Commands
+
+!daily
+!balance
+!points
+!foxcoins
+!coinleaderboard
+!shop
+!redeem hug
+!redeem hype
+!redeem flex
+!redeem mysterybox
+!redeem sponsor
+
+Admin economy commands:
+
+!givepoints username amount
+!takepoints username amount
+!addreward name cost message
+!delreward name
+
+## Boss Battle Commands
+
+!boss
+!bossstatus
+!startboss Cyber Fox Dragon
+!attack
+!powerattack
+!bossleaderboard
+!endboss
+
+Admin only: !startboss and !endboss
+
+## Stream Info Commands
+
+!game
+!setgame Off The Grid
+!title
+!settitle Playing Off The Grid with FoxBot live
+!lurk
+!unlurk
+!lurkers
+
+Admin only: !setgame and !settitle
+
+## Custom Commands
+
+!commands
+!addcmd discord Join the Discord here: your-link
+!discord
+!delcmd discord
+
+Admins can create custom commands live from chat.
+
+## Admin / Creator Tools
+
+!shoutout username
+!goodnight
+!endstream
+!setcooldown foxhunt 60
+!clearcooldowns
+!clearredeems
+
+## OBS Browser Source Overlays
+
+Recommended OBS browser source size:
+
+Width: 1920
+Height: 1080
+
+Overlay URLs:
+
+https://foxbot-ai-chatbot.onrender.com/overlay/giveaway
+
+https://foxbot-ai-chatbot.onrender.com/overlay/redemptions
+
+https://foxbot-ai-chatbot.onrender.com/overlay/boss
+
+## Judge Demo Flow
+
+1. Open /demo
+2. Click !help
+3. Click !daily
+4. Click !foxhunt
+5. Click !shop
+6. Click !redeem hug
+7. Open /overlay/redemptions
+8. Click !startboss Cyber Fox Dragon
+9. Click !attack
+10. Open /overlay/boss
+11. Open /overlay/giveaway
+12. Open /proof
+13. Open /smoke-test and run the smoke test
+
+## Tech Stack
+
+- Python
+- FastAPI
+- Requests
+- Blaze API
+- Blaze OAuth
+- HTML / CSS / JavaScript
+- Render deployment
+- GitHub
+
+## Project Goal
+
+FoxBot is built to help Blaze creators turn their chat into an interactive community experience with live commands, rewards, overlays, games, and engagement tools.

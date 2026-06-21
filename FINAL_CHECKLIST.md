@@ -1,42 +1,52 @@
-# FoxBot Final Demo Checklist
+# FoxBot Final Submission Checklist
 
-## Before Demo
+## Before Recording
 
-* Open Render and make sure FoxBot is live.
-* Open the Blaze stream/chat page.
-* Open the FoxBot dashboard.
+- [ ] Open live app
+- [ ] Open /demo
+- [ ] Open /smoke-test
+- [ ] Run full smoke test
+- [ ] Open /proof
+- [ ] Confirm Blaze is connected if doing live chat demo
+- [ ] Start polling listener if using Blaze chat
+- [ ] Open OBS overlays:
+  - [ ] /overlay/giveaway
+  - [ ] /overlay/redemptions
+  - [ ] /overlay/boss
+- [ ] Open /economy
 
-## Important Links
+## Commands to Show
 
-Live App: https://foxbot-ai-chatbot.onrender.com
+- [ ] !help
+- [ ] !daily
+- [ ] !foxhunt
+- [ ] !balance
+- [ ] !shop
+- [ ] !redeem hug
+- [ ] !coinleaderboard
+- [ ] !startboss Cyber Fox Dragon
+- [ ] !attack
+- [ ] !bossleaderboard
+- [ ] !socials
+- [ ] !goodnight
 
-Dashboard: https://foxbot-ai-chatbot.onrender.com/dashboard
+## Pages to Show
 
-Judges Page: https://foxbot-ai-chatbot.onrender.com/judges
+- [ ] /demo
+- [ ] /economy
+- [ ] /overlay/giveaway
+- [ ] /overlay/redemptions
+- [ ] /overlay/boss
+- [ ] /proof
+- [ ] /smoke-test
 
-Project Status: https://foxbot-ai-chatbot.onrender.com/project-status
+## Submission Links
 
-## Demo Steps
+Live app:
+https://foxbot-ai-chatbot.onrender.com
 
-1. Open the FoxBot homepage.
-2. Show the chatbot demo commands.
-3. Open the dashboard.
-4. Click Login with Blaze.
-5. Click Start Listener.
-6. Open Blaze chat.
-7. Type `!help`.
-8. Show FoxBot replying in Blaze chat.
-9. Type `!giveaway`.
-10. Type `!enter`.
-11. Type `!entries`.
-12. Type `!pickwinner`.
-13. Open the judges page.
-14. Open the project status endpoint.
+GitHub:
+https://github.com/Crypt0kingfx/foxbot-ai-chatbot
 
-## What To Say
-
-FoxBot is a Blaze-connected AI chatbot for creators. It logs in with Blaze OAuth, connects to a real Blaze channel, sends real messages into Blaze chat, reads recent chat messages, and automatically responds to viewer commands.
-
-## Safety Reminder
-
-Do not show `.env`, Blaze client secret, access tokens, refresh tokens, or Render environment values during the demo.
+Judge demo:
+https://foxbot-ai-chatbot.onrender.com/demo
