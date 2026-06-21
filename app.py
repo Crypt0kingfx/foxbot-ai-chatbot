@@ -1362,10 +1362,26 @@ def chat(message: str = "", username: str = "viewer"):
             "response": "FoxBot cooldown timers cleared."
         }
 
+    if lower_message in ["!goodnight", "!endstream"]:
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can use the stream ending message."
+            }
+
+        creator_name = os.getenv("CREATOR_NAME", "Ryan")
+        signoff = os.getenv(
+            "GOODNIGHT_MESSAGE",
+            f"{creator_name} is ending stream. Thank you for hanging out, earning FoxCoins, playing FoxBot games, and supporting the Blaze community. Goodnight everyone!"
+        )
+
+        return {
+            "response": signoff
+        }
+
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !startboss, !givepoints, !addreward"
+                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !goodnight, !endstream, !startboss, !givepoints, !addreward"
             }
 
         return {
@@ -2062,7 +2078,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -3428,6 +3444,7 @@ judge_demo_html = """
                 <a href="/">Home</a>
                 <a href="/demo">Judge Demo</a>
                 <a href="/smoke-test">Smoke Test</a>
+                <a href="/goodnight">Goodnight</a>
                 <a href="/dashboard">Dashboard</a>
                 <a href="/demo">Demo</a>
                 <a href="/economy">Economy</a>
@@ -3443,6 +3460,7 @@ judge_demo_html = """
                 <h2>One-Click Command Tests</h2>
                 <div class="buttons">
                     <button onclick="runCommand('!help')">!help</button>
+                    <button onclick="runCommand('!goodnight')">!goodnight</button>
                     <button onclick="runCommand('!socials')">!socials</button>
                     <button onclick="runCommand('!mode')">!mode</button>
                     <button onclick="runCommand('!mode hype')">!mode hype</button>
@@ -4921,4 +4939,197 @@ smoke_test_html = """
 @app.get("/smoke-test", response_class=HTMLResponse)
 def smoke_test_page():
     return smoke_test_html
+
+
+goodnight_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Goodnight Button</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: radial-gradient(circle at top, #1f2937, #020617 70%);
+            color: white;
+        }
+
+        .wrap {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 40px 22px;
+        }
+
+        .card {
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(249, 115, 22, 0.5);
+            border-radius: 28px;
+            padding: 34px;
+            box-shadow: 0 20px 70px rgba(0,0,0,0.35);
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            width: 86px;
+            height: 86px;
+            border-radius: 22px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.7);
+        }
+
+        h1 {
+            margin: 0;
+            color: #fdba74;
+            font-size: 44px;
+        }
+
+        .subtitle {
+            margin-top: 8px;
+            color: #cbd5e1;
+            font-size: 18px;
+            line-height: 1.5;
+        }
+
+        .nav {
+            margin-top: 24px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 999px;
+            padding: 10px 14px;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 24px;
+        }
+
+        button {
+            cursor: pointer;
+            border: 0;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            font-weight: 900;
+            border-radius: 16px;
+            padding: 14px 18px;
+            box-shadow: 0 8px 22px rgba(249,115,22,0.18);
+            font-size: 16px;
+        }
+
+        button.secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .output {
+            margin-top: 24px;
+            background: rgba(2, 6, 23, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 18px;
+            padding: 18px;
+            white-space: pre-wrap;
+            color: #e2e8f0;
+            line-height: 1.5;
+            min-height: 130px;
+        }
+
+        code {
+            color: #fdba74;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <section class="card">
+            <div class="top">
+                <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+                <div>
+                    <h1>FoxBot Goodnight Button</h1>
+                    <div class="subtitle">
+                        Use this at the end of stream to send a clean sign-off message.
+                        Command: <code>!goodnight</code> or <code>!endstream</code>
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav">
+                <a href="/">Home</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/demo">Judge Demo</a>
+                <a href="/economy">Economy</a>
+                <a href="/overlay/giveaway">Giveaway Overlay</a>
+                <a href="/overlay/redemptions">Redemptions Overlay</a>
+                <a href="/overlay/boss">Boss Overlay</a>
+                <a href="/proof">Proof</a>
+            </div>
+
+            <div class="buttons">
+                <button onclick="previewGoodnight()">Preview Goodnight Message</button>
+                <button onclick="sendGoodnight()">Send Goodnight to Blaze</button>
+                <button class="secondary" onclick="openPage('/overlay/redemptions')">Open Redemptions Overlay</button>
+                <button class="secondary" onclick="openPage('/overlay/boss')">Open Boss Overlay</button>
+                <button class="secondary" onclick="openPage('/proof')">Open Proof</button>
+            </div>
+
+            <div id="output" class="output">Click a button to preview or send your ending stream message.</div>
+        </section>
+    </div>
+
+    <script>
+        async function previewGoodnight() {
+            const output = document.getElementById("output");
+            output.textContent = "Previewing !goodnight...";
+
+            try {
+                const response = await fetch("/chat?username=Ryan&message=" + encodeURIComponent("!goodnight"));
+                const data = await response.json();
+                output.textContent = "Preview Response:\\n\\n" + data.response;
+            } catch (error) {
+                output.textContent = "Error previewing goodnight message: " + error;
+            }
+        }
+
+        async function sendGoodnight() {
+            const output = document.getElementById("output");
+            output.textContent = "Sending !goodnight to Blaze... Make sure you are logged into Blaze first.";
+
+            try {
+                const response = await fetch("/blaze/run-command?username=Ryan&message=" + encodeURIComponent("!goodnight"));
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                output.textContent = "Error sending to Blaze: " + error;
+            }
+        }
+
+        function openPage(path) {
+            window.open(path, "_blank");
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/goodnight", response_class=HTMLResponse)
+def goodnight_page():
+    return goodnight_html
 
