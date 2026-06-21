@@ -3209,6 +3209,7 @@ judge_demo_html = """
                 <a href="/demo">Judge Demo</a>
                 <a href="/dashboard">Dashboard</a>
                 <a href="/demo">Demo</a>
+                <a href="/economy">Economy</a>
                 <a href="/features">Features</a>
                 <a href="/judges">Judges</a>
                 <a href="/proof">Live Proof</a>
@@ -3624,4 +3625,325 @@ def cooldowns_endpoint():
             "!clearcooldowns"
         ]
     }
+
+
+economy_dashboard_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Economy Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: radial-gradient(circle at top, #1f2937, #020617 70%);
+            color: white;
+        }
+
+        .wrap {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 40px 22px;
+        }
+
+        .hero {
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(249, 115, 22, 0.5);
+            border-radius: 28px;
+            padding: 32px;
+            box-shadow: 0 20px 70px rgba(0,0,0,0.35);
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            width: 86px;
+            height: 86px;
+            border-radius: 22px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.7);
+        }
+
+        h1 {
+            margin: 0;
+            color: #fdba74;
+            font-size: 44px;
+        }
+
+        .subtitle {
+            margin-top: 8px;
+            color: #cbd5e1;
+            font-size: 18px;
+            line-height: 1.5;
+        }
+
+        .nav {
+            margin-top: 24px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 999px;
+            padding: 10px 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            margin-top: 22px;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 22px;
+            padding: 22px;
+        }
+
+        h2 {
+            margin: 0 0 14px;
+            color: #fdba74;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            cursor: pointer;
+            border: 0;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            font-weight: 800;
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 8px 22px rgba(249,115,22,0.18);
+        }
+
+        button.secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .box {
+            background: rgba(2, 6, 23, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 18px;
+            padding: 16px;
+            white-space: pre-wrap;
+            color: #e2e8f0;
+            line-height: 1.5;
+            overflow: auto;
+            min-height: 160px;
+            max-height: 420px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .stat {
+            background: rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 14px;
+        }
+
+        .label {
+            color: #94a3b8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+        }
+
+        code {
+            color: #fdba74;
+            font-weight: bold;
+        }
+
+        @media (max-width: 850px) {
+            .grid, .stat-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <section class="hero">
+            <div class="top">
+                <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+                <div>
+                    <h1>FoxBot Economy Dashboard</h1>
+                    <div class="subtitle">
+                        Manage and preview the FoxCoins economy, reward shop, redemptions,
+                        cooldowns, arcade stats, and saved bot data.
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav">
+                <a href="/">Home</a>
+                <a href="/demo">Judge Demo</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/features">Features</a>
+                <a href="/overlay/giveaway">Giveaway Overlay</a>
+                <a href="/overlay/redemptions">Redemptions Overlay</a>
+                <a href="/proof">Proof</a>
+            </div>
+
+            <div class="stat-grid">
+                <div class="stat">
+                    <div class="label">Currency</div>
+                    <div class="value" id="currencyName">Loading</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Balances</div>
+                    <div class="value" id="balanceCount">0</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Rewards</div>
+                    <div class="value" id="rewardCount">0</div>
+                </div>
+            </div>
+        </section>
+
+        <div class="grid">
+            <section class="panel">
+                <h2>Economy Test Buttons</h2>
+                <div class="buttons">
+                    <button onclick="runCommand('!daily')">!daily</button>
+                    <button onclick="runCommand('!foxhunt')">!foxhunt</button>
+                    <button onclick="runCommand('!balance')">!balance</button>
+                    <button onclick="runCommand('!shop')">!shop</button>
+                    <button onclick="runCommand('!redeem hug')">redeem hug</button>
+                    <button onclick="runCommand('!redeem mysterybox')">mysterybox</button>
+                    <button onclick="runCommand('!coinleaderboard')">leaderboard</button>
+                    <button onclick="runCommand('!givepoints avisi 100')">give avisi 100</button>
+                    <button onclick="runCommand('!addreward hydrate 25 @{username} redeemed hydrate. Drink water!')">add hydrate</button>
+                    <button onclick="runCommand('!redeem hydrate')">redeem hydrate</button>
+                    <button onclick="runCommand('!redeems')">!redeems</button>
+                    <button onclick="runCommand('!cooldowns')">!cooldowns</button>
+                    <button class="secondary" onclick="refreshAll()">Refresh Data</button>
+                    <button class="secondary" onclick="openEndpoint('/save-data')">Save Data</button>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>Command Result</h2>
+                <div id="result" class="box">Click a test button to run a FoxBot economy command.</div>
+            </section>
+
+            <section class="panel">
+                <h2>FoxCoins Data</h2>
+                <div id="foxcoins" class="box">Loading...</div>
+            </section>
+
+            <section class="panel">
+                <h2>Reward Shop</h2>
+                <div id="rewards" class="box">Loading...</div>
+            </section>
+
+            <section class="panel">
+                <h2>Recent Redemptions</h2>
+                <div id="redemptions" class="box">Loading...</div>
+            </section>
+
+            <section class="panel">
+                <h2>Cooldowns + Data Status</h2>
+                <div id="status" class="box">Loading...</div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        async function runCommand(command) {
+            const result = document.getElementById("result");
+            result.textContent = "Running " + command + "...";
+
+            try {
+                const response = await fetch("/chat?username=Ryan&message=" + encodeURIComponent(command));
+                const data = await response.json();
+                result.textContent = "Command: " + command + "\\n\\nResponse:\\n" + data.response;
+                await refreshAll();
+            } catch (error) {
+                result.textContent = "Error: " + error;
+            }
+        }
+
+        async function getJSON(path) {
+            const response = await fetch(path);
+            return await response.json();
+        }
+
+        function pretty(data) {
+            return JSON.stringify(data, null, 2);
+        }
+
+        async function refreshAll() {
+            try {
+                const foxcoins = await getJSON("/foxcoins");
+                const rewards = await getJSON("/rewards");
+                const redemptions = await getJSON("/redemptions");
+                const cooldowns = await getJSON("/cooldowns");
+                const dataStatus = await getJSON("/data-status");
+
+                document.getElementById("currencyName").textContent = foxcoins.currency_name || "FoxCoins";
+                document.getElementById("balanceCount").textContent = Object.keys(foxcoins.balances || {}).length;
+                document.getElementById("rewardCount").textContent = rewards.reward_count || 0;
+
+                document.getElementById("foxcoins").textContent = pretty(foxcoins);
+                document.getElementById("rewards").textContent = pretty(rewards);
+                document.getElementById("redemptions").textContent = pretty(redemptions);
+                document.getElementById("status").textContent =
+                    "Cooldowns:\\n" + pretty(cooldowns) + "\\n\\nData Status:\\n" + pretty(dataStatus);
+            } catch (error) {
+                document.getElementById("status").textContent = "Error loading dashboard data: " + error;
+            }
+        }
+
+        function openEndpoint(path) {
+            window.open(path, "_blank");
+        }
+
+        refreshAll();
+        setInterval(refreshAll, 5000);
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/economy", response_class=HTMLResponse)
+def economy_dashboard_page():
+    return economy_dashboard_html
 
