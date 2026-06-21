@@ -102,6 +102,8 @@ reward_shop = {
     }
 }
 
+redemption_queue = []
+
 proof_stats = {
     "blaze_connected": False,
     "channel_id": os.getenv("BLAZE_CHANNEL_ID"),
@@ -838,6 +840,34 @@ def add_points(name: str, amount: int, reason: str = "activity"):
     return new_balance
 
 
+def add_redemption(username: str, reward_name: str, message: str, cost: int):
+    redemption = {
+        "username": normalize_viewer_name(username),
+        "reward": reward_name,
+        "message": message,
+        "cost": int(cost)
+    }
+
+    redemption_queue.insert(0, redemption)
+
+    # Keep the latest 10 redemptions
+    del redemption_queue[10:]
+
+    return redemption
+
+
+def format_redemptions(limit: int = 5):
+    if not redemption_queue:
+        return "No active redemptions yet. Use !shop and !redeem to spend FoxCoins."
+
+    parts = []
+
+    for item in redemption_queue[:limit]:
+        parts.append(f"@{item['username']} redeemed {item['reward']}")
+
+    return "Recent redemptions: " + " | ".join(parts)
+
+
 def format_reward_shop():
     currency = get_currency_name()
 
@@ -981,6 +1011,7 @@ def chat(message: str = "", username: str = "viewer"):
     global arcade_stats
     global foxcoin_economy
     global reward_shop
+    global redemption_queue
 
     original_message = message.strip()
     lower_message = original_message.lower()
@@ -993,11 +1024,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !clearredeems, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
         }
 
     if lower_message == "!schedule":
@@ -1180,6 +1211,23 @@ def chat(message: str = "", username: str = "viewer"):
             "response": f"@{target} lost {amount} {currency}. New balance: {new_balance} {currency}."
         }
 
+    if lower_message == "!redeems":
+        return {
+            "response": format_redemptions()
+        }
+
+    if lower_message == "!clearredeems":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can clear redemptions."
+            }
+
+        redemption_queue.clear()
+
+        return {
+            "response": "FoxBot redemption queue cleared."
+        }
+
     if lower_message == "!shop":
         return {
             "response": format_reward_shop()
@@ -1219,28 +1267,39 @@ def chat(message: str = "", username: str = "viewer"):
             if mystery_roll <= 10:
                 bonus = 150
                 new_balance = add_points(username, bonus, "mysterybox jackpot")
+                redeem_message = f"@{username} opened a mystery box and hit the JACKPOT! +{bonus} {currency}. Balance: {new_balance} {currency}."
+                add_redemption(username, reward_name, redeem_message, cost)
                 return {
-                    "response": f"@{username} opened a mystery box and hit the JACKPOT! +{bonus} {currency}. Balance: {new_balance} {currency}."
+                    "response": redeem_message
                 }
 
             if mystery_roll <= 35:
                 bonus = 50
                 new_balance = add_points(username, bonus, "mysterybox prize")
+                redeem_message = f"@{username} opened a mystery box and found {bonus} {currency}! Balance: {new_balance} {currency}."
+                add_redemption(username, reward_name, redeem_message, cost)
                 return {
-                    "response": f"@{username} opened a mystery box and found {bonus} {currency}! Balance: {new_balance} {currency}."
+                    "response": redeem_message
                 }
 
             if mystery_roll <= 70:
+                redeem_message = f"@{username} opened a mystery box and found bonus hype for the chat! Balance: {new_balance} {currency}."
+                add_redemption(username, reward_name, redeem_message, cost)
                 return {
-                    "response": f"@{username} opened a mystery box and found bonus hype for the chat! Balance: {new_balance} {currency}."
+                    "response": redeem_message
                 }
 
+            redeem_message = f"@{username} opened a mystery box... and the fox ran away with the loot. Balance: {new_balance} {currency}."
+            add_redemption(username, reward_name, redeem_message, cost)
             return {
-                "response": f"@{username} opened a mystery box... and the fox ran away with the loot. Balance: {new_balance} {currency}."
+                "response": redeem_message
             }
 
+        redeem_message = format_reward_response(response_template, username, cost, new_balance) + f" Balance: {new_balance} {currency}."
+        add_redemption(username, reward_name, redeem_message, cost)
+
         return {
-            "response": format_reward_response(response_template, username, cost, new_balance) + f" Balance: {new_balance} {currency}."
+            "response": redeem_message
         }
 
     if lower_message.startswith("!addreward"):
@@ -1543,7 +1602,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -2936,6 +2995,7 @@ judge_demo_html = """
                     <button onclick="runCommand('!balance')">!balance</button>
                     <button onclick="runCommand('!shop')">!shop</button>
                     <button onclick="runCommand('!redeem hug')">redeem hug</button>
+                    <button onclick="runCommand('!redeems')">!redeems</button>
                     <button onclick="runCommand('!redeem mysterybox')">mysterybox</button>
                     <button onclick="runCommand('!addreward hydrate 25 @{username} redeemed hydrate. Drink water!')">add hydrate reward</button>
                     <button onclick="runCommand('!coinleaderboard')">!coinleaderboard</button>
@@ -3073,6 +3133,7 @@ def rewards_endpoint():
         "currency_name": get_currency_name(),
         "reward_count": len(reward_shop),
         "rewards": reward_shop,
+        "redemptions_overlay": "/overlay/redemptions",
         "commands": [
             "!shop",
             "!redeem hug",
@@ -3084,4 +3145,191 @@ def rewards_endpoint():
             "!delreward hydrate"
         ]
     }
+
+
+@app.get("/redemptions")
+def redemptions_endpoint():
+    return {
+        "count": len(redemption_queue),
+        "latest": redemption_queue[0] if redemption_queue else None,
+        "redemptions": redemption_queue,
+        "commands": [
+            "!shop",
+            "!redeem hug",
+            "!redeems",
+            "!clearredeems"
+        ]
+    }
+
+
+redemptions_overlay_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Redemptions Overlay</title>
+    <style>
+        body {
+            margin: 0;
+            background: transparent;
+            font-family: Arial, sans-serif;
+            color: white;
+            overflow: hidden;
+        }
+
+        .overlay {
+            width: 100vw;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 30px;
+            box-sizing: border-box;
+        }
+
+        .card {
+            width: 760px;
+            background: rgba(15, 23, 42, 0.94);
+            border: 2px solid rgba(249, 115, 22, 0.65);
+            border-radius: 28px;
+            padding: 26px;
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .logo {
+            width: 64px;
+            height: 64px;
+            border-radius: 18px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.65);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 34px;
+            color: #fdba74;
+        }
+
+        .subtitle {
+            color: #cbd5e1;
+            margin-top: 4px;
+            font-size: 16px;
+        }
+
+        .latest {
+            background: linear-gradient(135deg, rgba(249,115,22,0.24), rgba(234,88,12,0.14));
+            border: 1px solid rgba(249,115,22,0.45);
+            border-radius: 20px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+
+        .label {
+            color: #94a3b8;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 7px;
+        }
+
+        .message {
+            font-size: 24px;
+            font-weight: bold;
+            line-height: 1.28;
+        }
+
+        .list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .item {
+            background: rgba(255,255,255,0.06);
+            border-radius: 14px;
+            padding: 10px 12px;
+            color: #e2e8f0;
+            font-size: 16px;
+        }
+
+        .empty {
+            color: #cbd5e1;
+            font-size: 18px;
+            padding: 14px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay">
+        <div class="card">
+            <div class="top">
+                <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+                <div>
+                    <h1>FoxBot Redemptions</h1>
+                    <div class="subtitle">Earn FoxCoins, spend them in chat, show them on stream.</div>
+                </div>
+            </div>
+
+            <div class="latest">
+                <div class="label">Latest Redemption</div>
+                <div id="latestMessage" class="message">Waiting for a redemption...</div>
+            </div>
+
+            <div class="label">Recent Queue</div>
+            <div id="queue" class="list">
+                <div class="empty">No redemptions yet. Type !shop then !redeem hug.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function refreshRedemptions() {
+            try {
+                const response = await fetch('/redemptions');
+                const data = await response.json();
+
+                const latestMessage = document.getElementById("latestMessage");
+                const queue = document.getElementById("queue");
+
+                if (!data.latest) {
+                    latestMessage.textContent = "Waiting for a redemption...";
+                    queue.innerHTML = '<div class="empty">No redemptions yet. Type !shop then !redeem hug.</div>';
+                    return;
+                }
+
+                latestMessage.textContent = data.latest.message;
+
+                queue.innerHTML = "";
+
+                data.redemptions.slice(0, 5).forEach(function(item) {
+                    const div = document.createElement("div");
+                    div.className = "item";
+                    div.textContent = "@" + item.username + " redeemed " + item.reward + " (" + item.cost + " FoxCoins)";
+                    queue.appendChild(div);
+                });
+            } catch (error) {
+                document.getElementById("latestMessage").textContent = "Error loading redemptions.";
+            }
+        }
+
+        refreshRedemptions();
+        setInterval(refreshRedemptions, 3000);
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/overlay/redemptions", response_class=HTMLResponse)
+def redemptions_overlay_page():
+    return redemptions_overlay_html
 
