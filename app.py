@@ -4046,6 +4046,7 @@ economy_dashboard_html = """
                 <a href="/features">Features</a>
                 <a href="/overlay/giveaway">Giveaway Overlay</a>
                 <a href="/overlay/redemptions">Redemptions Overlay</a>
+                <a href="/overlay/boss">Boss Overlay</a>
                 <a href="/proof">Proof</a>
             </div>
 
@@ -4193,4 +4194,325 @@ def boss_endpoint():
             "!endboss"
         ]
     }
+
+
+boss_overlay_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Boss Battle Overlay</title>
+    <style>
+        body {
+            margin: 0;
+            background: transparent;
+            font-family: Arial, sans-serif;
+            color: white;
+            overflow: hidden;
+        }
+
+        .overlay {
+            width: 100vw;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 28px;
+            box-sizing: border-box;
+        }
+
+        .card {
+            width: 900px;
+            background: rgba(15, 23, 42, 0.94);
+            border: 2px solid rgba(249, 115, 22, 0.7);
+            border-radius: 28px;
+            padding: 26px;
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .logo {
+            width: 72px;
+            height: 72px;
+            border-radius: 20px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.7);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 38px;
+            color: #fdba74;
+        }
+
+        .subtitle {
+            color: #cbd5e1;
+            margin-top: 4px;
+            font-size: 17px;
+        }
+
+        .boss-name {
+            font-size: 34px;
+            font-weight: 900;
+            margin-top: 10px;
+            color: white;
+        }
+
+        .status {
+            color: #cbd5e1;
+            margin-top: 6px;
+            font-size: 18px;
+        }
+
+        .hp-wrap {
+            margin-top: 22px;
+        }
+
+        .hp-top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            margin-bottom: 8px;
+            color: #e2e8f0;
+        }
+
+        .hp-bar {
+            width: 100%;
+            height: 38px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.16);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .hp-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #ef4444, #f97316, #fdba74);
+            border-radius: 999px;
+            transition: width 0.5s ease;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .panel {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 18px;
+        }
+
+        .label {
+            color: #94a3b8;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .leaderboard {
+            display: grid;
+            gap: 8px;
+        }
+
+        .leader {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            background: rgba(2, 6, 23, 0.4);
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 17px;
+        }
+
+        .commands {
+            font-size: 22px;
+            font-weight: 900;
+            line-height: 1.45;
+        }
+
+        .commands span {
+            color: #fdba74;
+        }
+
+        .small {
+            color: #cbd5e1;
+            font-size: 16px;
+            line-height: 1.45;
+        }
+
+        .defeated {
+            font-size: 28px;
+            font-weight: 900;
+            color: #fdba74;
+            margin-top: 4px;
+        }
+
+        .empty {
+            color: #cbd5e1;
+            font-size: 18px;
+            padding: 12px;
+            background: rgba(2, 6, 23, 0.35);
+            border-radius: 12px;
+        }
+
+        @media (max-width: 900px) {
+            .card {
+                width: 100%;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            .boss-name {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay">
+        <div class="card">
+            <div class="top">
+                <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+                <div>
+                    <h1>FoxBot Boss Battle</h1>
+                    <div class="subtitle">Chat fights together. Attack, earn FoxCoins, defeat the boss.</div>
+                </div>
+            </div>
+
+            <div class="boss-name" id="bossName">Loading boss...</div>
+            <div class="status" id="bossStatus">Checking battle status...</div>
+
+            <div class="hp-wrap">
+                <div class="hp-top">
+                    <div>Boss HP</div>
+                    <div id="hpText">0 / 0</div>
+                </div>
+                <div class="hp-bar">
+                    <div class="hp-fill" id="hpFill"></div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <section class="panel">
+                    <div class="label">Top Damage</div>
+                    <div id="leaderboard" class="leaderboard">
+                        <div class="empty">No damage yet. Type !attack.</div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="label">Chat Commands</div>
+                    <div class="commands">
+                        Type <span>!attack</span><br>
+                        or <span>!powerattack</span>
+                    </div>
+                    <div class="small" style="margin-top: 14px;">
+                        Power attacks spend FoxCoins for bigger damage.
+                    </div>
+
+                    <div class="label" style="margin-top: 18px;">Bosses Defeated</div>
+                    <div class="defeated" id="defeatedCount">0</div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function titleCaseName(name) {
+            if (!name) return "";
+            return name;
+        }
+
+        async function refreshBoss() {
+            try {
+                const response = await fetch('/boss');
+                const data = await response.json();
+                const boss = data.boss_battle || {};
+
+                const bossName = document.getElementById("bossName");
+                const bossStatus = document.getElementById("bossStatus");
+                const hpText = document.getElementById("hpText");
+                const hpFill = document.getElementById("hpFill");
+                const leaderboard = document.getElementById("leaderboard");
+                const defeatedCount = document.getElementById("defeatedCount");
+
+                const active = boss.active;
+                const name = boss.name || "Cyber Fox Dragon";
+                const hp = Number(boss.hp || 0);
+                const maxHp = Number(boss.max_hp || 500);
+                const defeated = Number(boss.defeated_count || 0);
+                const damageLog = boss.damage_log || {};
+
+                bossName.textContent = active ? name : "No Active Boss";
+                bossStatus.textContent = active
+                    ? "Boss is live. Chat can attack now."
+                    : "Waiting for the next boss. Admins can type !startboss Cyber Fox Dragon.";
+
+                hpText.textContent = active ? hp + " / " + maxHp : "0 / " + maxHp;
+
+                let percent = active && maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
+                hpFill.style.width = percent + "%";
+
+                defeatedCount.textContent = defeated;
+
+                const rows = Object.entries(damageLog)
+                    .sort((a, b) => Number(b[1]) - Number(a[1]))
+                    .slice(0, 5);
+
+                leaderboard.innerHTML = "";
+
+                if (rows.length === 0) {
+                    leaderboard.innerHTML = '<div class="empty">No damage yet. Type !attack.</div>';
+                    return;
+                }
+
+                rows.forEach(function(row, index) {
+                    const div = document.createElement("div");
+                    div.className = "leader";
+
+                    const name = document.createElement("div");
+                    name.textContent = (index + 1) + ". @" + row[0];
+
+                    const damage = document.createElement("div");
+                    damage.textContent = row[1] + " DMG";
+
+                    div.appendChild(name);
+                    div.appendChild(damage);
+                    leaderboard.appendChild(div);
+                });
+            } catch (error) {
+                document.getElementById("bossStatus").textContent = "Error loading boss battle.";
+            }
+        }
+
+        refreshBoss();
+        setInterval(refreshBoss, 3000);
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/overlay/boss", response_class=HTMLResponse)
+def boss_overlay_page():
+    return boss_overlay_html
 
