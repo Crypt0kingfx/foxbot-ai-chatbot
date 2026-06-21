@@ -3427,6 +3427,7 @@ judge_demo_html = """
             <div class="nav">
                 <a href="/">Home</a>
                 <a href="/demo">Judge Demo</a>
+                <a href="/smoke-test">Smoke Test</a>
                 <a href="/dashboard">Dashboard</a>
                 <a href="/demo">Demo</a>
                 <a href="/economy">Economy</a>
@@ -4515,4 +4516,409 @@ boss_overlay_html = """
 @app.get("/overlay/boss", response_class=HTMLResponse)
 def boss_overlay_page():
     return boss_overlay_html
+
+
+smoke_test_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot Smoke Test</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: radial-gradient(circle at top, #1f2937, #020617 70%);
+            color: white;
+        }
+
+        .wrap {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 40px 22px;
+        }
+
+        .hero {
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(249, 115, 22, 0.5);
+            border-radius: 28px;
+            padding: 32px;
+            box-shadow: 0 20px 70px rgba(0,0,0,0.35);
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            width: 86px;
+            height: 86px;
+            border-radius: 22px;
+            object-fit: cover;
+            border: 2px solid rgba(249, 115, 22, 0.7);
+        }
+
+        h1 {
+            margin: 0;
+            color: #fdba74;
+            font-size: 44px;
+        }
+
+        .subtitle {
+            margin-top: 8px;
+            color: #cbd5e1;
+            font-size: 18px;
+            line-height: 1.5;
+        }
+
+        .nav {
+            margin-top: 24px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 999px;
+            padding: 10px 14px;
+        }
+
+        .panel {
+            margin-top: 22px;
+            background: rgba(15, 23, 42, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 22px;
+            padding: 22px;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            cursor: pointer;
+            border: 0;
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            font-weight: 800;
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 8px 22px rgba(249,115,22,0.18);
+        }
+
+        button.secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .stat {
+            background: rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 14px;
+        }
+
+        .label {
+            color: #94a3b8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .value {
+            font-size: 26px;
+            font-weight: bold;
+        }
+
+        .results {
+            display: grid;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .row {
+            background: rgba(2, 6, 23, 0.72);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 16px;
+            padding: 14px;
+        }
+
+        .row-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .cmd {
+            color: #fdba74;
+            font-weight: 900;
+        }
+
+        .ok {
+            color: #86efac;
+            font-weight: 900;
+        }
+
+        .fail {
+            color: #fca5a5;
+            font-weight: 900;
+        }
+
+        .pending {
+            color: #fde68a;
+            font-weight: 900;
+        }
+
+        .response {
+            color: #e2e8f0;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        code {
+            color: #fdba74;
+            font-weight: bold;
+        }
+
+        @media (max-width: 850px) {
+            .summary {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <section class="hero">
+            <div class="top">
+                <img src="/static/foxbot-logo.png" class="logo" alt="FoxBot Logo">
+                <div>
+                    <h1>FoxBot Smoke Test</h1>
+                    <div class="subtitle">
+                        Run a fast health check before submitting, demoing, or going live.
+                        A command passes if FoxBot returns a real response instead of an error or unknown command.
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav">
+                <a href="/">Home</a>
+                <a href="/demo">Judge Demo</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/economy">Economy</a>
+                <a href="/overlay/giveaway">Giveaway Overlay</a>
+                <a href="/overlay/redemptions">Redemptions Overlay</a>
+                <a href="/overlay/boss">Boss Overlay</a>
+                <a href="/proof">Proof</a>
+            </div>
+
+            <div class="summary">
+                <div class="stat">
+                    <div class="label">Total Tests</div>
+                    <div class="value" id="totalCount">0</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Passed</div>
+                    <div class="value" id="passCount">0</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Failed</div>
+                    <div class="value" id="failCount">0</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Status</div>
+                    <div class="value" id="overallStatus">Ready</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Run Tests</h2>
+            <div class="buttons">
+                <button onclick="runAllTests()">Run Full Smoke Test</button>
+                <button class="secondary" onclick="runCoreTests()">Core Only</button>
+                <button class="secondary" onclick="runEconomyTests()">Economy Only</button>
+                <button class="secondary" onclick="runBossTests()">Boss Only</button>
+                <button class="secondary" onclick="clearResults()">Clear</button>
+            </div>
+
+            <div id="results" class="results"></div>
+        </section>
+    </div>
+
+    <script>
+        const coreTests = [
+            "!help",
+            "!socials",
+            "!schedule",
+            "!faq",
+            "!arcade",
+            "!coinflip",
+            "!roll 20",
+            "!8ball Will FoxBot win?",
+            "!rps rock",
+            "!leaderboard",
+            "!stats",
+            "!hugs"
+        ];
+
+        const economyTests = [
+            "!daily",
+            "!foxhunt",
+            "!balance",
+            "!shop",
+            "!redeem hug",
+            "!redeems",
+            "!coinleaderboard",
+            "!givepoints avisi 100"
+        ];
+
+        const bossTests = [
+            "!startboss Cyber Fox Dragon",
+            "!boss",
+            "!attack",
+            "!givepoints Ryan 100",
+            "!powerattack",
+            "!bossleaderboard"
+        ];
+
+        function allTests() {
+            return [...coreTests, ...economyTests, ...bossTests];
+        }
+
+        function clearResults() {
+            document.getElementById("results").innerHTML = "";
+            updateSummary(0, 0, 0, "Ready");
+        }
+
+        function updateSummary(total, passed, failed, status) {
+            document.getElementById("totalCount").textContent = total;
+            document.getElementById("passCount").textContent = passed;
+            document.getElementById("failCount").textContent = failed;
+            document.getElementById("overallStatus").textContent = status;
+        }
+
+        function makeRow(command) {
+            const row = document.createElement("div");
+            row.className = "row";
+
+            row.innerHTML = `
+                <div class="row-top">
+                    <div class="cmd">${command}</div>
+                    <div class="pending">Testing...</div>
+                </div>
+                <div class="response">Waiting for response...</div>
+            `;
+
+            document.getElementById("results").appendChild(row);
+            return row;
+        }
+
+        function isPassingResponse(text) {
+            if (!text) return false;
+
+            const lower = text.toLowerCase();
+
+            if (lower.includes("unknown command")) return false;
+            if (lower.includes("internal server error")) return false;
+            if (lower.includes("traceback")) return false;
+
+            return true;
+        }
+
+        async function runCommandTest(command) {
+            const row = makeRow(command);
+
+            try {
+                const response = await fetch("/chat?username=Ryan&message=" + encodeURIComponent(command));
+                const data = await response.json();
+                const reply = data.response || JSON.stringify(data);
+
+                const passed = isPassingResponse(reply);
+
+                row.querySelector(".pending").className = passed ? "ok" : "fail";
+                row.querySelector(".ok, .fail").textContent = passed ? "PASS" : "FAIL";
+                row.querySelector(".response").textContent = reply;
+
+                return passed;
+            } catch (error) {
+                row.querySelector(".pending").className = "fail";
+                row.querySelector(".fail").textContent = "FAIL";
+                row.querySelector(".response").textContent = "Error: " + error;
+                return false;
+            }
+        }
+
+        async function runTests(commands) {
+            clearResults();
+
+            let passed = 0;
+            let failed = 0;
+
+            updateSummary(commands.length, 0, 0, "Running");
+
+            for (const command of commands) {
+                const ok = await runCommandTest(command);
+
+                if (ok) {
+                    passed += 1;
+                } else {
+                    failed += 1;
+                }
+
+                updateSummary(commands.length, passed, failed, failed === 0 ? "Passing" : "Review");
+                await new Promise(resolve => setTimeout(resolve, 250));
+            }
+
+            updateSummary(commands.length, passed, failed, failed === 0 ? "All Good" : "Fix Needed");
+        }
+
+        function runAllTests() {
+            runTests(allTests());
+        }
+
+        function runCoreTests() {
+            runTests(coreTests);
+        }
+
+        function runEconomyTests() {
+            runTests(economyTests);
+        }
+
+        function runBossTests() {
+            runTests(bossTests);
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/smoke-test", response_class=HTMLResponse)
+def smoke_test_page():
+    return smoke_test_html
 
