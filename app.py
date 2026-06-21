@@ -1365,11 +1365,11 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !boss, !attack, !powerattack, !bossleaderboard, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask | Admin: !giveaway, !pickwinner, !startboss, !endboss, !shoutout, !givepoints, !takepoints, !addreward, !delreward, !clearredeems, !setcooldown, !clearcooldowns, !setgame, !settitle, !addcmd, !delcmd, !mode hype/chill/pro"
+                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !startboss, !givepoints, !addreward"
             }
 
         return {
-            "response": "FoxBot commands: !help, !schedule, !faq, !socials, !mode, !commands, !arcade, !boss, !attack, !powerattack, !bossleaderboard, !foxhunt, !coinflip, !roll, !8ball, !rps, !balance, !daily, !shop, !redeem, !redeems, !cooldowns, !coinleaderboard, !game, !title, !lurk, !lurkers, !enter, !entries, !stats, !leaderboard, !hugs, !ask"
+            "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem hug, !boss, !attack, !arcade, !socials, !leaderboard"
         }
 
     if lower_message == "!schedule":
