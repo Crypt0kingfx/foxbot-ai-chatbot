@@ -1380,12 +1380,12 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!rules":
         return {
-            "response": "?? BLAZE COMMUNITY SPIN RULES | ?? $25 USDC Giveaway | ??? +100 Votes Sponsored by Fox Spirits | ? Tag 3 Friends | ? Like + Repost | ? Be Active in Fox Spirits Discord | ?? Up to 1.50x Multiplier | ?? 1-5 Gifted Subs = Bonus Entries | ? Sunday 5 PM PST | ?? Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
+            "response": "BLAZE COMMUNITY SPIN RULES | $25 USDC Giveaway | +100 Votes Sponsored by Fox Spirits | Tag 3 Friends | Like + Repost | Be Active in Fox Spirits Discord | Up to 1.50x Multiplier | 1-5 Gifted Subs = Bonus Entries | Sunday 5 PM PST | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
         }
 
     if lower_message == "!giveawaylink":
         return {
-            "response": "?? $25 USDC Giveaway + 100 Votes Sponsored by Fox Spirits ?? | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
+            "response": "$25 USDC Giveaway + 100 Votes Sponsored by Fox Spirits | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
         }
 
     if lower_message == "!help":
