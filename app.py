@@ -91,6 +91,15 @@ support_rewards = {
     "chat_message": 10
 }
 
+fox_spirit_ranks = [
+    {"name": "Fox Pup", "minimum": 0},
+    {"name": "Fox Hunter", "minimum": 250},
+    {"name": "Fox Warrior", "minimum": 750},
+    {"name": "Fox Elder", "minimum": 1500},
+    {"name": "Fox Spirit", "minimum": 3000},
+    {"name": "Fox King", "minimum": 5000}
+]
+
 reward_shop = {
     "hug": {
         "cost": 10,
@@ -153,6 +162,7 @@ def get_persistent_snapshot():
         "arcade_stats": globals().get("arcade_stats", {}),
         "foxcoin_economy": globals().get("foxcoin_economy", {}),
         "support_rewards": globals().get("support_rewards", {}),
+        "fox_spirit_ranks": globals().get("fox_spirit_ranks", []),
         "reward_shop": globals().get("reward_shop", {}),
         "redemption_queue": globals().get("redemption_queue", []),
         "cooldown_settings": globals().get("cooldown_settings", {}),
@@ -167,6 +177,7 @@ def apply_persistent_snapshot(data):
     global arcade_stats
     global foxcoin_economy
     global support_rewards
+    global fox_spirit_ranks
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -190,6 +201,9 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("arcade_stats"), dict):
         arcade_stats.update(data["arcade_stats"])
+
+    if isinstance(data.get("fox_spirit_ranks"), list):
+        fox_spirit_ranks = data["fox_spirit_ranks"]
 
     if isinstance(data.get("support_rewards"), dict):
         support_rewards.update(data["support_rewards"])
@@ -1190,6 +1204,34 @@ def format_reward_response(template: str, username: str, cost: int, balance: int
     )
 
 
+def get_fox_rank(balance: int):
+    current_rank = fox_spirit_ranks[0]
+
+    for rank in fox_spirit_ranks:
+        if int(balance) >= int(rank.get("minimum", 0)):
+            current_rank = rank
+
+    return current_rank
+
+
+def get_next_fox_rank(balance: int):
+    for rank in fox_spirit_ranks:
+        if int(balance) < int(rank.get("minimum", 0)):
+            return rank
+
+    return None
+
+
+def format_rank_list():
+    currency = get_currency_name()
+    parts = []
+
+    for rank in fox_spirit_ranks:
+        parts.append(f"{rank['name']} = {rank['minimum']} {currency}")
+
+    return "Fox Spirit Ranks: " + " | ".join(parts)
+
+
 def format_coin_leaderboard(limit: int = 5):
     currency = get_currency_name()
 
@@ -1306,6 +1348,7 @@ def chat(message: str = "", username: str = "viewer"):
     global arcade_stats
     global foxcoin_economy
     global support_rewards
+    global fox_spirit_ranks
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -1602,6 +1645,33 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": response
+        }
+
+    if lower_message == "!ranks":
+        return {
+            "response": format_rank_list()
+        }
+
+    if lower_message.startswith("!rank"):
+        parts = original_message.split()
+        target = username
+
+        if len(parts) >= 2:
+            target = normalize_viewer_name(parts[1])
+
+        balance = get_balance(target)
+        currency = get_currency_name()
+        current_rank = get_fox_rank(balance)
+        next_rank = get_next_fox_rank(balance)
+
+        if next_rank:
+            needed = int(next_rank["minimum"]) - int(balance)
+            return {
+                "response": f"@{target} is ranked {current_rank['name']} with {balance} {currency}. Next rank: {next_rank['name']} in {needed} {currency}."
+            }
+
+        return {
+            "response": f"@{target} is ranked {current_rank['name']} with {balance} {currency}. Max Fox Spirit rank reached."
         }
 
     if lower_message == "!support":
@@ -2217,7 +2287,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -3620,6 +3690,8 @@ judge_demo_html = """
                     <button onclick="runCommand('!powerattack')">power attack</button>
                     <button onclick="runCommand('!daily')">!daily</button>
                     <button onclick="runCommand('!balance')">!balance</button>
+                    <button onclick="runCommand('!rank')">!rank</button>
+                    <button onclick="runCommand('!ranks')">!ranks</button>
                     <button onclick="runCommand('!shop')">!shop</button>
                     <button onclick="runCommand('!redeem hug')">redeem hug</button>
                     <button onclick="runCommand('!redeems')">!redeems</button>
@@ -5287,6 +5359,19 @@ def support_rewards_endpoint():
             "!claimtip 5",
             "!claimsub",
             "!claimgiftsub 3"
+        ]
+    }
+
+
+@app.get("/ranks")
+def ranks_endpoint():
+    return {
+        "currency_name": get_currency_name(),
+        "ranks": fox_spirit_ranks,
+        "commands": [
+            "!rank",
+            "!rank username",
+            "!ranks"
         ]
     }
 
