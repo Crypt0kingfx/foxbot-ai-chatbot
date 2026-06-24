@@ -100,6 +100,37 @@ fox_spirit_ranks = [
     {"name": "Fox King", "minimum": 5000}
 ]
 
+stream_event = {
+    "active": False,
+    "name": None,
+    "key": None,
+    "description": None,
+    "claimed": {}
+}
+
+stream_event_templates = {
+    "goldenfox": {
+        "name": "Golden Fox",
+        "description": "Fox Hunt rewards are doubled while Golden Fox is active.",
+        "claim_reward": 50
+    },
+    "spiritstorm": {
+        "name": "Spirit Storm",
+        "description": "Boss attacks earn bonus FoxCoins while Spirit Storm is active.",
+        "claim_reward": 35
+    },
+    "treasuredrop": {
+        "name": "Treasure Drop",
+        "description": "Everyone can type !event to claim bonus FoxCoins.",
+        "claim_reward": 75
+    },
+    "foxfrenzy": {
+        "name": "Fox Frenzy",
+        "description": "Arcade mini games bring bonus FoxCoins.",
+        "claim_reward": 40
+    }
+}
+
 reward_shop = {
     "hug": {
         "cost": 10,
@@ -163,6 +194,8 @@ def get_persistent_snapshot():
         "foxcoin_economy": globals().get("foxcoin_economy", {}),
         "support_rewards": globals().get("support_rewards", {}),
         "fox_spirit_ranks": globals().get("fox_spirit_ranks", []),
+        "stream_event": globals().get("stream_event", {}),
+        "stream_event_templates": globals().get("stream_event_templates", {}),
         "reward_shop": globals().get("reward_shop", {}),
         "redemption_queue": globals().get("redemption_queue", []),
         "cooldown_settings": globals().get("cooldown_settings", {}),
@@ -178,6 +211,8 @@ def apply_persistent_snapshot(data):
     global foxcoin_economy
     global support_rewards
     global fox_spirit_ranks
+    global stream_event
+    global stream_event_templates
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -204,6 +239,17 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("fox_spirit_ranks"), list):
         fox_spirit_ranks = data["fox_spirit_ranks"]
+
+    if isinstance(data.get("stream_event"), dict):
+        stream_event.update(data["stream_event"])
+        stream_event.setdefault("active", False)
+        stream_event.setdefault("name", None)
+        stream_event.setdefault("key", None)
+        stream_event.setdefault("description", None)
+        stream_event.setdefault("claimed", {})
+
+    if isinstance(data.get("stream_event_templates"), dict):
+        stream_event_templates.update(data["stream_event_templates"])
 
     if isinstance(data.get("support_rewards"), dict):
         support_rewards.update(data["support_rewards"])
@@ -1204,6 +1250,52 @@ def format_reward_response(template: str, username: str, cost: int, balance: int
     )
 
 
+def format_stream_event():
+    if not stream_event.get("active"):
+        return "No stream event is active. Admins can start one with !startevent goldenfox, spiritstorm, treasuredrop, or foxfrenzy."
+
+    return f"Active Event: {stream_event.get('name')} | {stream_event.get('description')} | Type !event to check or claim."
+
+
+def activate_stream_event(event_key: str):
+    key = (event_key or "").strip().lower()
+    templates = globals().get("stream_event_templates", {})
+
+    if key == "random":
+        key = random.choice(list(templates.keys()))
+
+    if key not in templates:
+        return None
+
+    template = templates[key]
+
+    stream_event["active"] = True
+    stream_event["key"] = key
+    stream_event["name"] = template["name"]
+    stream_event["description"] = template["description"]
+    stream_event["claimed"] = {}
+
+    return template
+
+
+def current_event_multiplier(command_name: str):
+    if not stream_event.get("active"):
+        return 1
+
+    key = stream_event.get("key")
+
+    if key == "goldenfox" and command_name == "!foxhunt":
+        return 2
+
+    if key == "spiritstorm" and command_name in ["!attack", "!powerattack"]:
+        return 2
+
+    if key == "foxfrenzy" and command_name in ["!coinflip", "!roll", "!8ball", "!rps"]:
+        return 2
+
+    return 1
+
+
 def get_fox_rank(balance: int):
     current_rank = fox_spirit_ranks[0]
 
@@ -1349,6 +1441,8 @@ def chat(message: str = "", username: str = "viewer"):
     global foxcoin_economy
     global support_rewards
     global fox_spirit_ranks
+    global stream_event
+    global stream_event_templates
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -1451,7 +1545,7 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !goodnight, !endstream, !startboss, !givepoints, !addreward"
+                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
             }
 
         return {
@@ -1595,6 +1689,8 @@ def chat(message: str = "", username: str = "viewer"):
 
         damage = random.randint(15, 45)
         reward = random.randint(5, 18)
+        multiplier = current_event_multiplier("!attack")
+        reward = reward * multiplier
         currency = get_currency_name()
         boss_name = boss_battle.get("name", "Boss")
 
@@ -1631,6 +1727,8 @@ def chat(message: str = "", username: str = "viewer"):
 
         damage = random.randint(50, 110)
         reward = random.randint(15, 35)
+        multiplier = current_event_multiplier("!powerattack")
+        reward = reward * multiplier
         boss_name = boss_battle.get("name", "Boss")
 
         total_damage = add_boss_damage(username, damage)
@@ -1645,6 +1743,74 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": response
+        }
+
+    if lower_message == "!events":
+        return {
+            "response": "FoxBot Events: goldenfox, spiritstorm, treasuredrop, foxfrenzy. Admins can use !startevent random or !startevent goldenfox."
+        }
+
+    if lower_message == "!event":
+        if not stream_event.get("active"):
+            return {
+                "response": format_stream_event()
+            }
+
+        key = viewer_key(username)
+        currency = get_currency_name()
+        reward = int(stream_event_templates.get(stream_event.get("key"), {}).get("claim_reward", 25))
+
+        if key in stream_event.get("claimed", {}):
+            return {
+                "response": f"@{username}, you already claimed the {stream_event.get('name')} event reward. {stream_event.get('description')}"
+            }
+
+        stream_event.setdefault("claimed", {})[key] = True
+        new_balance = add_points(username, reward, f"stream event {stream_event.get('key')}")
+
+        return {
+            "response": f"@{username} claimed the {stream_event.get('name')} event reward: +{reward} {currency}. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!startevent"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can start stream events."
+            }
+
+        parts = original_message.split()
+
+        event_key = "random"
+        if len(parts) >= 2:
+            event_key = parts[1].strip().lower()
+
+        template = activate_stream_event(event_key)
+
+        if not template:
+            return {
+                "response": "Unknown event. Use: !startevent goldenfox, spiritstorm, treasuredrop, foxfrenzy, or random."
+            }
+
+        return {
+            "response": f"Stream Event Started: {stream_event.get('name')} | {stream_event.get('description')} Type !event to claim/check."
+        }
+
+    if lower_message == "!endevent":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can end stream events."
+            }
+
+        old_name = stream_event.get("name") or "current event"
+
+        stream_event["active"] = False
+        stream_event["name"] = None
+        stream_event["key"] = None
+        stream_event["description"] = None
+        stream_event["claimed"] = {}
+
+        return {
+            "response": f"Stream event ended: {old_name}."
         }
 
     if lower_message == "!ranks":
@@ -2075,10 +2241,19 @@ def chat(message: str = "", username: str = "viewer"):
         ]
 
         event, reward = random.choice(outcomes)
-        new_balance = add_points(username, reward, "foxhunt")
+        multiplier = current_event_multiplier("!foxhunt")
+        reward = reward * multiplier
+        reason = "foxhunt"
+        if multiplier > 1:
+            reason = f"foxhunt x{multiplier} stream event"
+        new_balance = add_points(username, reward, reason)
+
+        bonus_text = ""
+        if current_event_multiplier("!foxhunt") > 1:
+            bonus_text = f" {stream_event.get('name')} bonus active!"
 
         return {
-            "response": f"@{username} went on a fox hunt and {event}! +{reward} {currency}. Balance: {new_balance} {currency}."
+            "response": f"@{username} went on a fox hunt and {event}! +{reward} {currency}. Balance: {new_balance} {currency}.{bonus_text}"
         }
 
     if lower_message == "!arcade":
@@ -2287,7 +2462,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -3692,6 +3867,9 @@ judge_demo_html = """
                     <button onclick="runCommand('!balance')">!balance</button>
                     <button onclick="runCommand('!rank')">!rank</button>
                     <button onclick="runCommand('!ranks')">!ranks</button>
+                    <button onclick="runCommand('!events')">!events</button>
+                    <button onclick="runCommand('!startevent goldenfox')">start Golden Fox</button>
+                    <button onclick="runCommand('!event')">!event</button>
                     <button onclick="runCommand('!shop')">!shop</button>
                     <button onclick="runCommand('!redeem hug')">redeem hug</button>
                     <button onclick="runCommand('!redeems')">!redeems</button>
@@ -5372,6 +5550,25 @@ def ranks_endpoint():
             "!rank",
             "!rank username",
             "!ranks"
+        ]
+    }
+
+
+@app.get("/stream-event")
+def stream_event_endpoint():
+    return {
+        "active_event": stream_event,
+        "event_templates": stream_event_templates,
+        "status": format_stream_event(),
+        "commands": [
+            "!events",
+            "!event",
+            "!startevent random",
+            "!startevent goldenfox",
+            "!startevent spiritstorm",
+            "!startevent treasuredrop",
+            "!startevent foxfrenzy",
+            "!endevent"
         ]
     }
 
