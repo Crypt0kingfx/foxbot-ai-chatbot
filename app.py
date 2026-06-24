@@ -3,6 +3,7 @@ import json
 import random
 import threading
 import time
+from datetime import date
 
 import requests
 from dotenv import load_dotenv
@@ -118,6 +119,8 @@ community_quest = {
     "completed": False
 }
 
+viewer_streaks = {}
+
 stream_event_templates = {
     "goldenfox": {
         "name": "Golden Fox",
@@ -207,6 +210,7 @@ def get_persistent_snapshot():
         "stream_event": globals().get("stream_event", {}),
         "stream_event_templates": globals().get("stream_event_templates", {}),
         "community_quest": globals().get("community_quest", {}),
+        "viewer_streaks": globals().get("viewer_streaks", {}),
         "reward_shop": globals().get("reward_shop", {}),
         "redemption_queue": globals().get("redemption_queue", []),
         "cooldown_settings": globals().get("cooldown_settings", {}),
@@ -225,6 +229,7 @@ def apply_persistent_snapshot(data):
     global stream_event
     global stream_event_templates
     global community_quest
+    global viewer_streaks
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -262,6 +267,9 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("stream_event_templates"), dict):
         stream_event_templates.update(data["stream_event_templates"])
+
+    if isinstance(data.get("viewer_streaks"), dict):
+        viewer_streaks.update(data["viewer_streaks"])
 
     if isinstance(data.get("community_quest"), dict):
         community_quest.update(data["community_quest"])
@@ -1273,6 +1281,42 @@ def format_reward_response(template: str, username: str, cost: int, balance: int
     )
 
 
+def today_string():
+    return date.today().isoformat()
+
+
+def get_streak_data(username: str):
+    key = viewer_key(username)
+
+    if key not in viewer_streaks:
+        viewer_streaks[key] = {
+            "display_name": normalize_viewer_name(username),
+            "streak": 0,
+            "best_streak": 0,
+            "last_checkin": None
+        }
+
+    return viewer_streaks[key]
+
+
+def format_streak_leaderboard(limit: int = 5):
+    if not viewer_streaks:
+        return "No streaks yet. Type !checkin to start your FoxBot streak."
+
+    sorted_streaks = sorted(
+        viewer_streaks.values(),
+        key=lambda item: int(item.get("streak", 0)),
+        reverse=True
+    )
+
+    parts = []
+
+    for index, item in enumerate(sorted_streaks[:limit], start=1):
+        parts.append(f"{index}. {item.get('display_name')} ? {item.get('streak', 0)} streak")
+
+    return "FoxBot streak leaderboard: " + " | ".join(parts)
+
+
 def format_quest_status():
     currency = get_currency_name()
 
@@ -1505,6 +1549,7 @@ def chat(message: str = "", username: str = "viewer"):
     global stream_event
     global stream_event_templates
     global community_quest
+    global viewer_streaks
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -1607,7 +1652,7 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !startquest, !endquest, !questadd, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
+                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !resetstreak, !startquest, !endquest, !questadd, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
             }
 
         return {
@@ -1805,6 +1850,72 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": response
+        }
+
+    if lower_message == "!checkin":
+        data = get_streak_data(username)
+        today = today_string()
+        currency = get_currency_name()
+
+        if data.get("last_checkin") == today:
+            return {
+                "response": f"@{username}, you already checked in today. Current streak: {data.get('streak', 0)}."
+            }
+
+        data["last_checkin"] = today
+        data["streak"] = int(data.get("streak", 0)) + 1
+        data["best_streak"] = max(int(data.get("best_streak", 0)), int(data.get("streak", 0)))
+
+        reward = 20 + min(int(data["streak"]) * 5, 100)
+        new_balance = add_points(username, reward, "daily streak checkin")
+
+        return {
+            "response": f"@{username} checked in! Streak: {data['streak']} | Best: {data['best_streak']} | +{reward} {currency}. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!streak"):
+        parts = original_message.split()
+        target = username
+
+        if len(parts) >= 2:
+            target = normalize_viewer_name(parts[1])
+
+        data = get_streak_data(target)
+
+        return {
+            "response": f"@{target}'s FoxBot streak: {data.get('streak', 0)} | Best streak: {data.get('best_streak', 0)} | Last check-in: {data.get('last_checkin') or 'never'}"
+        }
+
+    if lower_message == "!streaks":
+        return {
+            "response": format_streak_leaderboard()
+        }
+
+    if lower_message.startswith("!resetstreak"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can reset streaks."
+            }
+
+        parts = original_message.split()
+
+        if len(parts) < 2:
+            return {
+                "response": "Use !resetstreak username. Example: !resetstreak avisi"
+            }
+
+        target = normalize_viewer_name(parts[1])
+        key = viewer_key(target)
+
+        viewer_streaks[key] = {
+            "display_name": target,
+            "streak": 0,
+            "best_streak": 0,
+            "last_checkin": None
+        }
+
+        return {
+            "response": f"@{target}'s FoxBot streak has been reset."
         }
 
     if lower_message in ["!quest", "!questprogress"]:
@@ -2688,7 +2799,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -4096,6 +4207,9 @@ judge_demo_html = """
                     <button onclick="runCommand('!events')">!events</button>
                     <button onclick="runCommand('!quests')">!quests</button>
                     <button onclick="runCommand('!startquest foxhunt 3')">start foxhunt quest</button>
+                    <button onclick="runCommand('!checkin')">!checkin</button>
+                    <button onclick="runCommand('!streak')">!streak</button>
+                    <button onclick="runCommand('!streaks')">!streaks</button>
                     <button onclick="runCommand('!quest')">!quest</button>
                     <button onclick="runCommand('!claimquest')">!claimquest</button>
                     <button onclick="runCommand('!startevent goldenfox')">start Golden Fox</button>
@@ -5820,6 +5934,23 @@ def community_quest_endpoint():
             "!questadd 1",
             "!claimquest",
             "!endquest"
+        ]
+    }
+
+
+@app.get("/streaks")
+def streaks_endpoint():
+    return {
+        "today": today_string(),
+        "viewer_count": len(viewer_streaks),
+        "streaks": viewer_streaks,
+        "leaderboard": format_streak_leaderboard(),
+        "commands": [
+            "!checkin",
+            "!streak",
+            "!streak username",
+            "!streaks",
+            "!resetstreak username"
         ]
     }
 
