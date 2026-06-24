@@ -108,6 +108,16 @@ stream_event = {
     "claimed": {}
 }
 
+community_quest = {
+    "active": False,
+    "type": None,
+    "goal": 0,
+    "progress": 0,
+    "reward": 100,
+    "claimed": {},
+    "completed": False
+}
+
 stream_event_templates = {
     "goldenfox": {
         "name": "Golden Fox",
@@ -196,6 +206,7 @@ def get_persistent_snapshot():
         "fox_spirit_ranks": globals().get("fox_spirit_ranks", []),
         "stream_event": globals().get("stream_event", {}),
         "stream_event_templates": globals().get("stream_event_templates", {}),
+        "community_quest": globals().get("community_quest", {}),
         "reward_shop": globals().get("reward_shop", {}),
         "redemption_queue": globals().get("redemption_queue", []),
         "cooldown_settings": globals().get("cooldown_settings", {}),
@@ -213,6 +224,7 @@ def apply_persistent_snapshot(data):
     global fox_spirit_ranks
     global stream_event
     global stream_event_templates
+    global community_quest
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -250,6 +262,16 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("stream_event_templates"), dict):
         stream_event_templates.update(data["stream_event_templates"])
+
+    if isinstance(data.get("community_quest"), dict):
+        community_quest.update(data["community_quest"])
+        community_quest.setdefault("active", False)
+        community_quest.setdefault("type", None)
+        community_quest.setdefault("goal", 0)
+        community_quest.setdefault("progress", 0)
+        community_quest.setdefault("reward", 100)
+        community_quest.setdefault("claimed", {})
+        community_quest.setdefault("completed", False)
 
     if isinstance(data.get("support_rewards"), dict):
         support_rewards.update(data["support_rewards"])
@@ -1098,6 +1120,7 @@ def finish_boss_if_defeated():
 
     boss_battle["active"] = False
     boss_battle["defeated_count"] = int(boss_battle.get("defeated_count", 0)) + 1
+    add_quest_progress("boss", 1)
     boss_battle["last_winner"] = top_player
 
     bonus = 100
@@ -1248,6 +1271,44 @@ def format_reward_response(template: str, username: str, cost: int, balance: int
         .replace("{balance}", str(balance))
         .replace("{currency}", currency)
     )
+
+
+def format_quest_status():
+    currency = get_currency_name()
+
+    if not community_quest.get("active"):
+        return "No community quest is active. Admins can start one with !startquest foxhunt 10"
+
+    quest_type = community_quest.get("type", "unknown")
+    progress = int(community_quest.get("progress", 0))
+    goal = int(community_quest.get("goal", 0))
+    reward = int(community_quest.get("reward", 100))
+    completed = community_quest.get("completed", False)
+
+    if completed:
+        return f"Community Quest Complete: {quest_type} {progress}/{goal}. Type !claimquest to claim {reward} {currency}."
+
+    return f"Community Quest: {quest_type} {progress}/{goal}. Reward: {reward} {currency}. Everyone helps complete it!"
+
+
+def add_quest_progress(quest_type: str, amount: int = 1):
+    if not community_quest.get("active"):
+        return None
+
+    if community_quest.get("completed"):
+        return None
+
+    if community_quest.get("type") != quest_type:
+        return None
+
+    community_quest["progress"] = int(community_quest.get("progress", 0)) + int(amount)
+
+    if int(community_quest.get("progress", 0)) >= int(community_quest.get("goal", 0)):
+        community_quest["progress"] = int(community_quest.get("goal", 0))
+        community_quest["completed"] = True
+        return "completed"
+
+    return "progress"
 
 
 def format_stream_event():
@@ -1443,6 +1504,7 @@ def chat(message: str = "", username: str = "viewer"):
     global fox_spirit_ranks
     global stream_event
     global stream_event_templates
+    global community_quest
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -1545,7 +1607,7 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!help":
         if admin:
             return {
-                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
+                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !startquest, !endquest, !questadd, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
             }
 
         return {
@@ -1745,6 +1807,159 @@ def chat(message: str = "", username: str = "viewer"):
             "response": response
         }
 
+    if lower_message in ["!quest", "!questprogress"]:
+        return {
+            "response": format_quest_status()
+        }
+
+    if lower_message == "!quests":
+        return {
+            "response": "Community Quest types: foxhunt, boss, redeem, chat, arcade. Admin examples: !startquest foxhunt 10 | !startquest boss 1 | !startquest redeem 5"
+        }
+
+    if lower_message.startswith("!startquest"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can start community quests."
+            }
+
+        parts = original_message.split()
+
+        if len(parts) < 3:
+            return {
+                "response": "Use !startquest type goal. Example: !startquest foxhunt 10"
+            }
+
+        quest_type = parts[1].strip().lower()
+
+        allowed_types = ["foxhunt", "boss", "redeem", "chat", "arcade"]
+
+        if quest_type not in allowed_types:
+            return {
+                "response": "Quest type must be one of: foxhunt, boss, redeem, chat, arcade"
+            }
+
+        try:
+            goal = int(parts[2])
+        except ValueError:
+            return {
+                "response": "Quest goal must be a number. Example: !startquest foxhunt 10"
+            }
+
+        if goal <= 0:
+            return {
+                "response": "Quest goal must be greater than 0."
+            }
+
+        if goal > 10000:
+            return {
+                "response": "Quest goal is too high. Keep it under 10000."
+            }
+
+        reward = 100
+
+        if len(parts) >= 4:
+            try:
+                reward = int(parts[3])
+            except ValueError:
+                reward = 100
+
+        community_quest["active"] = True
+        community_quest["type"] = quest_type
+        community_quest["goal"] = goal
+        community_quest["progress"] = 0
+        community_quest["reward"] = reward
+        community_quest["claimed"] = {}
+        community_quest["completed"] = False
+
+        currency = get_currency_name()
+
+        return {
+            "response": f"Community Quest Started: {quest_type} 0/{goal}. Reward: {reward} {currency} for everyone who claims after completion."
+        }
+
+    if lower_message == "!endquest":
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can end community quests."
+            }
+
+        community_quest["active"] = False
+        community_quest["type"] = None
+        community_quest["goal"] = 0
+        community_quest["progress"] = 0
+        community_quest["claimed"] = {}
+        community_quest["completed"] = False
+
+        return {
+            "response": "Community quest ended."
+        }
+
+    if lower_message.startswith("!questadd"):
+        if not admin:
+            return {
+                "response": f"@{username}, only the creator or mods can manually add quest progress."
+            }
+
+        parts = original_message.split()
+        amount = 1
+
+        if len(parts) >= 2:
+            try:
+                amount = int(parts[1])
+            except ValueError:
+                return {
+                    "response": "Use !questadd amount. Example: !questadd 5"
+                }
+
+        if amount <= 0:
+            return {
+                "response": "Quest progress amount must be greater than 0."
+            }
+
+        if not community_quest.get("active"):
+            return {
+                "response": "No community quest is active."
+            }
+
+        community_quest["progress"] = int(community_quest.get("progress", 0)) + amount
+
+        if int(community_quest["progress"]) >= int(community_quest.get("goal", 0)):
+            community_quest["progress"] = int(community_quest.get("goal", 0))
+            community_quest["completed"] = True
+
+        return {
+            "response": format_quest_status()
+        }
+
+    if lower_message == "!claimquest":
+        if not community_quest.get("active"):
+            return {
+                "response": "No community quest is active."
+            }
+
+        if not community_quest.get("completed"):
+            return {
+                "response": "The community quest is not complete yet. " + format_quest_status()
+            }
+
+        key = viewer_key(username)
+
+        if key in community_quest.get("claimed", {}):
+            return {
+                "response": f"@{username}, you already claimed this quest reward."
+            }
+
+        reward = int(community_quest.get("reward", 100))
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, f"claimed community quest {community_quest.get('type')}")
+
+        community_quest.setdefault("claimed", {})[key] = True
+
+        return {
+            "response": f"@{username} claimed the community quest reward: +{reward} {currency}. Balance: {new_balance} {currency}."
+        }
+
     if lower_message == "!events":
         return {
             "response": "FoxBot Events: goldenfox, spiritstorm, treasuredrop, foxfrenzy. Admins can use !startevent random or !startevent goldenfox."
@@ -1853,6 +2068,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!claimchat":
         reward = int(support_rewards.get("chat_message", 10))
+        add_quest_progress("chat", 1)
         currency = get_currency_name()
         new_balance = add_points(username, reward, "chat activity")
         return {
@@ -2120,6 +2336,7 @@ def chat(message: str = "", username: str = "viewer"):
                 new_balance = add_points(username, bonus, "mysterybox jackpot")
                 redeem_message = f"@{username} opened a mystery box and hit the JACKPOT! +{bonus} {currency}. Balance: {new_balance} {currency}."
                 add_redemption(username, reward_name, redeem_message, cost)
+                add_quest_progress("redeem", 1)
                 return {
                     "response": redeem_message
                 }
@@ -2129,6 +2346,7 @@ def chat(message: str = "", username: str = "viewer"):
                 new_balance = add_points(username, bonus, "mysterybox prize")
                 redeem_message = f"@{username} opened a mystery box and found {bonus} {currency}! Balance: {new_balance} {currency}."
                 add_redemption(username, reward_name, redeem_message, cost)
+                add_quest_progress("redeem", 1)
                 return {
                     "response": redeem_message
                 }
@@ -2136,18 +2354,21 @@ def chat(message: str = "", username: str = "viewer"):
             if mystery_roll <= 70:
                 redeem_message = f"@{username} opened a mystery box and found bonus hype for the chat! Balance: {new_balance} {currency}."
                 add_redemption(username, reward_name, redeem_message, cost)
+                add_quest_progress("redeem", 1)
                 return {
                     "response": redeem_message
                 }
 
             redeem_message = f"@{username} opened a mystery box... and the fox ran away with the loot. Balance: {new_balance} {currency}."
             add_redemption(username, reward_name, redeem_message, cost)
+            add_quest_progress("redeem", 1)
             return {
                 "response": redeem_message
             }
 
         redeem_message = format_reward_response(response_template, username, cost, new_balance) + f" Balance: {new_balance} {currency}."
         add_redemption(username, reward_name, redeem_message, cost)
+        add_quest_progress("redeem", 1)
 
         return {
             "response": redeem_message
@@ -2227,6 +2448,7 @@ def chat(message: str = "", username: str = "viewer"):
     if lower_message == "!foxhunt":
         arcade_stats["plays"] += 1
         arcade_stats["foxhunt"] += 1
+        add_quest_progress("foxhunt", 1)
 
         currency = get_currency_name()
 
@@ -2263,6 +2485,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message == "!coinflip":
         arcade_stats["plays"] += 1
+        add_quest_progress("arcade", 1)
         arcade_stats["coinflip"] += 1
 
         result = random.choice(["Heads", "Tails"])
@@ -2273,6 +2496,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message.startswith("!roll"):
         arcade_stats["plays"] += 1
+        add_quest_progress("arcade", 1)
         arcade_stats["roll"] += 1
 
         parts = original_message.split()
@@ -2304,6 +2528,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message.startswith("!8ball"):
         arcade_stats["plays"] += 1
+        add_quest_progress("arcade", 1)
         arcade_stats["eightball"] += 1
 
         question = original_message.replace("!8ball", "", 1).strip()
@@ -2332,6 +2557,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     if lower_message.startswith("!rps"):
         arcade_stats["plays"] += 1
+        add_quest_progress("arcade", 1)
         arcade_stats["rps"] += 1
 
         parts = original_message.split()
@@ -2462,7 +2688,7 @@ def chat(message: str = "", username: str = "viewer"):
         reserved_commands = {
             "!help", "!schedule", "!faq", "!socials", "!mode",
             "!giveaway", "!enter", "!entries", "!pickwinner",
-            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
+            "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
             "!shoutout", "!addcmd", "!delcmd", "!commands"
         }
 
@@ -3868,6 +4094,10 @@ judge_demo_html = """
                     <button onclick="runCommand('!rank')">!rank</button>
                     <button onclick="runCommand('!ranks')">!ranks</button>
                     <button onclick="runCommand('!events')">!events</button>
+                    <button onclick="runCommand('!quests')">!quests</button>
+                    <button onclick="runCommand('!startquest foxhunt 3')">start foxhunt quest</button>
+                    <button onclick="runCommand('!quest')">!quest</button>
+                    <button onclick="runCommand('!claimquest')">!claimquest</button>
                     <button onclick="runCommand('!startevent goldenfox')">start Golden Fox</button>
                     <button onclick="runCommand('!event')">!event</button>
                     <button onclick="runCommand('!shop')">!shop</button>
@@ -5569,6 +5799,27 @@ def stream_event_endpoint():
             "!startevent treasuredrop",
             "!startevent foxfrenzy",
             "!endevent"
+        ]
+    }
+
+
+@app.get("/community-quest")
+def community_quest_endpoint():
+    return {
+        "community_quest": community_quest,
+        "status": format_quest_status(),
+        "commands": [
+            "!quest",
+            "!quests",
+            "!questprogress",
+            "!startquest foxhunt 10",
+            "!startquest boss 1",
+            "!startquest redeem 5",
+            "!startquest chat 25",
+            "!startquest arcade 10",
+            "!questadd 1",
+            "!claimquest",
+            "!endquest"
         ]
     }
 
