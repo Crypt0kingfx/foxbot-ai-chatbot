@@ -3411,7 +3411,12 @@ def project_status():
             "read_recent_chat": True,
             "polling_listener": True,
             "automatic_command_replies": True,
-            "live_proof_panel": True
+            "live_proof_panel": True,
+            "fox_spirit_ranks": True,
+            "random_stream_events": True,
+            "community_quests": True,
+            "viewer_streaks": True,
+            "support_rewards": True
         },
         "commands": [
             "!help",
@@ -4201,6 +4206,16 @@ judge_demo_html = """
                     <button onclick="runCommand('!attack')">attack boss</button>
                     <button onclick="runCommand('!powerattack')">power attack</button>
                     <button onclick="runCommand('!daily')">!daily</button>
+                    <button onclick="runCommand('!rank')">!rank</button>
+                    <button onclick="runCommand('!ranks')">!ranks</button>
+                    <button onclick="runCommand('!startevent goldenfox')">start event</button>
+                    <button onclick="runCommand('!event')">claim event</button>
+                    <button onclick="runCommand('!startquest foxhunt 3')">start quest</button>
+                    <button onclick="runCommand('!quest')">quest status</button>
+                    <button onclick="runCommand('!checkin')">check in</button>
+                    <button onclick="runCommand('!streak')">streak</button>
+                    <button onclick="runCommand('!support')">support rewards</button>
+                    <button onclick="runCommand('!rewardconfig')">reward config</button>
                     <button onclick="runCommand('!balance')">!balance</button>
                     <button onclick="runCommand('!rank')">!rank</button>
                     <button onclick="runCommand('!ranks')">!ranks</button>
@@ -4247,6 +4262,11 @@ judge_demo_html = """
                 <div id="output" class="output">Click a command button to test FoxBot.</div>
                 <div class="buttons" style="margin-top: 14px;">
                     <button class="secondary" onclick="openEndpoint('/proof')">Open /proof</button>
+                    <button class="secondary" onclick="openEndpoint('/ranks')">Open /ranks</button>
+                    <button class="secondary" onclick="openEndpoint('/stream-event')">Open /stream-event</button>
+                    <button class="secondary" onclick="openEndpoint('/community-quest')">Open /community-quest</button>
+                    <button class="secondary" onclick="openEndpoint('/streaks')">Open /streaks</button>
+                    <button class="secondary" onclick="openEndpoint('/support-rewards')">Open /support-rewards</button>
                     <button class="secondary" onclick="openEndpoint('/viewer-stats')">Open /viewer-stats</button>
                     <button class="secondary" onclick="openEndpoint('/stream-info')">Open /stream-info</button>
                     <button class="secondary" onclick="openEndpoint('/custom-commands')">Open /custom-commands</button>
@@ -4863,6 +4883,16 @@ economy_dashboard_html = """
                 <h2>Cooldowns + Data Status</h2>
                 <div id="status" class="box">Loading...</div>
             </section>
+
+            <section class="panel">
+                <h2>Ranks + Events + Quests</h2>
+                <div id="progression" class="box">Loading...</div>
+            </section>
+
+            <section class="panel">
+                <h2>Streaks + Support Rewards</h2>
+                <div id="supportBox" class="box">Loading...</div>
+            </section>
         </div>
     </div>
 
@@ -4897,6 +4927,11 @@ economy_dashboard_html = """
                 const redemptions = await getJSON("/redemptions");
                 const cooldowns = await getJSON("/cooldowns");
                 const dataStatus = await getJSON("/data-status");
+                const ranks = await getJSON("/ranks");
+                const streamEvent = await getJSON("/stream-event");
+                const communityQuest = await getJSON("/community-quest");
+                const streaks = await getJSON("/streaks");
+                const supportRewards = await getJSON("/support-rewards");
 
                 document.getElementById("currencyName").textContent = foxcoins.currency_name || "FoxCoins";
                 document.getElementById("balanceCount").textContent = Object.keys(foxcoins.balances || {}).length;
