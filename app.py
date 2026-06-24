@@ -80,6 +80,17 @@ foxcoin_economy = {
     "transactions": []
 }
 
+support_rewards = {
+    "new_sub": 500,
+    "gift_sub": 500,
+    "tip_per_dollar": 200,
+    "minimum_tip": 1,
+    "vote_token": 3,
+    "follow": 100,
+    "raid": 250,
+    "chat_message": 10
+}
+
 reward_shop = {
     "hug": {
         "cost": 10,
@@ -141,6 +152,7 @@ def get_persistent_snapshot():
         "stream_info": globals().get("stream_info", {}),
         "arcade_stats": globals().get("arcade_stats", {}),
         "foxcoin_economy": globals().get("foxcoin_economy", {}),
+        "support_rewards": globals().get("support_rewards", {}),
         "reward_shop": globals().get("reward_shop", {}),
         "redemption_queue": globals().get("redemption_queue", []),
         "cooldown_settings": globals().get("cooldown_settings", {}),
@@ -154,6 +166,7 @@ def apply_persistent_snapshot(data):
     global stream_info
     global arcade_stats
     global foxcoin_economy
+    global support_rewards
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -177,6 +190,9 @@ def apply_persistent_snapshot(data):
 
     if isinstance(data.get("arcade_stats"), dict):
         arcade_stats.update(data["arcade_stats"])
+
+    if isinstance(data.get("support_rewards"), dict):
+        support_rewards.update(data["support_rewards"])
 
     if isinstance(data.get("foxcoin_economy"), dict):
         foxcoin_economy.update(data["foxcoin_economy"])
@@ -1289,6 +1305,7 @@ def chat(message: str = "", username: str = "viewer"):
     global stream_info
     global arcade_stats
     global foxcoin_economy
+    global support_rewards
     global reward_shop
     global redemption_queue
     global cooldown_settings
@@ -1585,6 +1602,118 @@ def chat(message: str = "", username: str = "viewer"):
 
         return {
             "response": response
+        }
+
+    if lower_message == "!support":
+        return {
+            "response": "FoxBot Support Rewards: !claimchat, !claimvote amount, !claimfollow, !claimraid, !claimtip amount, !claimsub, !claimgiftsub amount, !rewardconfig"
+        }
+
+    if lower_message == "!rewardconfig":
+        currency = get_currency_name()
+        return {
+            "response": f"Support Rewards: New Sub {support_rewards['new_sub']} {currency} | Gift Sub {support_rewards['gift_sub']} each | Tips {support_rewards['tip_per_dollar']} per $1 | Votes {support_rewards['vote_token']} per token | Follow {support_rewards['follow']} | Raid {support_rewards['raid']} | Chat {support_rewards['chat_message']}"
+        }
+
+    if lower_message == "!claimchat":
+        reward = int(support_rewards.get("chat_message", 10))
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, "chat activity")
+        return {
+            "response": f"@{username} earned {reward} {currency} for chat activity. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!claimvote"):
+        parts = original_message.split()
+        amount = 1
+
+        if len(parts) >= 2:
+            try:
+                amount = int(parts[1])
+            except ValueError:
+                return {"response": "Use !claimvote followed by a number. Example: !claimvote 10"}
+
+        if amount <= 0:
+            return {"response": "Vote amount must be greater than 0."}
+
+        if amount > 1000:
+            return {"response": "Vote claim max is 1000 at once."}
+
+        reward = int(support_rewards.get("vote_token", 3)) * amount
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, f"claimed {amount} vote tokens")
+        return {
+            "response": f"@{username} claimed {amount} vote tokens and earned {reward} {currency}. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message == "!claimfollow":
+        reward = int(support_rewards.get("follow", 100))
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, "follow reward")
+        return {
+            "response": f"@{username} earned {reward} {currency} for following. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message == "!claimraid":
+        reward = int(support_rewards.get("raid", 250))
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, "raid reward")
+        return {
+            "response": f"@{username} earned {reward} {currency} for raid support. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!claimtip"):
+        parts = original_message.split()
+
+        if len(parts) < 2:
+            return {"response": "Use !claimtip amount. Example: !claimtip 5"}
+
+        try:
+            dollars = float(parts[1])
+        except ValueError:
+            return {"response": "Tip amount must be a number. Example: !claimtip 5"}
+
+        minimum = float(support_rewards.get("minimum_tip", 1))
+
+        if dollars < minimum:
+            return {"response": f"Minimum tip reward amount is ${minimum}."}
+
+        reward = int(dollars * int(support_rewards.get("tip_per_dollar", 200)))
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, f"tip reward ${dollars}")
+        return {
+            "response": f"@{username} earned {reward} {currency} for a ${dollars:g} tip. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message == "!claimsub":
+        reward = int(support_rewards.get("new_sub", 500))
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, "subscription reward")
+        return {
+            "response": f"@{username} earned {reward} {currency} for subscribing. Balance: {new_balance} {currency}."
+        }
+
+    if lower_message.startswith("!claimgiftsub"):
+        parts = original_message.split()
+        amount = 1
+
+        if len(parts) >= 2:
+            try:
+                amount = int(parts[1])
+            except ValueError:
+                return {"response": "Use !claimgiftsub amount. Example: !claimgiftsub 3"}
+
+        if amount <= 0:
+            return {"response": "Gift sub amount must be greater than 0."}
+
+        if amount > 100:
+            return {"response": "Gift sub claim max is 100 at once."}
+
+        reward = int(support_rewards.get("gift_sub", 500)) * amount
+        currency = get_currency_name()
+        new_balance = add_points(username, reward, f"gift sub reward x{amount}")
+        return {
+            "response": f"@{username} claimed {amount} gifted sub rewards and earned {reward} {currency}. Balance: {new_balance} {currency}."
         }
 
     if lower_message in ["!balance", "!points", "!foxcoins"]:
@@ -5142,4 +5271,22 @@ goodnight_html = """
 @app.get("/goodnight", response_class=HTMLResponse)
 def goodnight_page():
     return goodnight_html
+
+
+@app.get("/support-rewards")
+def support_rewards_endpoint():
+    return {
+        "support_rewards": support_rewards,
+        "commands": [
+            "!support",
+            "!rewardconfig",
+            "!claimchat",
+            "!claimvote 10",
+            "!claimfollow",
+            "!claimraid",
+            "!claimtip 5",
+            "!claimsub",
+            "!claimgiftsub 3"
+        ]
+    }
 
