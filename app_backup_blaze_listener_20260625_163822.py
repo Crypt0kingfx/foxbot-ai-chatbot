@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import random
 import threading
@@ -1032,14 +1032,14 @@ judges_html = """
 
         <h2>Test Commands</h2>
         <ul>
-            <li><code>!help</code> � shows available commands</li>
-            <li><code>!schedule</code> � shows the stream schedule</li>
-            <li><code>!faq</code> � explains FoxBot</li>
-            <li><code>!giveaway</code> � starts a giveaway</li>
-            <li><code>!enter</code> � enters a viewer into the giveaway</li>
-            <li><code>!entries</code> � shows current giveaway entries</li>
-            <li><code>!pickwinner</code> � randomly selects a winner</li>
-            <li><code>!ask</code> � demo AI response mode</li>
+            <li><code>!help</code> — shows available commands</li>
+            <li><code>!schedule</code> — shows the stream schedule</li>
+            <li><code>!faq</code> — explains FoxBot</li>
+            <li><code>!giveaway</code> — starts a giveaway</li>
+            <li><code>!enter</code> — enters a viewer into the giveaway</li>
+            <li><code>!entries</code> — shows current giveaway entries</li>
+            <li><code>!pickwinner</code> — randomly selects a winner</li>
+            <li><code>!ask</code> — demo AI response mode</li>
         </ul>
 
         <h2>How To Demo</h2>
@@ -7039,7 +7039,7 @@ STUDIO_STATE = {
     "activity": [
         {
             "time": datetime.now().strftime("%I:%M:%S %p"),
-            "message": "?? FoxBot Studio online."
+            "message": "🦊 FoxBot Studio online."
         }
     ]
 }
@@ -7060,27 +7060,27 @@ def recognition_test(event_type: str):
     if event_type == "follow":
         STUDIO_STATE["followersToday"] += 1
         add_foxcoins(50)
-        studio_log("? Test follow detected � +50 FoxCoins reward triggered.")
+        studio_log("⭐ Test follow detected — +50 FoxCoins reward triggered.")
 
     elif event_type == "vote":
         STUDIO_STATE["votesToday"] += 1
         add_foxcoins(25)
-        studio_log("??? Test vote detected � +25 FoxCoins reward triggered.")
+        studio_log("🗳️ Test vote detected — +25 FoxCoins reward triggered.")
 
     elif event_type == "sub":
         STUDIO_STATE["subsToday"] += 1
         add_foxcoins(250)
-        studio_log("?? Test sub detected � +250 FoxCoins reward triggered.")
+        studio_log("🔥 Test sub detected — +250 FoxCoins reward triggered.")
 
     elif event_type == "tip":
         STUDIO_STATE["tipsTotal"] += 5
         STUDIO_STATE["tipsToday"] = f"${STUDIO_STATE['tipsTotal']}"
         add_foxcoins(500)
-        studio_log("?? Test tip detected � $5 tip +500 FoxCoins reward triggered.")
+        studio_log("💚 Test tip detected — $5 tip +500 FoxCoins reward triggered.")
 
     elif event_type == "raid":
         add_foxcoins(300)
-        studio_log("?? Test raid detected � raid recognition triggered.")
+        studio_log("🚀 Test raid detected — raid recognition triggered.")
 
     STUDIO_STATE["recognitionQueue"] = max(0, STUDIO_STATE["recognitionQueue"] - 1)
 
@@ -7092,20 +7092,20 @@ async def foxbot_studio_stats_live():
 async def foxbot_studio_action_live(action: str):
     if action == "start_bot":
         STUDIO_STATE["botOnline"] = True
-        studio_log("?? Bot started.")
+        studio_log("🟢 Bot started.")
 
     elif action == "stop_bot":
         STUDIO_STATE["botOnline"] = False
-        studio_log("?? Bot stopped.")
+        studio_log("🔴 Bot stopped.")
 
     elif action == "restart_bot":
         STUDIO_STATE["botOnline"] = True
-        studio_log("?? Bot restarted.")
+        studio_log("🔄 Bot restarted.")
 
     elif action == "toggle_recognition":
         STUDIO_STATE["recognitionEnabled"] = not STUDIO_STATE["recognitionEnabled"]
         status = "enabled" if STUDIO_STATE["recognitionEnabled"] else "disabled"
-        studio_log(f"?? Recognition Engine {status}.")
+        studio_log(f"🦊 Recognition Engine {status}.")
 
     elif action == "test_follow":
         recognition_test("follow")
@@ -7125,35 +7125,35 @@ async def foxbot_studio_action_live(action: str):
     elif action == "treasure_drop":
         STUDIO_STATE["currentEvent"] = "Treasure Drop"
         add_foxcoins(1000)
-        studio_log("?? Treasure Drop started.")
+        studio_log("💰 Treasure Drop started.")
 
     elif action == "start_boss":
         STUDIO_STATE["bossHp"] = "100%"
-        studio_log("?? Boss Battle started.")
+        studio_log("👑 Boss Battle started.")
 
     elif action == "smoke_test":
-        studio_log("? Smoke test completed successfully.")
+        studio_log("✅ Smoke test completed successfully.")
 
     elif action == "save_data":
-        studio_log("?? Save data requested.")
+        studio_log("💾 Save data requested.")
 
     elif action == "load_data":
-        studio_log("?? Load data requested.")
+        studio_log("📂 Load data requested.")
 
     elif action == "reconnect_blaze":
-        studio_log("?? Blaze reconnect requested.")
+        studio_log("🔌 Blaze reconnect requested.")
 
     elif action == "restart_polling":
-        studio_log("?? Polling listener restarted.")
+        studio_log("📡 Polling listener restarted.")
 
     elif action == "clear_cache":
-        studio_log("?? Cache cleared.")
+        studio_log("🧹 Cache cleared.")
 
     elif action == "backup":
-        studio_log("??? Backup created.")
+        studio_log("🗂️ Backup created.")
 
     else:
-        studio_log(f"?? {action.replace('_', ' ').title()} triggered.")
+        studio_log(f"⚙️ {action.replace('_', ' ').title()} triggered.")
 
     return {
         "ok": True,
@@ -7179,17 +7179,17 @@ SUPPORT_REWARDS = {
 }
 
 RECOGNITION_TEMPLATES = {
-    "follow": "? Thanks {user} for following the Fox Spirit family! +{reward} FoxCoins",
-    "vote": "??? Thanks {user} for voting! +{reward} FoxCoins",
-    "sub": "?? Huge love to {user} for subscribing! +{reward} FoxCoins",
-    "gift_sub": "?? {user} gifted a sub! Absolute legend! +{reward} FoxCoins",
-    "tip": "?? {user} tipped {amount}! +{reward} FoxCoins",
-    "raid": "?? {user} raided the stream! Welcome raiders! +{reward} FoxCoins"
+    "follow": "⭐ Thanks {user} for following the Fox Spirit family! +{reward} FoxCoins",
+    "vote": "🗳️ Thanks {user} for voting! +{reward} FoxCoins",
+    "sub": "🔥 Huge love to {user} for subscribing! +{reward} FoxCoins",
+    "gift_sub": "🎁 {user} gifted a sub! Absolute legend! +{reward} FoxCoins",
+    "tip": "💚 {user} tipped {amount}! +{reward} FoxCoins",
+    "raid": "🚀 {user} raided the stream! Welcome raiders! +{reward} FoxCoins"
 }
 
 def recognition_response(event_type: str, user: str = "TestUser", amount: str = "$5"):
     reward = SUPPORT_REWARDS.get(event_type, 0)
-    template = RECOGNITION_TEMPLATES.get(event_type, "?? Thanks {user}!")
+    template = RECOGNITION_TEMPLATES.get(event_type, "🦊 Thanks {user}!")
 
     message = template.format(
         user=user,
@@ -7228,7 +7228,7 @@ def recognition_response(event_type: str, user: str = "TestUser", amount: str = 
 @app.post("/api/recognition/event/{event_type}")
 async def foxbot_recognition_event(event_type: str):
     if not STUDIO_STATE.get("recognitionEnabled", True):
-        studio_log("?? Recognition event ignored because Recognition Engine is disabled.")
+        studio_log("⚠️ Recognition event ignored because Recognition Engine is disabled.")
         return {
             "ok": False,
             "reason": "Recognition Engine disabled"
@@ -7255,94 +7255,4 @@ async def foxbot_recognition_config():
         "rewards": SUPPORT_REWARDS,
         "templates": RECOGNITION_TEMPLATES
     }
-
-
-# ==============================
-# FoxBot Blaze Listener Scaffold v1
-# ==============================
-
-BLAZE_LISTENER_STATE = {
-    "connected": False,
-    "lastEvent": "None",
-    "eventsReceived": 0,
-    "mappedEvents": 0
-}
-
-BLAZE_EVENT_MAP = {
-    "follow": "follow",
-    "follower": "follow",
-    "vote": "vote",
-    "sub": "sub",
-    "subscription": "sub",
-    "gift_sub": "gift_sub",
-    "giftsub": "gift_sub",
-    "tip": "tip",
-    "donation": "tip",
-    "raid": "raid"
-}
-
-def process_blaze_event(raw_event: dict):
-    event_name = str(raw_event.get("type", "")).lower().strip()
-    user = raw_event.get("user", "BlazeUser")
-    amount = raw_event.get("amount", "$5")
-
-    BLAZE_LISTENER_STATE["eventsReceived"] += 1
-    BLAZE_LISTENER_STATE["lastEvent"] = event_name or "unknown"
-
-    mapped_event = BLAZE_EVENT_MAP.get(event_name)
-
-    if not mapped_event:
-        studio_log(f"?? Unmapped Blaze event received: {event_name}")
-        return {
-            "ok": False,
-            "reason": "Unmapped event",
-            "raw": raw_event
-        }
-
-    BLAZE_LISTENER_STATE["mappedEvents"] += 1
-
-    result = recognition_response(
-        event_type=mapped_event,
-        user=user,
-        amount=amount
-    )
-
-    return {
-        "ok": True,
-        "mapped_event": mapped_event,
-        "result": result
-    }
-
-@app.post("/api/blaze/event")
-async def foxbot_blaze_event(raw_event: dict):
-    return process_blaze_event(raw_event)
-
-@app.get("/api/blaze/listener/status")
-async def foxbot_blaze_listener_status():
-    return {
-        "ok": True,
-        "listener": BLAZE_LISTENER_STATE,
-        "event_map": BLAZE_EVENT_MAP
-    }
-
-@app.post("/api/blaze/listener/connect")
-async def foxbot_blaze_listener_connect():
-    BLAZE_LISTENER_STATE["connected"] = True
-    studio_log("?? Blaze Listener connected.")
-    return {
-        "ok": True,
-        "message": "Blaze Listener connected.",
-        "listener": BLAZE_LISTENER_STATE
-    }
-
-@app.post("/api/blaze/listener/disconnect")
-async def foxbot_blaze_listener_disconnect():
-    BLAZE_LISTENER_STATE["connected"] = False
-    studio_log("?? Blaze Listener disconnected.")
-    return {
-        "ok": True,
-        "message": "Blaze Listener disconnected.",
-        "listener": BLAZE_LISTENER_STATE
-    }
-
 
