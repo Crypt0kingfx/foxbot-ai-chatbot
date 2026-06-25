@@ -5992,485 +5992,617 @@ def streaks_endpoint():
 
 foxbot_admin_html = """
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>FoxBot Admin Hub</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-    body {
-        margin: 0;
-        font-family: Arial, sans-serif;
-        background: #181818;
-        color: #e5e7eb;
-    }
+:root {
+    --bg: #050505;
+    --panel: rgba(20, 20, 20, 0.92);
+    --panel2: rgba(32, 32, 32, 0.92);
+    --line: rgba(255, 255, 255, 0.10);
+    --orange: #f97316;
+    --orange2: #fb923c;
+    --green: #84cc16;
+    --text: #f8fafc;
+    --muted: #a3a3a3;
+}
 
-    .app {
-        display: grid;
-        grid-template-columns: 170px 1fr;
-        min-height: 100vh;
-    }
+* { box-sizing: border-box; }
 
-    .sidebar {
-        background: #202020;
-        border-right: 1px solid #333;
-        padding-top: 14px;
-    }
+body {
+    margin: 0;
+    color: var(--text);
+    font-family: Arial, sans-serif;
+    background:
+        radial-gradient(circle at top left, rgba(249,115,22,0.20), transparent 34%),
+        radial-gradient(circle at top right, rgba(132,204,22,0.16), transparent 34%),
+        linear-gradient(180deg, #111, #050505 55%, #020202);
+}
 
-    .brand {
-        padding: 12px 22px 18px;
-        font-size: 24px;
-        font-weight: 900;
-        color: #f97316;
-    }
+.app {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+}
 
-    .offline {
-        font-size: 12px;
-        color: #9ca3af;
-        background: #2b2b2b;
-        border: 1px solid #3a3a3a;
-        border-radius: 999px;
-        padding: 6px 10px;
-        margin: 0 14px 14px;
-    }
+.side {
+    background: rgba(10,10,10,0.88);
+    border-right: 1px solid var(--line);
+    padding: 18px 14px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
 
-    .nav button {
-        width: 100%;
-        background: transparent;
-        border: 0;
-        color: #a3a3a3;
-        text-align: left;
-        padding: 13px 22px;
-        cursor: pointer;
-        font-size: 14px;
-        border-left: 3px solid transparent;
-    }
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px 20px;
+}
 
-    .nav button:hover,
-    .nav button.active {
-        background: #2a2a2a;
-        color: white;
-        border-left-color: #f97316;
-        font-weight: 800;
-    }
+.logo-mark {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--orange), var(--green));
+    display: grid;
+    place-items: center;
+    font-size: 24px;
+    box-shadow: 0 0 28px rgba(249,115,22,0.35);
+}
 
-    .main {
-        padding: 28px 34px;
-    }
+.logo-title {
+    font-size: 24px;
+    font-weight: 1000;
+    color: var(--orange);
+    letter-spacing: 1px;
+}
 
-    .topbar {
-        height: 54px;
-        border-bottom: 1px solid #2e2e2e;
-        background: #1b1b1b;
-        display: flex;
-        align-items: center;
-        padding-left: 22px;
-        color: #9ca3af;
-    }
+.logo-sub {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
 
-    .status-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        background: #292929;
-        border: 1px solid #333;
-        border-radius: 999px;
-        padding: 8px 14px;
-        color: #9ca3af;
-        font-size: 13px;
-        margin-bottom: 26px;
-    }
+.status {
+    margin: 0 8px 18px;
+    padding: 10px 12px;
+    border: 1px solid rgba(132,204,22,0.25);
+    background: rgba(132,204,22,0.08);
+    border-radius: 14px;
+    color: #bbf7d0;
+    font-size: 13px;
+}
 
-    .dot {
-        width: 8px;
-        height: 8px;
-        background: #22c55e;
-        border-radius: 999px;
-    }
+.status span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #22c55e;
+    border-radius: 999px;
+    margin-right: 7px;
+    box-shadow: 0 0 14px #22c55e;
+}
 
-    .grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 16px;
-        margin-bottom: 22px;
-    }
+.nav button {
+    width: 100%;
+    border: 0;
+    color: #bdbdbd;
+    background: transparent;
+    text-align: left;
+    padding: 12px 13px;
+    margin: 3px 0;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: 0.15s ease;
+}
 
-    .card {
-        background: #292929;
-        border: 1px solid #3a3a3a;
-        border-radius: 10px;
-        padding: 20px;
-    }
+.nav button:hover,
+.nav button.active {
+    color: white;
+    background: linear-gradient(90deg, rgba(249,115,22,0.22), rgba(132,204,22,0.10));
+    box-shadow: inset 3px 0 0 var(--orange);
+    font-weight: 800;
+}
 
-    .card h3 {
-        margin: 0 0 12px;
-        font-size: 13px;
-        letter-spacing: 1px;
-        color: #9ca3af;
-        text-transform: uppercase;
-    }
+.main {
+    padding: 28px;
+}
 
-    .big {
-        font-size: 28px;
-        font-weight: 900;
-        color: #f97316;
-    }
+.hero {
+    border: 1px solid var(--line);
+    background:
+        linear-gradient(135deg, rgba(249,115,22,0.16), rgba(132,204,22,0.08)),
+        rgba(20,20,20,0.72);
+    border-radius: 24px;
+    padding: 26px;
+    margin-bottom: 20px;
+    box-shadow: 0 20px 80px rgba(0,0,0,0.45);
+}
 
-    .panel {
-        background: #292929;
-        border: 1px solid #3a3a3a;
-        border-radius: 10px;
-        padding: 22px;
-        margin-bottom: 22px;
-    }
+.hero h1 {
+    margin: 0;
+    font-size: 42px;
+    letter-spacing: -1px;
+}
 
-    .panel h2 {
-        margin: 0 0 10px;
-        font-size: 18px;
-        color: white;
-    }
+.hero p {
+    margin: 8px 0 0;
+    color: #d4d4d4;
+    line-height: 1.45;
+}
 
-    .panel p {
-        color: #b8b8b8;
-        line-height: 1.5;
-        margin: 0 0 16px;
-    }
+.quick-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 18px;
+}
 
-    .buttons {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
+.section {
+    display: none;
+}
 
-    button.action {
-        background: #f97316;
-        border: 0;
-        border-radius: 6px;
-        padding: 11px 15px;
-        color: white;
-        font-weight: 900;
-        cursor: pointer;
-    }
+.section.active {
+    display: block;
+}
 
-    button.secondary {
-        background: #333;
-        border: 1px solid #444;
-        border-radius: 6px;
-        padding: 11px 15px;
-        color: white;
-        font-weight: 800;
-        cursor: pointer;
-    }
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 18px;
+}
 
-    .output {
-        background: #161616;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 14px;
-        margin-top: 14px;
-        color: #d1d5db;
-        white-space: pre-wrap;
-        min-height: 110px;
-        max-height: 320px;
-        overflow: auto;
-    }
+.stat {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 18px;
+    padding: 18px;
+}
 
-    .section {
-        display: none;
-    }
+.stat small {
+    color: var(--muted);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+}
 
-    .section.active {
-        display: block;
-    }
+.big {
+    font-size: 32px;
+    font-weight: 1000;
+    color: var(--orange);
+    margin-top: 8px;
+}
 
-    @media (max-width: 900px) {
-        .app {
-            grid-template-columns: 1fr;
-        }
+.card {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 20px;
+    padding: 22px;
+    margin-bottom: 18px;
+    box-shadow: 0 16px 50px rgba(0,0,0,0.28);
+}
 
-        .sidebar {
-            border-right: 0;
-            border-bottom: 1px solid #333;
-        }
+.card h2 {
+    margin: 0 0 8px;
+    font-size: 24px;
+}
 
-        .grid {
-            grid-template-columns: 1fr;
-        }
-    }
+.card p {
+    margin: 0 0 16px;
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+input, select {
+    background: #090909;
+    border: 1px solid rgba(255,255,255,0.14);
+    color: white;
+    border-radius: 12px;
+    padding: 12px 13px;
+    min-width: 180px;
+    outline: none;
+}
+
+input:focus, select:focus {
+    border-color: var(--orange);
+    box-shadow: 0 0 0 3px rgba(249,115,22,0.16);
+}
+
+button.action,
+button.secondary {
+    border: 0;
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: white;
+    font-weight: 900;
+    cursor: pointer;
+    transition: 0.15s ease;
+}
+
+button.action {
+    background: linear-gradient(135deg, var(--orange), #ea580c);
+    box-shadow: 0 10px 28px rgba(249,115,22,0.22);
+}
+
+button.secondary {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+button.action:hover,
+button.secondary:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.1);
+}
+
+.out {
+    background: #060606;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 16px;
+    padding: 15px;
+    white-space: pre-wrap;
+    min-height: 120px;
+    max-height: 360px;
+    overflow: auto;
+    margin-top: 14px;
+    color: #e5e7eb;
+    line-height: 1.45;
+}
+
+.badge {
+    display: inline-block;
+    padding: 6px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+    background: rgba(249,115,22,0.14);
+    color: #fed7aa;
+    border: 1px solid rgba(249,115,22,0.25);
+    margin-bottom: 12px;
+}
+
+@media(max-width: 980px) {
+    .app { grid-template-columns: 1fr; }
+    .side { height: auto; position: relative; }
+    .grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 32px; }
+}
 </style>
 </head>
 <body>
-<div class="topbar">
-    FOXBOT ADMIN HUB ? Blaze Creator Dashboard
-</div>
-
 <div class="app">
-    <aside class="sidebar">
-        <div class="brand">FOXBOT</div>
-        <div class="offline"><span class="dot"></span> STREAM STATUS</div>
-
-        <div class="nav">
-            <button class="active" onclick="showSection('overview', this)">Overview</button>
-            <button onclick="showSection('commands', this)">Commands</button>
-            <button onclick="showSection('economy', this)">FoxCoins</button>
-            <button onclick="showSection('shop', this)">Shop</button>
-            <button onclick="showSection('support', this)">Support Rewards</button>
-            <button onclick="showSection('giveaways', this)">Giveaways</button>
-            <button onclick="showSection('boss', this)">Boss Battle</button>
-            <button onclick="showSection('quests', this)">Quests</button>
-            <button onclick="showSection('events', this)">Stream Events</button>
-            <button onclick="showSection('streaks', this)">Streaks</button>
-            <button onclick="showSection('overlays', this)">Overlays</button>
-            <button onclick="showSection('diagnostics', this)">Diagnostics</button>
+<aside class="side">
+    <div class="logo">
+        <div class="logo-mark">??</div>
+        <div>
+            <div class="logo-title">FOXBOT</div>
+            <div class="logo-sub">Admin Hub</div>
         </div>
-    </aside>
+    </div>
 
-    <main class="main">
-        <div class="status-pill"><span class="dot"></span> FoxBot online ? creator tools active</div>
+    <div class="status"><span></span>Bot online ? tools active</div>
 
-        <section id="overview" class="section active">
-            <div class="grid">
-                <div class="card"><h3>Total FoxCoins Users</h3><div class="big" id="balanceCount">Loading</div></div>
-                <div class="card"><h3>Rewards</h3><div class="big" id="rewardCount">Loading</div></div>
-                <div class="card"><h3>Redemptions</h3><div class="big" id="redemptionCount">Loading</div></div>
+    <div class="nav">
+        <button class="active" onclick="show('overview',this)">Overview</button>
+        <button onclick="show('chat',this)">Chat Test</button>
+        <button onclick="show('economy',this)">FoxCoins</button>
+        <button onclick="show('shop',this)">Reward Shop</button>
+        <button onclick="show('giveaway',this)">Giveaways</button>
+        <button onclick="show('boss',this)">Boss Battle</button>
+        <button onclick="show('events',this)">Stream Events</button>
+        <button onclick="show('quests',this)">Quests</button>
+        <button onclick="show('streaks',this)">Streaks</button>
+        <button onclick="show('support',this)">Support Rewards</button>
+        <button onclick="show('custom',this)">Custom Commands</button>
+        <button onclick="show('overlays',this)">Overlays</button>
+        <button onclick="show('data',this)">Diagnostics</button>
+    </div>
+</aside>
+
+<main class="main">
+    <div class="hero">
+        <span class="badge">Blaze Creator Command Center</span>
+        <h1>FoxBot Admin Hub</h1>
+        <p>Control FoxCoins, giveaways, rewards, stream events, quests, streaks, boss battles, overlays, and live command tests from one clean dashboard.</p>
+        <div class="quick-links">
+            <button class="secondary" onclick="openPage('/demo')">Judge Demo</button>
+            <button class="secondary" onclick="openPage('/smoke-test')">Smoke Test</button>
+            <button class="secondary" onclick="openPage('/proof')">Proof</button>
+            <button class="secondary" onclick="openPage('/economy')">Economy</button>
+            <button class="secondary" onclick="refreshAll()">Refresh Stats</button>
+        </div>
+    </div>
+
+    <section id="overview" class="section active">
+        <div class="grid">
+            <div class="stat"><small>FoxCoin Users</small><div id="balCount" class="big">-</div></div>
+            <div class="stat"><small>Shop Rewards</small><div id="rewCount" class="big">-</div></div>
+            <div class="stat"><small>Redemptions</small><div id="redCount" class="big">-</div></div>
+        </div>
+        <div class="card">
+            <h2>Quick Command Doctor</h2>
+            <p>Test your most important commands before going live.</p>
+            <div class="row">
+                <button class="action" onclick="runCommand('!help')">Test !help</button>
+                <button class="secondary" onclick="runCommand('!rules')">Test !rules</button>
+                <button class="secondary" onclick="runCommand('!daily')">Test !daily</button>
+                <button class="secondary" onclick="runCommand('!boss')">Test !boss</button>
             </div>
+            <div id="overviewOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-            <div class="panel">
-                <h2>Connection Doctor</h2>
-                <p>Run a quick check of FoxBot, Blaze proof, and command responses.</p>
-                <div class="buttons">
-                    <button class="action" onclick="openPage('/proof')">Open Proof</button>
-                    <button class="secondary" onclick="openPage('/smoke-test')">Run Smoke Test</button>
-                    <button class="secondary" onclick="runCommand('!help')">Test !help</button>
-                </div>
-                <div id="overviewOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="chat" class="section">
+        <div class="card">
+            <h2>Send Any FoxBot Command</h2>
+            <p>Run any command as any username.</p>
+            <input id="cmdInput" value="!help">
+            <input id="userInput" value="Ryan">
+            <button class="action" onclick="runInputCommand()">Run Command</button>
+            <div id="chatOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="commands" class="section">
-            <div class="panel">
-                <h2>Commands</h2>
-                <p>Test core viewer and admin commands.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!help')">!help</button>
-                    <button class="secondary" onclick="runCommand('!rules')">!rules</button>
-                    <button class="secondary" onclick="runCommand('!socials')">!socials</button>
-                    <button class="secondary" onclick="runCommand('!leaderboard')">!leaderboard</button>
-                    <button class="secondary" onclick="runCommand('!goodnight')">!goodnight</button>
-                </div>
-                <div id="commandsOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="economy" class="section">
+        <div class="card">
+            <h2>FoxCoins + Ranks</h2>
+            <p>Manage viewer points and rank progression.</p>
+            <input id="pointsUser" value="Ryan">
+            <input id="pointsAmount" value="100">
+            <button class="action" onclick="runCommand('!givepoints '+v('pointsUser')+' '+v('pointsAmount'))">Give Points</button>
+            <button class="secondary" onclick="runCommand('!takepoints '+v('pointsUser')+' '+v('pointsAmount'))">Take Points</button>
+            <button class="secondary" onclick="runCommand('!balance '+v('pointsUser'))">Balance</button>
+            <button class="secondary" onclick="runCommand('!rank '+v('pointsUser'))">Rank</button>
+            <button class="secondary" onclick="runCommand('!ranks')">All Ranks</button>
+            <button class="secondary" onclick="runCommand('!foxhunt')">Foxhunt</button>
+            <button class="secondary" onclick="openPage('/foxcoins')">FoxCoins JSON</button>
+            <button class="secondary" onclick="openPage('/ranks')">Ranks JSON</button>
+            <div id="economyOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="economy" class="section">
-            <div class="panel">
-                <h2>FoxCoins</h2>
-                <p>Manage points, ranks, balances, and economy activity.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!daily')">!daily</button>
-                    <button class="secondary" onclick="runCommand('!foxhunt')">!foxhunt</button>
-                    <button class="secondary" onclick="runCommand('!balance')">!balance</button>
-                    <button class="secondary" onclick="runCommand('!rank')">!rank</button>
-                    <button class="secondary" onclick="runCommand('!ranks')">!ranks</button>
-                    <button class="secondary" onclick="openPage('/foxcoins')">Open FoxCoins Data</button>
-                    <button class="secondary" onclick="openPage('/ranks')">Open Ranks</button>
-                </div>
-                <div id="economyOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="shop" class="section">
+        <div class="card">
+            <h2>Reward Shop</h2>
+            <p>Add, delete, test, and monitor reward redemptions.</p>
+            <input id="rewardName" value="hydrate">
+            <input id="rewardCost" value="25">
+            <input id="rewardMsg" value="@{username} redeemed hydrate. Drink water!">
+            <button class="action" onclick="runCommand('!addreward '+v('rewardName')+' '+v('rewardCost')+' '+v('rewardMsg'))">Add Reward</button>
+            <button class="secondary" onclick="runCommand('!delreward '+v('rewardName'))">Delete</button>
+            <button class="secondary" onclick="runCommand('!shop')">Show Shop</button>
+            <button class="secondary" onclick="runCommand('!redeem '+v('rewardName'))">Redeem</button>
+            <button class="secondary" onclick="runCommand('!clearredeems')">Clear Queue</button>
+            <button class="secondary" onclick="openPage('/overlay/redemptions')">Redemption Overlay</button>
+            <div id="shopOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="shop" class="section">
-            <div class="panel">
-                <h2>Reward Shop</h2>
-                <p>Preview rewards, redemptions, and the redemption queue.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!shop')">!shop</button>
-                    <button class="secondary" onclick="runCommand('!redeem hug')">Redeem Hug</button>
-                    <button class="secondary" onclick="runCommand('!redeems')">!redeems</button>
-                    <button class="secondary" onclick="openPage('/rewards')">Open Rewards</button>
-                    <button class="secondary" onclick="openPage('/redemptions')">Open Redemptions</button>
-                </div>
-                <div id="shopOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="giveaway" class="section">
+        <div class="card">
+            <h2>Giveaways</h2>
+            <p>Start giveaways and test the giveaway link/rules.</p>
+            <button class="action" onclick="runCommand('!giveaway')">Start Giveaway</button>
+            <button class="secondary" onclick="runCommand('!enter')">Enter</button>
+            <button class="secondary" onclick="runCommand('!entries')">Entries</button>
+            <button class="secondary" onclick="runCommand('!pickwinner')">Pick Winner</button>
+            <button class="secondary" onclick="runCommand('!rules')">Rules</button>
+            <button class="secondary" onclick="runCommand('!giveawaylink')">Giveaway Link</button>
+            <button class="secondary" onclick="openPage('/overlay/giveaway')">Overlay</button>
+            <div id="giveawayOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="support" class="section">
-            <div class="panel">
-                <h2>Support Rewards</h2>
-                <p>Reward viewers for support actions like votes, subs, follows, tips, raids, and chat activity.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!support')">!support</button>
-                    <button class="secondary" onclick="runCommand('!rewardconfig')">!rewardconfig</button>
-                    <button class="secondary" onclick="runCommand('!claimvote 10')">Claim 10 Votes</button>
-                    <button class="secondary" onclick="runCommand('!claimsub')">Claim Sub</button>
-                    <button class="secondary" onclick="openPage('/support-rewards')">Open Support Rewards</button>
-                </div>
-                <div id="supportOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="boss" class="section">
+        <div class="card">
+            <h2>Boss Battle</h2>
+            <p>Launch and manage live boss fights.</p>
+            <input id="bossHp" value="500">
+            <input id="bossName" value="Cyber Fox Dragon">
+            <button class="action" onclick="runCommand('!startboss '+v('bossHp')+' '+v('bossName'))">Start Boss</button>
+            <button class="secondary" onclick="runCommand('!attack')">Attack</button>
+            <button class="secondary" onclick="runCommand('!powerattack')">Power Attack</button>
+            <button class="secondary" onclick="runCommand('!bossleaderboard')">Leaderboard</button>
+            <button class="secondary" onclick="runCommand('!endboss')">End Boss</button>
+            <button class="secondary" onclick="openPage('/overlay/boss')">Boss Overlay</button>
+            <div id="bossOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="giveaways" class="section">
-            <div class="panel">
-                <h2>Giveaways</h2>
-                <p>Start giveaways, track entries, and open the OBS giveaway overlay.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!giveaway')">!giveaway</button>
-                    <button class="secondary" onclick="runCommand('!enter')">!enter</button>
-                    <button class="secondary" onclick="runCommand('!entries')">!entries</button>
-                    <button class="secondary" onclick="runCommand('!pickwinner')">!pickwinner</button>
-                    <button class="secondary" onclick="openPage('/overlay/giveaway')">Open Overlay</button>
-                </div>
-                <div id="giveawaysOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="events" class="section">
+        <div class="card">
+            <h2>Stream Events</h2>
+            <p>Trigger temporary events that boost rewards and hype.</p>
+            <select id="eventName">
+                <option value="goldenfox">Golden Fox</option>
+                <option value="spiritstorm">Spirit Storm</option>
+                <option value="treasuredrop">Treasure Drop</option>
+                <option value="foxfrenzy">Fox Frenzy</option>
+                <option value="random">Random</option>
+            </select>
+            <button class="action" onclick="runCommand('!startevent '+v('eventName'))">Start Event</button>
+            <button class="secondary" onclick="runCommand('!event')">Claim/Check</button>
+            <button class="secondary" onclick="runCommand('!events')">List Events</button>
+            <button class="secondary" onclick="runCommand('!endevent')">End Event</button>
+            <button class="secondary" onclick="openPage('/stream-event')">Event JSON</button>
+            <div id="eventsOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="boss" class="section">
-            <div class="panel">
-                <h2>Boss Battle</h2>
-                <p>Start bosses, attack, view damage, and open the OBS boss overlay.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!startboss Cyber Fox Dragon')">Start Boss</button>
-                    <button class="secondary" onclick="runCommand('!boss')">!boss</button>
-                    <button class="secondary" onclick="runCommand('!attack')">!attack</button>
-                    <button class="secondary" onclick="runCommand('!bossleaderboard')">Leaderboard</button>
-                    <button class="secondary" onclick="openPage('/overlay/boss')">Open Boss Overlay</button>
-                </div>
-                <div id="bossOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="quests" class="section">
+        <div class="card">
+            <h2>Community Quests</h2>
+            <p>Start team goals that everyone contributes to.</p>
+            <select id="questType">
+                <option value="foxhunt">Foxhunt</option>
+                <option value="boss">Boss</option>
+                <option value="redeem">Redeem</option>
+                <option value="chat">Chat</option>
+                <option value="arcade">Arcade</option>
+            </select>
+            <input id="questGoal" value="3">
+            <input id="questReward" value="100">
+            <button class="action" onclick="runCommand('!startquest '+v('questType')+' '+v('questGoal')+' '+v('questReward'))">Start Quest</button>
+            <button class="secondary" onclick="runCommand('!quest')">Status</button>
+            <button class="secondary" onclick="runCommand('!questadd 1')">Add +1</button>
+            <button class="secondary" onclick="runCommand('!claimquest')">Claim</button>
+            <button class="secondary" onclick="runCommand('!endquest')">End</button>
+            <button class="secondary" onclick="openPage('/community-quest')">Quest JSON</button>
+            <div id="questsOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="quests" class="section">
-            <div class="panel">
-                <h2>Community Quests</h2>
-                <p>Launch community-wide goals that viewers complete together.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!startquest foxhunt 3')">Start Foxhunt Quest</button>
-                    <button class="secondary" onclick="runCommand('!quests')">!quests</button>
-                    <button class="secondary" onclick="runCommand('!quest')">!quest</button>
-                    <button class="secondary" onclick="runCommand('!claimquest')">!claimquest</button>
-                    <button class="secondary" onclick="openPage('/community-quest')">Open Quest Data</button>
-                </div>
-                <div id="questsOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="streaks" class="section">
+        <div class="card">
+            <h2>Viewer Streaks</h2>
+            <p>Reward returning viewers and track loyalty.</p>
+            <input id="streakUser" value="Ryan">
+            <button class="action" onclick="runCommand('!checkin')">Check In</button>
+            <button class="secondary" onclick="runCommand('!streak '+v('streakUser'))">Check Streak</button>
+            <button class="secondary" onclick="runCommand('!streaks')">Leaderboard</button>
+            <button class="secondary" onclick="runCommand('!resetstreak '+v('streakUser'))">Reset</button>
+            <button class="secondary" onclick="openPage('/streaks')">Streaks JSON</button>
+            <div id="streaksOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="events" class="section">
-            <div class="panel">
-                <h2>Stream Events</h2>
-                <p>Trigger temporary hype events like Golden Fox, Spirit Storm, and Treasure Drop.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!startevent goldenfox')">Start Golden Fox</button>
-                    <button class="secondary" onclick="runCommand('!events')">!events</button>
-                    <button class="secondary" onclick="runCommand('!event')">!event</button>
-                    <button class="secondary" onclick="runCommand('!endevent')">!endevent</button>
-                    <button class="secondary" onclick="openPage('/stream-event')">Open Event Data</button>
-                </div>
-                <div id="eventsOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="support" class="section">
+        <div class="card">
+            <h2>Support Rewards</h2>
+            <p>Claim/test rewards for votes, subs, tips, follows, raids, and chat activity.</p>
+            <input id="claimAmount" value="10">
+            <button class="action" onclick="runCommand('!support')">Support Menu</button>
+            <button class="secondary" onclick="runCommand('!rewardconfig')">Config</button>
+            <button class="secondary" onclick="runCommand('!claimchat')">Chat</button>
+            <button class="secondary" onclick="runCommand('!claimvote '+v('claimAmount'))">Votes</button>
+            <button class="secondary" onclick="runCommand('!claimfollow')">Follow</button>
+            <button class="secondary" onclick="runCommand('!claimraid')">Raid</button>
+            <button class="secondary" onclick="runCommand('!claimtip 5')">Tip $5</button>
+            <button class="secondary" onclick="runCommand('!claimsub')">Sub</button>
+            <button class="secondary" onclick="runCommand('!claimgiftsub 3')">3 Gift Subs</button>
+            <button class="secondary" onclick="openPage('/support-rewards')">Support JSON</button>
+            <div id="supportOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="streaks" class="section">
-            <div class="panel">
-                <h2>Viewer Streaks</h2>
-                <p>Reward viewers for checking in and building loyalty streaks.</p>
-                <div class="buttons">
-                    <button class="action" onclick="runCommand('!checkin')">!checkin</button>
-                    <button class="secondary" onclick="runCommand('!streak')">!streak</button>
-                    <button class="secondary" onclick="runCommand('!streaks')">!streaks</button>
-                    <button class="secondary" onclick="openPage('/streaks')">Open Streaks</button>
-                </div>
-                <div id="streaksOut" class="output">Ready.</div>
-            </div>
-        </section>
+    <section id="custom" class="section">
+        <div class="card">
+            <h2>Custom Commands</h2>
+            <p>Create and test custom chat commands.</p>
+            <input id="customName" value="discord">
+            <input id="customMsg" value="Join the Fox Spirits Discord!">
+            <button class="action" onclick="runCommand('!addcmd '+v('customName')+' '+v('customMsg'))">Add</button>
+            <button class="secondary" onclick="runCommand('!'+v('customName'))">Test</button>
+            <button class="secondary" onclick="runCommand('!delcmd '+v('customName'))">Delete</button>
+            <button class="secondary" onclick="runCommand('!commands')">List</button>
+            <button class="secondary" onclick="openPage('/custom-commands')">Custom JSON</button>
+            <div id="customOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="overlays" class="section">
-            <div class="panel">
-                <h2>OBS Overlays</h2>
-                <p>Open browser-source overlays for your live stream.</p>
-                <div class="buttons">
-                    <button class="action" onclick="openPage('/overlay/giveaway')">Giveaway Overlay</button>
-                    <button class="secondary" onclick="openPage('/overlay/redemptions')">Redemptions Overlay</button>
-                    <button class="secondary" onclick="openPage('/overlay/boss')">Boss Overlay</button>
-                    <button class="secondary" onclick="openPage('/goodnight')">Goodnight Button</button>
-                </div>
-                <div id="overlaysOut" class="output">OBS size recommendation: 1920x1080 or 1280x720.</div>
-            </div>
-        </section>
+    <section id="overlays" class="section">
+        <div class="card">
+            <h2>OBS Overlays</h2>
+            <p>Open live stream overlays. Recommended OBS size: 1920x1080.</p>
+            <button class="action" onclick="openPage('/overlay/giveaway')">Giveaway</button>
+            <button class="secondary" onclick="openPage('/overlay/redemptions')">Redemptions</button>
+            <button class="secondary" onclick="openPage('/overlay/boss')">Boss</button>
+            <button class="secondary" onclick="openPage('/goodnight')">Goodnight</button>
+            <div id="overlaysOut" class="out">Ready.</div>
+        </div>
+    </section>
 
-        <section id="diagnostics" class="section">
-            <div class="panel">
-                <h2>Full System Diagnostic</h2>
-                <p>Use these pages before demoing, submitting, or going live.</p>
-                <div class="buttons">
-                    <button class="action" onclick="openPage('/smoke-test')">Run Smoke Test</button>
-                    <button class="secondary" onclick="openPage('/proof')">Open Proof</button>
-                    <button class="secondary" onclick="openPage('/data-status')">Data Status</button>
-                    <button class="secondary" onclick="openPage('/project-status')">Project Status</button>
-                    <button class="secondary" onclick="openPage('/demo')">Judge Demo</button>
-                </div>
-                <div id="diagnosticsOut" class="output">Ready.</div>
-            </div>
-        </section>
-    </main>
+    <section id="data" class="section">
+        <div class="card">
+            <h2>Diagnostics + Data</h2>
+            <p>Check project health and save data.</p>
+            <button class="action" onclick="openPage('/smoke-test')">Smoke Test</button>
+            <button class="secondary" onclick="openPage('/proof')">Proof</button>
+            <button class="secondary" onclick="openPage('/data-status')">Data Status</button>
+            <button class="secondary" onclick="openPage('/save-data')">Save Data</button>
+            <button class="secondary" onclick="openPage('/project-status')">Project Status</button>
+            <button class="secondary" onclick="openPage('/cooldowns')">Cooldowns</button>
+            <div id="dataOut" class="out">Ready.</div>
+        </div>
+    </section>
+</main>
 </div>
 
 <script>
-let currentSection = "overview";
+let active = "overview";
 
-function showSection(id, btn) {
-    currentSection = id;
-    document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
+function show(id, btn) {
+    active = id;
+    document.querySelectorAll(".section").forEach(x => x.classList.remove("active"));
     document.getElementById(id).classList.add("active");
-
-    document.querySelectorAll(".nav button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".nav button").forEach(x => x.classList.remove("active"));
     btn.classList.add("active");
+}
+
+function v(id) {
+    return document.getElementById(id).value.trim();
 }
 
 function openPage(path) {
     window.open(path, "_blank");
 }
 
-function currentOutputBox() {
-    return document.getElementById(currentSection + "Out") || document.getElementById("overviewOut");
+function out() {
+    return document.getElementById(active + "Out") || document.getElementById("overviewOut");
 }
 
-async function runCommand(command) {
-    const box = currentOutputBox();
-    box.textContent = "Running " + command + "...";
+async function runInputCommand() {
+    await runCommand(v("cmdInput"), v("userInput") || "Ryan");
+}
+
+async function runCommand(cmd, user = "Ryan") {
+    const box = out();
+    box.textContent = "Running " + cmd + "...";
 
     try {
-        const response = await fetch("/chat?username=Ryan&message=" + encodeURIComponent(command));
-        const data = await response.json();
-        box.textContent = "Command: " + command + "\\n\\nResponse:\\n" + (data.response || JSON.stringify(data, null, 2));
-        refreshStats();
-    } catch (error) {
-        box.textContent = "Error: " + error;
+        const r = await fetch("/chat?username=" + encodeURIComponent(user) + "&message=" + encodeURIComponent(cmd));
+        const d = await r.json();
+        box.textContent = "Command: " + cmd + "\\n\\nResponse:\\n" + (d.response || JSON.stringify(d, null, 2));
+        refreshAll();
+    } catch(e) {
+        box.textContent = "Error: " + e;
     }
 }
 
 async function getJSON(path) {
-    const response = await fetch(path);
-    return await response.json();
+    const r = await fetch(path);
+    return await r.json();
 }
 
-async function refreshStats() {
+async function refreshAll() {
     try {
-        const foxcoins = await getJSON("/foxcoins");
-        const rewards = await getJSON("/rewards");
-        const redemptions = await getJSON("/redemptions");
+        const f = await getJSON("/foxcoins");
+        const rw = await getJSON("/rewards");
+        const rd = await getJSON("/redemptions");
 
-        document.getElementById("balanceCount").textContent = Object.keys(foxcoins.balances || {}).length;
-        document.getElementById("rewardCount").textContent = rewards.reward_count || 0;
-        document.getElementById("redemptionCount").textContent = redemptions.count || 0;
-    } catch (e) {
-        document.getElementById("balanceCount").textContent = "?";
-        document.getElementById("rewardCount").textContent = "?";
-        document.getElementById("redemptionCount").textContent = "?";
-    }
+        document.getElementById("balCount").textContent = Object.keys(f.balances || {}).length;
+        document.getElementById("rewCount").textContent = rw.reward_count || 0;
+        document.getElementById("redCount").textContent = rd.count || 0;
+    } catch(e) {}
 }
 
-refreshStats();
-setInterval(refreshStats, 5000);
+refreshAll();
+setInterval(refreshAll, 5000);
 </script>
 </body>
 </html>
@@ -6480,4 +6612,5 @@ setInterval(refreshStats, 5000);
 @app.get("/admin", response_class=HTMLResponse)
 def foxbot_admin_page():
     return foxbot_admin_html
+
 
