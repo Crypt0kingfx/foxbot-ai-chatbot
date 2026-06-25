@@ -1,14 +1,4 @@
-﻿from models.studio_state import (
-    STUDIO_STATE,
-    BLAZE_LISTENER_STATE,
-    RECOGNITION_HISTORY,
-    SUPPORT_REWARDS,
-    RECOGNITION_TEMPLATES,
-    BLAZE_EVENT_MAP,
-    studio_log,
-    add_foxcoins
-)
-import os
+﻿import os
 import json
 import random
 import threading
@@ -7354,7 +7344,6 @@ async def foxbot_blaze_listener_disconnect():
         "message": "Blaze Listener disconnected.",
         "listener": BLAZE_LISTENER_STATE
     }
-
 
 
 
