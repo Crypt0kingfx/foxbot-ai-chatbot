@@ -1,4 +1,6 @@
-﻿from services.recognition_engine import studio_recognition_response as service_studio_recognition_response
+﻿
+from services import blaze_listener
+from services.recognition_engine import studio_recognition_response as service_studio_recognition_response
 from models.studio_state import (
     STUDIO_STATE,
     BLAZE_LISTENER_STATE,
@@ -7356,4 +7358,20 @@ async def foxbot_blaze_listener_disconnect():
 
 
 
+
+
+
+# ==================================
+# Blaze Listener Service Test
+# ==================================
+
+@app.get("/api/blaze/service-test")
+async def blaze_service_test():
+
+    blaze_listener.connect()
+
+    return {
+        "ok": True,
+        "listener": blaze_listener.status()
+    }
 
