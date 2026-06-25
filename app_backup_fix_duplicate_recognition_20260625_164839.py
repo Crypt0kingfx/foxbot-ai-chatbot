@@ -7197,7 +7197,7 @@ RECOGNITION_TEMPLATES = {
     "raid": "?? {user} raided the stream! Welcome raiders! +{reward} FoxCoins"
 }
 
-def studio_recognition_response(event_type: str, user: str = "TestUser", amount: str = "$5"):
+def recognition_response(event_type: str, user: str = "TestUser", amount: str = "$5"):
     reward = SUPPORT_REWARDS.get(event_type, 0)
     template = RECOGNITION_TEMPLATES.get(event_type, "?? Thanks {user}!")
 
@@ -7244,7 +7244,7 @@ async def foxbot_recognition_event(event_type: str):
             "reason": "Recognition Engine disabled"
         }
 
-    result = studio_recognition_response(event_type=event_type)
+    result = recognition_response(event_type=event_type)
     return {
         "ok": True,
         "result": result
@@ -7311,7 +7311,11 @@ def process_blaze_event(raw_event: dict):
 
     BLAZE_LISTENER_STATE["mappedEvents"] += 1
 
-    result = studio_recognition_response(event_type=mapped_event, user=user, amount=amount)
+    result = recognition_response(
+        event_type=mapped_event,
+        user=user,
+        amount=amount
+    )
 
     return {
         "ok": True,
@@ -7350,7 +7354,6 @@ async def foxbot_blaze_listener_disconnect():
         "message": "Blaze Listener disconnected.",
         "listener": BLAZE_LISTENER_STATE
     }
-
 
 
 
