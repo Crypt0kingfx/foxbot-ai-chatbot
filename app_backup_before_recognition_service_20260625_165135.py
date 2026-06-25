@@ -1,5 +1,4 @@
-﻿from services.recognition_engine import studio_recognition_response as service_studio_recognition_response
-from models.studio_state import (
+﻿from models.studio_state import (
     STUDIO_STATE,
     BLAZE_LISTENER_STATE,
     RECOGNITION_HISTORY,
@@ -7245,7 +7244,7 @@ async def foxbot_recognition_event(event_type: str):
             "reason": "Recognition Engine disabled"
         }
 
-    result = service_studio_recognition_response(event_type=event_type)
+    result = studio_recognition_response(event_type=event_type)
     return {
         "ok": True,
         "result": result
@@ -7312,7 +7311,7 @@ def process_blaze_event(raw_event: dict):
 
     BLAZE_LISTENER_STATE["mappedEvents"] += 1
 
-    result = service_studio_recognition_response(event_type=mapped_event, user=user, amount=amount)
+    result = studio_recognition_response(event_type=mapped_event, user=user, amount=amount)
 
     return {
         "ok": True,
@@ -7351,7 +7350,6 @@ async def foxbot_blaze_listener_disconnect():
         "message": "Blaze Listener disconnected.",
         "listener": BLAZE_LISTENER_STATE
     }
-
 
 
 
