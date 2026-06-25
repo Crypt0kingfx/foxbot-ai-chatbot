@@ -92,6 +92,15 @@ support_rewards = {
     "chat_message": 10
 }
 
+recognition_settings = {
+    "enabled": True,
+    "surprise_bonus_enabled": True,
+    "surprise_bonus_chance": 15
+}
+
+recognition_log = []
+
+
 fox_spirit_ranks = [
     {"name": "Fox Pup", "minimum": 0},
     {"name": "Fox Hunter", "minimum": 250},
@@ -206,6 +215,8 @@ def get_persistent_snapshot():
         "arcade_stats": globals().get("arcade_stats", {}),
         "foxcoin_economy": globals().get("foxcoin_economy", {}),
         "support_rewards": globals().get("support_rewards", {}),
+        "recognition_settings": globals().get("recognition_settings", {}),
+        "recognition_log": globals().get("recognition_log", []),
         "fox_spirit_ranks": globals().get("fox_spirit_ranks", []),
         "stream_event": globals().get("stream_event", {}),
         "stream_event_templates": globals().get("stream_event_templates", {}),
@@ -225,6 +236,8 @@ def apply_persistent_snapshot(data):
     global arcade_stats
     global foxcoin_economy
     global support_rewards
+    global recognition_settings
+    global recognition_log
     global fox_spirit_ranks
     global stream_event
     global stream_event_templates
@@ -280,6 +293,12 @@ def apply_persistent_snapshot(data):
         community_quest.setdefault("reward", 100)
         community_quest.setdefault("claimed", {})
         community_quest.setdefault("completed", False)
+
+    if isinstance(data.get("recognition_settings"), dict):
+        recognition_settings.update(data["recognition_settings"])
+
+    if isinstance(data.get("recognition_log"), list):
+        recognition_log[:] = data["recognition_log"][:25]
 
     if isinstance(data.get("support_rewards"), dict):
         support_rewards.update(data["support_rewards"])
@@ -1254,6 +1273,112 @@ def format_redemptions(limit: int = 5):
     return "Recent redemptions: " + " | ".join(parts)
 
 
+def add_recognition_log(event_type: str, username: str, message: str, reward: int = 0):
+    item = {
+        "event_type": event_type,
+        "username": normalize_viewer_name(username),
+        "message": message,
+        "reward": int(reward)
+    }
+
+    recognition_log.insert(0, item)
+    del recognition_log[25:]
+
+    return item
+
+
+def surprise_bonus(username: str):
+    if not recognition_settings.get("surprise_bonus_enabled", True):
+        return ""
+
+    chance = int(recognition_settings.get("surprise_bonus_chance", 15))
+    roll = random.randint(1, 100)
+
+    if roll > chance:
+        return ""
+
+    bonus = random.choice([25, 50, 100, 150, 250])
+    currency = get_currency_name()
+    new_balance = add_points(username, bonus, "surprise recognition bonus")
+
+    return f" Lucky Bonus: @{normalize_viewer_name(username)} found a Golden Fox Chest and earned +{bonus} {currency}. Balance: {new_balance} {currency}."
+
+
+def recognition_response(event_type: str, target: str, amount=None):
+    target = normalize_viewer_name(target)
+    currency = get_currency_name()
+
+    if not recognition_settings.get("enabled", True):
+        return f"Recognition is currently disabled. Event received for @{target}: {event_type}."
+
+    if event_type == "follow":
+        reward = int(support_rewards.get("follow", 100))
+        new_balance = add_points(target, reward, "auto follow recognition")
+        msg = f"Welcome @{target} to the Fox Spirits pack! Thanks for the follow. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg += surprise_bonus(target)
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "sub":
+        reward = int(support_rewards.get("new_sub", 500))
+        new_balance = add_points(target, reward, "auto sub recognition")
+        msg = f"HUGE THANK YOU @{target} for subscribing! Welcome to the Fox Spirits family. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg += surprise_bonus(target)
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "giftsub":
+        count = int(amount or 1)
+        reward = int(support_rewards.get("gift_sub", 500)) * count
+        new_balance = add_points(target, reward, f"auto gifted subs x{count}")
+        msg = f"LEGEND ALERT: @{target} gifted {count} subs! Everyone show some love. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg += surprise_bonus(target)
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "vote":
+        votes = int(amount or 1)
+        reward = int(support_rewards.get("vote_token", 3)) * votes
+        new_balance = add_points(target, reward, f"auto vote recognition x{votes}")
+        msg = f"Thank you @{target} for voting with {votes} votes! Fox Spirits appreciates the support. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg += surprise_bonus(target)
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "tip":
+        dollars = float(amount or 1)
+        reward = int(dollars * int(support_rewards.get("tip_per_dollar", 200)))
+        new_balance = add_points(target, reward, f"auto tip recognition ${dollars}")
+        msg = f"Big shoutout to @{target} for the ${dollars:g} tip! Thank you for supporting the stream. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg += surprise_bonus(target)
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "raid":
+        reward = int(support_rewards.get("raid", 250))
+        new_balance = add_points(target, reward, "auto raid recognition")
+        msg = f"RAID LOVE! Huge thanks to @{target} for bringing the community over. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg += surprise_bonus(target)
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "mvp":
+        reward = 250
+        new_balance = add_points(target, reward, "MVP recognition")
+        msg = f"MVP SHOUTOUT: @{target} is carrying the stream today! +{reward} {currency}. Balance: {new_balance} {currency}."
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    if event_type == "og":
+        reward = 500
+        new_balance = add_points(target, reward, "OG recognition")
+        msg = f"OG FOX SPIRIT: @{target} has been here from the jump. Respect to one of the real ones. +{reward} {currency}. Balance: {new_balance} {currency}."
+        add_recognition_log(event_type, target, msg, reward)
+        return msg
+
+    return f"Unknown recognition event: {event_type}"
+
+
 def format_reward_shop():
     currency = get_currency_name()
 
@@ -2165,6 +2290,113 @@ def chat(message: str = "", username: str = "viewer"):
         return {
             "response": f"@{target} is ranked {current_rank['name']} with {balance} {currency}. Max Fox Spirit rank reached."
         }
+
+    if lower_message == "!recognition":
+        status = "ON" if recognition_settings.get("enabled", True) else "OFF"
+        bonus = "ON" if recognition_settings.get("surprise_bonus_enabled", True) else "OFF"
+        return {
+            "response": f"FoxBot Recognition: {status} | Surprise Bonuses: {bonus} | Commands: !thankfollow user, !thanksub user, !thankvote user 10, !thanktip user 5, !mvp user, !og user"
+        }
+
+    if lower_message == "!recognitionlog":
+        if not recognition_log:
+            return {"response": "No recognition events logged yet."}
+
+        parts = []
+        for item in recognition_log[:5]:
+            parts.append(f"{item['event_type']} @{item['username']} +{item['reward']}")
+
+        return {"response": "Recent recognition: " + " | ".join(parts)}
+
+    if lower_message.startswith("!recognitionon"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can change recognition settings."}
+        recognition_settings["enabled"] = True
+        return {"response": "FoxBot automatic recognition is now ON."}
+
+    if lower_message.startswith("!recognitionoff"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can change recognition settings."}
+        recognition_settings["enabled"] = False
+        return {"response": "FoxBot automatic recognition is now OFF."}
+
+    if lower_message.startswith("!thankfollow"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can thank followers."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        return {"response": recognition_response("follow", target)}
+
+    if lower_message.startswith("!thanksub"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can thank subs."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        return {"response": recognition_response("sub", target)}
+
+    if lower_message.startswith("!thankgiftsub"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can thank gift subs."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        count = parts[2] if len(parts) >= 3 else 1
+        return {"response": recognition_response("giftsub", target, count)}
+
+    if lower_message.startswith("!thankvote"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can thank voters."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        votes = parts[2] if len(parts) >= 3 else 1
+        return {"response": recognition_response("vote", target, votes)}
+
+    if lower_message.startswith("!thanktip"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can thank tippers."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        amount = parts[2] if len(parts) >= 3 else 1
+        return {"response": recognition_response("tip", target, amount)}
+
+    if lower_message.startswith("!thankraid"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can thank raids."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        return {"response": recognition_response("raid", target)}
+
+    if lower_message.startswith("!mvp"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can shout out MVPs."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        return {"response": recognition_response("mvp", target)}
+
+    if lower_message.startswith("!og"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can shout out OGs."}
+        parts = original_message.split()
+        target = parts[1] if len(parts) >= 2 else username
+        return {"response": recognition_response("og", target)}
+
+    if lower_message.startswith("!channel"):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can shout out channels."}
+        parts = original_message.split(" ", 2)
+        if len(parts) < 3:
+            return {"response": "Use !channel username link. Example: !channel avisi https://blaze.stream/avisi"}
+        target = normalize_viewer_name(parts[1])
+        link = parts[2].strip()
+        return {"response": f"Blaze channel shoutout: Go support @{target}! Follow their channel here: {link}"}
+
+    if lower_message.startswith("!so "):
+        if not admin:
+            return {"response": f"@{username}, only creator/mods can use shoutouts."}
+        parts = original_message.split(" ", 2)
+        target = normalize_viewer_name(parts[1]) if len(parts) >= 2 else "viewer"
+        if len(parts) >= 3:
+            return {"response": f"Shoutout to @{target}! Go show their Blaze channel some love: {parts[2].strip()}"}
+        return {"response": f"Shoutout to @{target}! Go show them love and support their Blaze content."}
 
     if lower_message == "!support":
         return {
@@ -6340,6 +6572,7 @@ button.secondary:hover {
         <button onclick="show('quests',this)">Quests</button>
         <button onclick="show('streaks',this)">Streaks</button>
         <button onclick="show('support',this)">Support Rewards</button>
+        <button onclick="show('recognitionTab',this)">Recognition</button>
         <button onclick="show('custom',this)">Custom Commands</button>
         <button onclick="show('overlays',this)">Overlays</button>
         <button onclick="show('data',this)">Diagnostics</button>
@@ -6576,6 +6809,32 @@ button.secondary:hover {
         </div>
     </section>
 
+    
+    <section id="recognitionTab" class="section">
+        <div class="card">
+            <h2>Recognition Engine</h2>
+            <p>Thank voters, followers, subs, tips, raids, MVPs, OGs, and Blaze channels.</p>
+            <input id="recUser" value="avisi">
+            <input id="recAmount" value="10">
+            <input id="recLink" value="https://blaze.stream/avisi">
+            <button class="action" onclick="runCommand('!thankfollow '+v('recUser'))">Thank Follow</button>
+            <button class="secondary" onclick="runCommand('!thanksub '+v('recUser'))">Thank Sub</button>
+            <button class="secondary" onclick="runCommand('!thankgiftsub '+v('recUser')+' 3')">Thank 3 Gift Subs</button>
+            <button class="secondary" onclick="runCommand('!thankvote '+v('recUser')+' '+v('recAmount'))">Thank Votes</button>
+            <button class="secondary" onclick="runCommand('!thanktip '+v('recUser')+' 5')">Thank Tip</button>
+            <button class="secondary" onclick="runCommand('!thankraid '+v('recUser'))">Thank Raid</button>
+            <button class="secondary" onclick="runCommand('!mvp '+v('recUser'))">MVP</button>
+            <button class="secondary" onclick="runCommand('!og '+v('recUser'))">OG</button>
+            <button class="secondary" onclick="runCommand('!channel '+v('recUser')+' '+v('recLink'))">Channel Shoutout</button>
+            <button class="secondary" onclick="runCommand('!recognitionlog')">Recognition Log</button>
+            <button class="secondary" onclick="runCommand('!recognitionon')">Recognition ON</button>
+            <button class="secondary" onclick="runCommand('!recognitionoff')">Recognition OFF</button>
+            <button class="secondary" onclick="openPage('/recognition')">Recognition JSON</button>
+            <div id="recognitionTabOut" class="out">Ready.</div>
+        </div>
+    </section>
+
+
     <section id="overlays" class="section">
         <div class="card">
             <h2>OBS Overlays</h2>
@@ -6673,5 +6932,49 @@ setInterval(refreshAll, 5000);
 @app.get("/admin", response_class=HTMLResponse)
 def foxbot_admin_page():
     return foxbot_admin_html
+
+
+@app.get("/recognition")
+def recognition_endpoint():
+    return {
+        "settings": recognition_settings,
+        "recent_log": recognition_log[:10],
+        "manual_commands": [
+            "!recognition",
+            "!recognitionon",
+            "!recognitionoff",
+            "!recognitionlog",
+            "!thankfollow username",
+            "!thanksub username",
+            "!thankgiftsub username 3",
+            "!thankvote username 10",
+            "!thanktip username 5",
+            "!thankraid username",
+            "!mvp username",
+            "!og username",
+            "!channel username https://blaze.stream/username",
+            "!so username"
+        ],
+        "auto_test_endpoints": [
+            "/auto-event/follow?username=avisi",
+            "/auto-event/sub?username=avisi",
+            "/auto-event/giftsub?username=avisi&amount=3",
+            "/auto-event/vote?username=avisi&amount=10",
+            "/auto-event/tip?username=avisi&amount=5",
+            "/auto-event/raid?username=avisi"
+        ]
+    }
+
+
+@app.get("/auto-event/{event_type}")
+def auto_event_endpoint(event_type: str, username: str = "viewer", amount: float = 1):
+    message = recognition_response(event_type.lower(), username, amount)
+    return {
+        "event_type": event_type,
+        "username": username,
+        "amount": amount,
+        "message": message,
+        "settings": recognition_settings
+    }
 
 
