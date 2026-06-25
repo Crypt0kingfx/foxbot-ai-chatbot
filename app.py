@@ -1,4 +1,4 @@
-import os
+ï»¿import os
 import json
 import random
 import threading
@@ -1032,14 +1032,14 @@ judges_html = """
 
         <h2>Test Commands</h2>
         <ul>
-            <li><code>!help</code> — shows available commands</li>
-            <li><code>!schedule</code> — shows the stream schedule</li>
-            <li><code>!faq</code> — explains FoxBot</li>
-            <li><code>!giveaway</code> — starts a giveaway</li>
-            <li><code>!enter</code> — enters a viewer into the giveaway</li>
-            <li><code>!entries</code> — shows current giveaway entries</li>
-            <li><code>!pickwinner</code> — randomly selects a winner</li>
-            <li><code>!ask</code> — demo AI response mode</li>
+            <li><code>!help</code> â€” shows available commands</li>
+            <li><code>!schedule</code> â€” shows the stream schedule</li>
+            <li><code>!faq</code> â€” explains FoxBot</li>
+            <li><code>!giveaway</code> â€” starts a giveaway</li>
+            <li><code>!enter</code> â€” enters a viewer into the giveaway</li>
+            <li><code>!entries</code> â€” shows current giveaway entries</li>
+            <li><code>!pickwinner</code> â€” randomly selects a winner</li>
+            <li><code>!ask</code> â€” demo AI response mode</li>
         </ul>
 
         <h2>How To Demo</h2>
@@ -7060,27 +7060,27 @@ def recognition_test(event_type: str):
     if event_type == "follow":
         STUDIO_STATE["followersToday"] += 1
         add_foxcoins(50)
-        studio_log("? Test follow detected — +50 FoxCoins reward triggered.")
+        studio_log("? Test follow detected â€” +50 FoxCoins reward triggered.")
 
     elif event_type == "vote":
         STUDIO_STATE["votesToday"] += 1
         add_foxcoins(25)
-        studio_log("??? Test vote detected — +25 FoxCoins reward triggered.")
+        studio_log("??? Test vote detected â€” +25 FoxCoins reward triggered.")
 
     elif event_type == "sub":
         STUDIO_STATE["subsToday"] += 1
         add_foxcoins(250)
-        studio_log("?? Test sub detected — +250 FoxCoins reward triggered.")
+        studio_log("?? Test sub detected â€” +250 FoxCoins reward triggered.")
 
     elif event_type == "tip":
         STUDIO_STATE["tipsTotal"] += 5
         STUDIO_STATE["tipsToday"] = f"${STUDIO_STATE['tipsTotal']}"
         add_foxcoins(500)
-        studio_log("?? Test tip detected — $5 tip +500 FoxCoins reward triggered.")
+        studio_log("?? Test tip detected â€” $5 tip +500 FoxCoins reward triggered.")
 
     elif event_type == "raid":
         add_foxcoins(300)
-        studio_log("?? Test raid detected — raid recognition triggered.")
+        studio_log("?? Test raid detected â€” raid recognition triggered.")
 
     STUDIO_STATE["recognitionQueue"] = max(0, STUDIO_STATE["recognitionQueue"] - 1)
 
@@ -7344,5 +7344,6 @@ async def foxbot_blaze_listener_disconnect():
         "message": "Blaze Listener disconnected.",
         "listener": BLAZE_LISTENER_STATE
     }
+
 
 
