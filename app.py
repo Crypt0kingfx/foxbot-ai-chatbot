@@ -4911,7 +4911,38 @@ economy_dashboard_html = """
             }
         }
 
-        async function getJSON(path) {
+        
+async function callEndpoint(path) {
+    const box = out();
+    box.textContent = "Calling " + path + "...";
+
+    try {
+        const r = await fetch(path);
+        const d = await r.json();
+        box.textContent = JSON.stringify(d, null, 2);
+        refreshAll();
+    } catch(e) {
+        box.textContent = "Error: " + e;
+    }
+}
+
+async function sendBlazeCommand() {
+    const box = out();
+    const username = v("blazeUser") || "Ryan";
+    const message = v("blazeMessage") || "!help";
+
+    box.textContent = "Sending to Blaze...";
+
+    try {
+        const r = await fetch("/blaze/run-command?username=" + encodeURIComponent(username) + "&message=" + encodeURIComponent(message));
+        const d = await r.json();
+        box.textContent = JSON.stringify(d, null, 2);
+    } catch(e) {
+        box.textContent = "Error sending to Blaze: " + e;
+    }
+}
+
+async function getJSON(path) {
             const response = await fetch(path);
             return await response.json();
         }
@@ -6288,17 +6319,18 @@ button.secondary:hover {
 <div class="app">
 <aside class="side">
     <div class="logo">
-        <div class="logo-mark">??</div>
+        <div class="logo-mark">FB</div>
         <div>
             <div class="logo-title">FOXBOT</div>
             <div class="logo-sub">Admin Hub</div>
         </div>
     </div>
 
-    <div class="status"><span></span>Bot online ? tools active</div>
+    <div class="status"><span></span>Bot online - tools active</div>
 
     <div class="nav">
         <button class="active" onclick="show('overview',this)">Overview</button>
+        <button onclick="show('control',this)">Bot Control</button>
         <button onclick="show('chat',this)">Chat Test</button>
         <button onclick="show('economy',this)">FoxCoins</button>
         <button onclick="show('shop',this)">Reward Shop</button>
@@ -6346,6 +6378,35 @@ button.secondary:hover {
             <div id="overviewOut" class="out">Ready.</div>
         </div>
     </section>
+
+    
+    <section id="control" class="section">
+        <div class="card">
+            <h2>Bot Control Panel</h2>
+            <p>Control Blaze login, polling listener, proof checks, and live command sending from one place.</p>
+
+            <div class="row">
+                <button class="action" onclick="openPage('/login/blaze')">Login With Blaze</button>
+                <button class="secondary" onclick="callEndpoint('/blaze/start-polling-listener')">Start Chat Listener</button>
+                <button class="secondary" onclick="callEndpoint('/blaze/polling-status')">Listener Status</button>
+                <button class="secondary" onclick="openPage('/proof')">Open Proof</button>
+                <button class="secondary" onclick="openPage('/smoke-test')">Smoke Test</button>
+            </div>
+
+            <div style="height:14px"></div>
+
+            <h2>Send Message / Command To Blaze</h2>
+            <p>This sends through the Blaze command route if your Blaze login is active.</p>
+
+            <input id="blazeUser" value="Ryan">
+            <input id="blazeMessage" value="!help">
+            <button class="action" onclick="sendBlazeCommand()">Send To Blaze</button>
+            <button class="secondary" onclick="runCommand(v('blazeMessage'), v('blazeUser'))">Test Locally First</button>
+
+            <div id="controlOut" class="out">Ready.</div>
+        </div>
+    </section>
+
 
     <section id="chat" class="section">
         <div class="card">
