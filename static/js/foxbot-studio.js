@@ -273,3 +273,77 @@ function triggerStreakAction(action) {
     currentEvent.textContent = "Streak: " + action.replaceAll("_", " ");
   }
 }
+
+function previewRewardOverlay(mode) {
+  const preview = document.getElementById("rewardOverlayPreview");
+  if (!preview) return;
+
+  const data = {
+    redemption: {
+      icon: "🎁",
+      title: "Reward Redeemed",
+      message: "A viewer spent FoxCoins and triggered a reward."
+    },
+    bonus_drop: {
+      icon: "💰",
+      title: "Bonus Drop Activated",
+      message: "FoxBot dropped bonus FoxCoins for the community."
+    },
+    mvp_bonus: {
+      icon: "👑",
+      title: "MVP Bonus Awarded",
+      message: "A top supporter earned a special MVP reward."
+    },
+    og_bonus: {
+      icon: "🦊",
+      title: "OG Bonus Awarded",
+      message: "An original Fox Spirit earned an OG loyalty reward."
+    },
+    streak_reward: {
+      icon: "🔥",
+      title: "Streak Reward Paid",
+      message: "A loyal viewer earned FoxCoins for showing up."
+    },
+    event_reward: {
+      icon: "⚡",
+      title: "Stream Event Reward",
+      message: "A live event paid out bonus FoxCoins."
+    },
+    giveaway_entry: {
+      icon: "🎟️",
+      title: "Giveaway Entry Added",
+      message: "A viewer earned an extra giveaway entry."
+    },
+    clear_queue: {
+      icon: "🧹",
+      title: "Reward Queue Cleared",
+      message: "Pending redemptions have been cleared by admin."
+    },
+    reset: {
+      icon: "🎁",
+      title: "Rewards System Ready",
+      message: "FoxCoins payouts and redemptions will appear here."
+    }
+  };
+
+  const item = data[mode] || data.reset;
+
+  preview.innerHTML = `
+    <div class="preview-orb">${item.icon}</div>
+    <h3>${item.title}</h3>
+    <p>${item.message}</p>
+  `;
+}
+
+function triggerRewardAction(action) {
+  previewRewardOverlay(action);
+
+  if (typeof studioAction === "function") {
+    studioAction(action);
+  }
+
+  const currentEvent = document.getElementById("currentEvent");
+  if (currentEvent) {
+    currentEvent.textContent = "Reward: " + action.replaceAll("_", " ");
+  }
+}
