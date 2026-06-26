@@ -51,36 +51,3 @@ document.addEventListener("DOMContentLoaded", () => {
   loadStudioStats();
   setInterval(loadStudioStats, 5000);
 });
-
-async function blazeService(action) {
-  let url = "/api/blaze/service/status";
-  let options = { method: "GET" };
-
-  if (action === "connect") {
-    url = "/api/blaze/service/connect";
-    options = { method: "POST" };
-  }
-
-  if (action === "disconnect") {
-    url = "/api/blaze/service/disconnect";
-    options = { method: "POST" };
-  }
-
-  if (action === "test_follow") {
-    url = "/api/blaze/service/event";
-    options = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "follow", user: "Ryan" })
-    };
-  }
-
-  try {
-    const res = await fetch(url, options);
-    const data = await res.json();
-    addFeed(`🔌 Blaze Service: ${data.message || data.mapped_event || action}`);
-    loadStudioStats();
-  } catch (err) {
-    addFeed(`⚠️ Blaze Service failed: ${action}`);
-  }
-}
