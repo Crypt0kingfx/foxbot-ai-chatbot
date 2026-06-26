@@ -143,54 +143,15 @@
         <div class="command-center">
           <div class="card big-panel">
             <h2>Quick Actions</h2>
-            <div class="quick-actions-v2">
-              <button class="quick-action-card" onclick="studioAction('start_bot')">
-                <div class="quick-action-icon">▶️</div>
-                <div class="quick-action-title">Start Bot</div>
-                <div class="quick-action-desc">Bring FoxBot online.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('stop_bot')">
-                <div class="quick-action-icon">⏹️</div>
-                <div class="quick-action-title">Stop Bot</div>
-                <div class="quick-action-desc">Pause bot activity.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('restart_bot')">
-                <div class="quick-action-icon">🔄</div>
-                <div class="quick-action-title">Restart</div>
-                <div class="quick-action-desc">Refresh bot systems.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('save_data')">
-                <div class="quick-action-icon">💾</div>
-                <div class="quick-action-title">Save Data</div>
-                <div class="quick-action-desc">Save FoxBot state.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('treasure_drop')">
-                <div class="quick-action-icon">💰</div>
-                <div class="quick-action-title">Treasure Drop</div>
-                <div class="quick-action-desc">Trigger bonus rewards.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('start_boss')">
-                <div class="quick-action-icon">👑</div>
-                <div class="quick-action-title">Start Boss</div>
-                <div class="quick-action-desc">Launch boss battle.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="demoActivity()">
-                <div class="quick-action-icon">⚡</div>
-                <div class="quick-action-title">Demo Event</div>
-                <div class="quick-action-desc">Add live activity.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('smoke_test')">
-                <div class="quick-action-icon">🧪</div>
-                <div class="quick-action-title">Smoke Test</div>
-                <div class="quick-action-desc">Check system health.</div>
-              </button>
+            <div class="actions">
+              <button class="action-btn" onclick="studioAction('start_bot')">Start Bot</button>
+              <button class="action-btn" onclick="studioAction('stop_bot')">Stop Bot</button>
+              <button class="action-btn" onclick="studioAction('restart_bot')">Restart Bot</button>
+              <button class="action-btn" onclick="studioAction('save_data')">Save Data</button>
+              <button class="action-btn" onclick="studioAction('load_data')">Load Data</button>
+              <button class="action-btn" onclick="studioAction('treasure_drop')">Treasure Drop</button>
+              <button class="action-btn" onclick="studioAction('start_boss')">Start Boss</button>
+              <button class="action-btn" onclick="studioAction('smoke_test')">Smoke Test</button>
             </div>
           </div>
 
@@ -294,7 +255,6 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
-
 
 
 
