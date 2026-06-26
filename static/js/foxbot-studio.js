@@ -204,3 +204,72 @@ function triggerStreamEvent(eventKey) {
     currentEvent.textContent = getStreamEventLabel(eventKey);
   }
 }
+
+function previewStreakOverlay(mode) {
+  const preview = document.getElementById("streakOverlayPreview");
+  if (!preview) return;
+
+  const data = {
+    leaderboard: {
+      icon: "🏆",
+      title: "Top Streak Leaderboard",
+      message: "MVP Viewer leads the pack with a 30-day streak."
+    },
+    daily_checkin: {
+      icon: "🔥",
+      title: "Daily Check-In Claimed",
+      message: "A loyal viewer checked in and extended their streak."
+    },
+    award_bonus: {
+      icon: "💰",
+      title: "Streak Bonus Awarded",
+      message: "FoxCoins have been awarded for consistent support."
+    },
+    repair_streak: {
+      icon: "🛠️",
+      title: "Streak Repaired",
+      message: "Admin protection restored a viewer streak."
+    },
+    reset_streak: {
+      icon: "⚠️",
+      title: "Streak Reset Tool",
+      message: "Use carefully. This is for admin corrections only."
+    },
+    boost_mvp: {
+      icon: "👑",
+      title: "MVP Streak Boost",
+      message: "MVP multiplier activated for a loyal supporter."
+    },
+    boost_og: {
+      icon: "🦊",
+      title: "OG Streak Boost",
+      message: "OG community boost activated."
+    },
+    reset: {
+      icon: "🔥",
+      title: "Streak System Ready",
+      message: "Viewer check-ins and streak rewards will appear here."
+    }
+  };
+
+  const item = data[mode] || data.reset;
+
+  preview.innerHTML = `
+    <div class="preview-orb">${item.icon}</div>
+    <h3>${item.title}</h3>
+    <p>${item.message}</p>
+  `;
+}
+
+function triggerStreakAction(action) {
+  previewStreakOverlay(action);
+
+  if (typeof studioAction === "function") {
+    studioAction(action);
+  }
+
+  const currentEvent = document.getElementById("currentEvent");
+  if (currentEvent) {
+    currentEvent.textContent = "Streak: " + action.replaceAll("_", " ");
+  }
+}

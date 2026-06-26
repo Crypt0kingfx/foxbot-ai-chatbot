@@ -818,7 +818,149 @@
           </div>
         </div>
       </section>
-      <section id="streaks" class="section"><div class="card"><h2>Streaks</h2><p>Check-ins, leaderboards, reset tools, and streak statistics.</p></div></section>
+      <section id="streaks" class="section">
+        <div class="studio-hero streaks-hero">
+          <div>
+            <div class="eyebrow">Streaks Center 2.0</div>
+            <h1>Reward viewers for showing up every stream.</h1>
+            <p>Manage daily check-ins, viewer streaks, multipliers, MVP boosts, OG boosts, reset tools, and streak overlay previews.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="triggerStreakAction('daily_checkin')">Simulate Check-In</button>
+            <button class="ghost-btn" onclick="previewStreakOverlay('leaderboard')">Preview Leaderboard</button>
+          </div>
+        </div>
+
+        <div class="streaks-stat-grid">
+          <div class="card streak-stat-card">
+            <div class="card-title">Active Streaks</div>
+            <div class="card-value">0</div>
+            <p>Viewers currently building streaks.</p>
+          </div>
+          <div class="card streak-stat-card">
+            <div class="card-title">Top Streak</div>
+            <div class="card-value">0 Days</div>
+            <p>Longest active community streak.</p>
+          </div>
+          <div class="card streak-stat-card">
+            <div class="card-title">Check-Ins Today</div>
+            <div class="card-value">0</div>
+            <p>Daily claims during this stream.</p>
+          </div>
+          <div class="card streak-stat-card">
+            <div class="card-title">Multiplier</div>
+            <div class="card-value">1.0x</div>
+            <p>Current bonus reward multiplier.</p>
+          </div>
+        </div>
+
+        <div class="streaks-grid">
+          <div class="card">
+            <h2>Viewer Streak Board</h2>
+            <p>Track your most loyal viewers, MVPs, OGs, and daily check-in legends.</p>
+
+            <div class="streak-list">
+              <div class="streak-row">
+                <div class="streak-rank">#1</div>
+                <div>
+                  <strong>MVP Viewer</strong>
+                  <p>30-day streak · MVP boost active</p>
+                </div>
+                <span class="streak-badge">3.0x</span>
+              </div>
+              <div class="streak-row">
+                <div class="streak-rank">#2</div>
+                <div>
+                  <strong>OG Supporter</strong>
+                  <p>21-day streak · OG boost active</p>
+                </div>
+                <span class="streak-badge">2.5x</span>
+              </div>
+              <div class="streak-row">
+                <div class="streak-rank">#3</div>
+                <div>
+                  <strong>Daily Hunter</strong>
+                  <p>14-day streak · reward bonus active</p>
+                </div>
+                <span class="streak-badge">2.0x</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Streak Rewards</h2>
+            <p>Configure bonuses for consistent viewers.</p>
+
+            <div class="reward-tier-list">
+              <div class="reward-tier">
+                <span>3 Days</span>
+                <strong>25 FoxCoins</strong>
+              </div>
+              <div class="reward-tier">
+                <span>7 Days</span>
+                <strong>100 FoxCoins</strong>
+              </div>
+              <div class="reward-tier">
+                <span>14 Days</span>
+                <strong>250 FoxCoins</strong>
+              </div>
+              <div class="reward-tier">
+                <span>30 Days</span>
+                <strong>1,000 FoxCoins + MVP Shoutout</strong>
+              </div>
+            </div>
+
+            <button class="action-btn wide" onclick="triggerStreakAction('award_bonus')">Award Streak Bonus</button>
+          </div>
+
+          <div class="card">
+            <h2>Admin Controls</h2>
+            <p>Manual tools for fixing streaks, testing rewards, and protecting loyal viewers.</p>
+
+            <label class="setting-row">
+              <span>Check-In Window</span>
+              <select class="input">
+                <option>Entire Stream</option>
+                <option>First 30 Minutes</option>
+                <option>First Hour</option>
+                <option>Manual Only</option>
+              </select>
+            </label>
+
+            <label class="setting-row">
+              <span>Missed Day Protection</span>
+              <select class="input">
+                <option>Enabled for MVPs / OGs</option>
+                <option>Enabled for Everyone</option>
+                <option>Disabled</option>
+              </select>
+            </label>
+
+            <div class="admin-button-grid">
+              <button onclick="triggerStreakAction('repair_streak')">Repair Streak</button>
+              <button onclick="triggerStreakAction('reset_streak')">Reset Streak</button>
+              <button onclick="triggerStreakAction('boost_mvp')">Boost MVP</button>
+              <button onclick="triggerStreakAction('boost_og')">Boost OG</button>
+            </div>
+          </div>
+
+          <div class="card streak-preview-card">
+            <div class="preview-header">
+              <div>
+                <h2>Streak Overlay Preview</h2>
+                <p>Preview what OBS will show when viewers check in.</p>
+              </div>
+              <button class="ghost-btn small" onclick="previewStreakOverlay('reset')">Reset</button>
+            </div>
+
+            <div id="streakOverlayPreview" class="streak-overlay-preview">
+              <div class="preview-orb">🔥</div>
+              <h3>Streak System Ready</h3>
+              <p>Viewer check-ins and streak rewards will appear here.</p>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="overlays" class="section"><div class="card"><h2>OBS Overlays</h2><p>Preview overlays, copy OBS URLs, edit animations, themes, fonts, and colors.</p></div></section>
       <section id="analytics" class="section"><div class="card"><h2>Analytics</h2><p>Followers, subs, votes, tips, chat activity, FoxCoins generated, and growth charts.</p></div></section>
       <section id="ai" class="section"><div class="card"><h2>Fox AI Assistant</h2><input class="input" placeholder="Ask Fox AI to create events, rewards, quests, or improve stream engagement..."></div></section>
@@ -833,6 +975,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 

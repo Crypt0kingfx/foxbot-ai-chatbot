@@ -950,3 +950,146 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Streaks Center 2.0 */
+.streaks-hero {
+  background:
+    radial-gradient(circle at top right, rgba(255, 122, 24, .24), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(255, 64, 64, .14), transparent 36%),
+    linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
+}
+
+.streaks-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.streak-stat-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.streaks-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.streak-list,
+.reward-tier-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.streak-row {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.streak-row p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.streak-rank {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,122,24,.14);
+  border: 1px solid rgba(255,122,24,.28);
+  font-weight: 900;
+  color: var(--orange);
+}
+
+.streak-badge {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255,122,24,.16);
+  border: 1px solid rgba(255,122,24,.28);
+  font-weight: 900;
+}
+
+.reward-tier {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.reward-tier span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.admin-button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.admin-button-grid button {
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.08);
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.streak-overlay-preview {
+  min-height: 260px;
+  margin-top: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.12);
+  background:
+    radial-gradient(circle at top, rgba(255, 122, 24, .26), transparent 42%),
+    radial-gradient(circle at bottom right, rgba(255, 64, 64, .16), transparent 40%),
+    #050807;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 26px;
+}
+
+.streak-overlay-preview h3 {
+  margin: 8px 0 4px;
+  font-size: 24px;
+}
+
+.streak-overlay-preview p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+  .streaks-stat-grid,
+  .streaks-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .streak-row {
+    grid-template-columns: 42px 1fr;
+  }
+
+  .streak-badge {
+    grid-column: 2;
+    width: fit-content;
+  }
+}
