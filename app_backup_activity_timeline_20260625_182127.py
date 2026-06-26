@@ -7467,17 +7467,3 @@ async def foxbot_studio_primary_admin():
     with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
         return f.read()
 
-
-# ==============================
-# FoxBot Studio Activity Tools
-# ==============================
-
-@app.post("/api/studio/activity/clear")
-async def foxbot_clear_activity():
-    STUDIO_STATE["activity"] = []
-    studio_log("🧹 Activity feed cleared.")
-    return {
-        "ok": True,
-        "activity": STUDIO_STATE["activity"]
-    }
-

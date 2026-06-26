@@ -101,3 +101,12 @@ document.addEventListener("DOMContentLoaded", () => {
     studio.classList.add("sidebar-collapsed");
   }
 });
+
+async function clearActivity() {
+  try {
+    await fetch("/api/studio/activity/clear", { method: "POST" });
+    loadStudioStats();
+  } catch (err) {
+    addFeed("⚠️ Failed to clear activity feed.");
+  }
+}
