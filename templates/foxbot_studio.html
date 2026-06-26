@@ -420,77 +420,163 @@
           </div>
         </div>
       </section>
-      <section id="rewards" class="section"><div class="card"><h2>Rewards</h2><p>Create, edit, delete, preview, and manage reward redemptions.</p></div></section>
-            <section id="giveaways" class="section">
-        <div class="studio-heading">
-          <h2>Giveaways Center</h2>
-          <span class="mini-badge">Entries • Winners • Overlays</span>
+      <section id="rewards" class="section">
+        <div class="studio-hero rewards-hero">
+          <div>
+            <div class="eyebrow">Rewards Center 2.0</div>
+            <h1>Control every FoxCoins payout and redemption.</h1>
+            <p>Create, edit, delete, preview, and manage reward redemptions, supporter bonuses, MVP and OG boosts, stream event rewards, streak rewards, giveaway entries, and payout safety.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="triggerRewardAction('bonus_drop')">Bonus Drop</button>
+            <button class="ghost-btn" onclick="previewRewardOverlay('redemption')">Preview Redemption</button>
+          </div>
         </div>
 
-        <div class="grid">
-          <div class="card"><div class="card-title">Status</div><div class="card-value">Ready</div></div>
-          <div class="card"><div class="card-title">Entries</div><div class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Winners Picked</div><div class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Duplicate Protection</div><div class="card-value">On</div></div>
+        <div class="rewards-stat-grid">
+          <div class="card reward-stat-card">
+            <div class="card-title">Currency</div>
+            <div class="card-value">FoxCoins</div>
+            <p>Primary viewer reward currency.</p>
+          </div>
+          <div class="card reward-stat-card">
+            <div class="card-title">Reward Shop</div>
+            <div class="card-value">5 Items</div>
+            <p>Hug, Hype, Flex, Mystery Box, Sponsor.</p>
+          </div>
+          <div class="card reward-stat-card">
+            <div class="card-title">Queue</div>
+            <div class="card-value">0</div>
+            <p>Pending redemptions waiting for action.</p>
+          </div>
+          <div class="card reward-stat-card">
+            <div class="card-title">Safety</div>
+            <div class="card-value">On</div>
+            <p>Cooldowns and admin controls enabled.</p>
+          </div>
         </div>
 
-        <div class="giveaway-grid">
+        <div class="rewards-grid">
           <div class="card">
-            <h2>Create Giveaway</h2>
+            <h2>Supporter Reward Rules</h2>
+            <p>These match the reward engine already wired into FoxBot commands.</p>
 
-            <div class="template-row">
-              <label>Prize</label>
-              <input class="input" value="$25 USDC + Blaze Votes">
-            </div>
-
-            <div class="template-row">
-              <label>Rules</label>
-              <textarea class="textarea">Type !enter in chat to join. Must be live to claim.</textarea>
-            </div>
-
-            <div class="economy-actions">
-              <button class="action-btn" onclick="studioAction('start_giveaway')">Start Giveaway</button>
-              <button class="action-btn" onclick="studioAction('pick_winner')">Pick Winner</button>
-              <button class="action-btn" onclick="studioAction('reset_giveaway')">Reset Entries</button>
-              <button class="action-btn" onclick="studioAction('giveaway_overlay')">Preview Overlay</button>
+            <div class="reward-rule-list">
+              <div class="reward-rule"><span>Follow</span><strong>+100 FoxCoins</strong></div>
+              <div class="reward-rule"><span>New Sub</span><strong>+500 FoxCoins</strong></div>
+              <div class="reward-rule"><span>Gift Sub</span><strong>+500 Each</strong></div>
+              <div class="reward-rule"><span>Tip</span><strong>+200 Per $1</strong></div>
+              <div class="reward-rule"><span>Vote Token</span><strong>+3 Each</strong></div>
+              <div class="reward-rule"><span>Raid</span><strong>+250 FoxCoins</strong></div>
             </div>
           </div>
 
           <div class="card">
-            <h2>Overlay Preview</h2>
-            <div class="giveaway-preview">
-              <div>
-                <h3>🎁 Giveaway Live</h3>
-                <p>$25 USDC + Blaze Votes</p>
-                <strong>Type !enter to join</strong>
+            <h2>Reward Shop</h2>
+            <p>Viewer redemptions powered by <code>!shop</code> and <code>!redeem</code>.</p>
+
+            <div class="shop-item-list">
+              <div class="shop-item">
+                <div><strong>Hug</strong><p>Simple FoxBot hug redemption.</p></div>
+                <span>10</span>
+              </div>
+              <div class="shop-item">
+                <div><strong>Hype</strong><p>Trigger hype mode energy for chat.</p></div>
+                <span>25</span>
+              </div>
+              <div class="shop-item">
+                <div><strong>Flex</strong><p>Big creator energy redemption.</p></div>
+                <span>50</span>
+              </div>
+              <div class="shop-item">
+                <div><strong>Mystery Box</strong><p>Random jackpot or fun outcome.</p></div>
+                <span>75</span>
+              </div>
+              <div class="shop-item">
+                <div><strong>Sponsor</strong><p>Fake sponsor read powered by FoxCoins.</p></div>
+                <span>150</span>
               </div>
             </div>
           </div>
-        </div>
 
-        <br>
-
-        <div class="giveaway-grid">
           <div class="card">
-            <h2>Current Entries</h2>
-            <table class="table">
-              <tr><th>#</th><th>Viewer</th><th>Status</th></tr>
-              <tr><td>1</td><td>Ryan</td><td>Demo Entry</td></tr>
-              <tr><td>2</td><td>FoxFan</td><td>Waiting</td></tr>
-              <tr><td>3</td><td>Viewer</td><td>Waiting</td></tr>
-            </table>
+            <h2>Create / Edit Reward</h2>
+            <p>Design rewards before wiring them into the live command editor.</p>
+
+            <label class="setting-row">
+              <span>Reward Name</span>
+              <input class="input" value="hydrate">
+            </label>
+
+            <label class="setting-row">
+              <span>Cost</span>
+              <input class="input" value="25">
+            </label>
+
+            <label class="setting-row">
+              <span>Response</span>
+              <input class="input" value="@{username} redeemed hydrate!">
+            </label>
+
+            <div class="reward-button-grid">
+              <button onclick="triggerRewardAction('create_reward')">Create</button>
+              <button onclick="triggerRewardAction('edit_reward')">Edit</button>
+              <button onclick="triggerRewardAction('delete_reward')">Delete</button>
+              <button onclick="triggerRewardAction('preview_reward')">Preview</button>
+            </div>
           </div>
 
           <div class="card">
-            <h2>Winner History</h2>
-            <div class="stat-line"><span>Last Winner</span><strong>None</strong></div>
-            <div class="stat-line"><span>Total Giveaways</span><strong>0</strong></div>
-            <div class="stat-line"><span>Overlay</span><strong>Ready</strong></div>
-            <div class="stat-line"><span>Commands</span><strong>!giveaway / !enter / !pickwinner</strong></div>
+            <h2>Boost Controls</h2>
+            <p>Manual reward moments for loyal viewers, MVPs, OGs, and stream events.</p>
+
+            <div class="reward-button-grid">
+              <button onclick="triggerRewardAction('mvp_bonus')">MVP Bonus</button>
+              <button onclick="triggerRewardAction('og_bonus')">OG Bonus</button>
+              <button onclick="triggerRewardAction('streak_reward')">Streak Reward</button>
+              <button onclick="triggerRewardAction('event_reward')">Event Reward</button>
+              <button onclick="triggerRewardAction('giveaway_entry')">Giveaway Entry</button>
+              <button onclick="triggerRewardAction('clear_queue')">Clear Queue</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Redemption Queue</h2>
+            <p>Approve, complete, or clear viewer redemptions.</p>
+
+            <div class="redemption-queue-list">
+              <div class="queue-item">
+                <div><strong>No active redemptions</strong><p>Viewer redemptions will appear here.</p></div>
+                <span>Ready</span>
+              </div>
+            </div>
+
+            <div class="reward-button-grid">
+              <button onclick="triggerRewardAction('approve_redemption')">Approve</button>
+              <button onclick="triggerRewardAction('complete_redemption')">Complete</button>
+              <button onclick="triggerRewardAction('clear_queue')">Clear Queue</button>
+              <button onclick="triggerRewardAction('refresh_queue')">Refresh</button>
+            </div>
+          </div>
+
+          <div class="card reward-preview-card">
+            <div class="preview-header">
+              <div>
+                <h2>Reward Overlay Preview</h2>
+                <p>Preview what OBS will show when rewards fire.</p>
+              </div>
+              <button class="ghost-btn small" onclick="previewRewardOverlay('reset')">Reset</button>
+            </div>
+
+            <div id="rewardOverlayPreview" class="reward-overlay-preview">
+              <div class="preview-orb">🎁</div>
+              <h3>Rewards System Ready</h3>
+              <p>FoxCoins payouts and redemptions will appear here.</p>
+            </div>
           </div>
         </div>
       </section>
-            <section id="boss" class="section">
+      <section id="boss" class="section">
         <div class="studio-heading">
           <h2>Boss Battle Center</h2>
           <span class="mini-badge">Raid-Style Engagement</span>
@@ -975,6 +1061,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 
