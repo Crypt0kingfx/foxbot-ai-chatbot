@@ -644,35 +644,3 @@ body {
     grid-template-columns: 1fr;
   }
 }
-
-.giveaway-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-}
-
-.giveaway-preview {
-  min-height: 190px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(circle at top left, rgba(57,255,136,.16), transparent 35%),
-    radial-gradient(circle at bottom right, rgba(255,122,24,.18), transparent 35%),
-    #050807;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  padding: 20px;
-}
-
-.giveaway-preview h3 {
-  margin: 0 0 8px;
-  color: var(--green);
-  font-size: 28px;
-}
-
-@media (max-width: 950px) {
-  .giveaway-grid {
-    grid-template-columns: 1fr;
-  }
-}
