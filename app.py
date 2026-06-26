@@ -7446,3 +7446,13 @@ async def blaze_service_event(raw_event: dict):
         "result": result
     }
 
+
+# ==============================
+# FoxBot Studio Clean Route
+# ==============================
+
+@app.get("/studio", response_class=HTMLResponse)
+async def foxbot_studio_clean():
+    with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
+        return f.read()
+
