@@ -1397,7 +1397,128 @@
           </div>
         </div>
       </section>
-      <section id="ai" class="section"><div class="card"><h2>Fox AI Assistant</h2><input class="input" placeholder="Ask Fox AI to create events, rewards, quests, or improve stream engagement..."></div></section>
+      <section id="ai" class="section">
+        <div class="studio-hero ai-hero">
+          <div>
+            <div class="eyebrow">AI Command Center 2.0</div>
+            <h1>Plan streams, commands, rewards, and hype moments with Fox AI.</h1>
+            <p>Generate quests, rewards, events, giveaways, shoutouts, overlay text, command ideas, moderation responses, and stream engagement plans from one creator assistant panel.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="generateFoxAI('stream_plan')">Generate Stream Plan</button>
+            <button class="ghost-btn" onclick="askFoxAIDemo()">Ask Fox AI Demo</button>
+          </div>
+        </div>
+
+        <div class="ai-command-grid">
+          <div class="card ai-main-card">
+            <h2>Fox AI Prompt</h2>
+            <p>Tell Fox AI what you want to create for tonight's stream.</p>
+
+            <textarea id="aiPrompt" class="ai-textarea" placeholder="Example: Make tonight's Blaze stream more exciting with quests, rewards, shoutouts, and OBS overlay text."></textarea>
+
+            <div class="ai-button-grid">
+              <button onclick="generateFoxAI('quest')">Generate Quest</button>
+              <button onclick="generateFoxAI('reward')">Generate Reward</button>
+              <button onclick="generateFoxAI('event')">Generate Event</button>
+              <button onclick="generateFoxAI('giveaway')">Giveaway Idea</button>
+              <button onclick="generateFoxAI('shoutout')">Shoutout Message</button>
+              <button onclick="generateFoxAI('overlay')">Overlay Text</button>
+              <button onclick="generateFoxAI('commands')">Command Ideas</button>
+              <button onclick="generateFoxAI('moderation')">Moderation Helper</button>
+            </div>
+          </div>
+
+          <div class="card ai-output-card">
+            <div class="preview-header">
+              <div>
+                <h2>Fox AI Output</h2>
+                <p>Copy this into commands, overlays, posts, or stream notes.</p>
+              </div>
+              <button class="ghost-btn small" onclick="copyFoxAIOutput()">Copy</button>
+            </div>
+
+            <div id="aiOutput" class="ai-output">
+              <div class="preview-orb">🦊</div>
+              <h3>Fox AI Ready</h3>
+              <p>Choose a generator or ask a stream-planning question.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-tools-grid">
+          <div class="card">
+            <h2>Quick Stream Generators</h2>
+            <p>One-click ideas for fast creator planning.</p>
+
+            <div class="ai-preset-list">
+              <button onclick="setFoxAIPrompt('Create a 2-hour Blaze stream plan with intro, gameplay segment, giveaway, boss battle, and closing message.')">2-Hour Stream Plan</button>
+              <button onclick="setFoxAIPrompt('Create a FoxBot community quest that encourages chat, rewards viewers, and feels exciting.')">Community Quest</button>
+              <button onclick="setFoxAIPrompt('Create a reward shop item that viewers can redeem with FoxCoins during stream.')">Reward Shop Item</button>
+              <button onclick="setFoxAIPrompt('Create an OBS alert message for a new subscriber with Fox Spirit branding.')">OBS Alert Text</button>
+              <button onclick="setFoxAIPrompt('Create a hype message thanking voters, followers, subscribers, tippers, and raiders.')">Recognition Message</button>
+              <button onclick="setFoxAIPrompt('Create a clean moderation response for spam, negativity, or toxic chat.')">Moderation Response</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Suggested Commands</h2>
+            <p>AI-assisted command ideas to add later.</p>
+
+            <div class="ai-command-list">
+              <div><code>!hype</code><span>Boost chat energy</span></div>
+              <div><code>!quest</code><span>Show active quest</span></div>
+              <div><code>!mvp</code><span>Shout out top viewer</span></div>
+              <div><code>!clip</code><span>Ask viewers to clip moment</span></div>
+              <div><code>!raidlove</code><span>Welcome raid community</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>AI Modes</h2>
+            <p>Choose the voice FoxBot should use when generating content.</p>
+
+            <label class="setting-row">
+              <span>Creator Tone</span>
+              <select id="aiTone" class="input">
+                <option value="hype">Hype</option>
+                <option value="pro">Professional</option>
+                <option value="chill">Chill</option>
+                <option value="chaotic">Chaotic Fox Energy</option>
+              </select>
+            </label>
+
+            <label class="setting-row">
+              <span>Output Type</span>
+              <select id="aiOutputType" class="input">
+                <option value="stream">Stream Plan</option>
+                <option value="command">Chat Command</option>
+                <option value="overlay">OBS Overlay</option>
+                <option value="social">Social Post</option>
+              </select>
+            </label>
+
+            <div class="ai-button-grid compact">
+              <button onclick="runFoxAICommand('!ask What does FoxBot do?')">Test !ask</button>
+              <button onclick="runFoxAICommand('!quests')">Test !quests</button>
+              <button onclick="runFoxAICommand('!events')">Test !events</button>
+              <button onclick="runFoxAICommand('!shop')">Test !shop</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>AI Roadmap</h2>
+            <p>What we can wire next after the UI is stable.</p>
+
+            <div class="ai-roadmap">
+              <div><strong>Phase 1</strong><span>Local generator templates</span></div>
+              <div><strong>Phase 2</strong><span>Save generated commands</span></div>
+              <div><strong>Phase 3</strong><span>Generate overlay themes</span></div>
+              <div><strong>Phase 4</strong><span>Optional real AI API connection</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="diagnostics" class="section"><div class="card"><h2>Diagnostics</h2><p>Smoke tests, API health, polling status, logs, and system checks.</p></div></section>
     </main>
   </div>
@@ -1409,6 +1530,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 

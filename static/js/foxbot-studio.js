@@ -593,3 +593,419 @@ function previewAnalyticsReport(mode) {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(refreshAnalyticsCenter, 600);
 });
+
+function getFoxAITone() {
+  const el = document.getElementById("aiTone");
+  return el ? el.value : "hype";
+}
+
+function getFoxAIOutputType() {
+  const el = document.getElementById("aiOutputType");
+  return el ? el.value : "stream";
+}
+
+function setFoxAIPrompt(text) {
+  const input = document.getElementById("aiPrompt");
+  if (input) input.value = text;
+  generateFoxAI("stream_plan");
+}
+
+function writeFoxAIOutput(text) {
+  const output = document.getElementById("aiOutput");
+  if (!output) return;
+
+  output.classList.add("generated");
+  output.textContent = text;
+}
+
+function getFoxAIPrompt() {
+  const input = document.getElementById("aiPrompt");
+  return input && input.value.trim()
+    ? input.value.trim()
+    : "Make tonight's Blaze stream more exciting with FoxBot quests, rewards, events, and hype moments.";
+}
+
+function generateFoxAI(type) {
+  const prompt = getFoxAIPrompt();
+  const tone = getFoxAITone();
+  const outputType = getFoxAIOutputType();
+
+  const toneLine = `Tone: ${tone.toUpperCase()} | Output: ${outputType.toUpperCase()}`;
+  const base = `Prompt: ${prompt}`;
+
+  const templates = {
+    stream_plan:
+`${toneLine}
+
+FOX AI STREAM PLAN
+${base}
+
+1. Opening Hook:
+Welcome everyone in with Fox Spirit energy, remind chat to use !help, and tease a reward drop.
+
+2. Engagement Loop:
+Run !daily, !checkin, !quest, and !boss during key moments to keep chat active.
+
+3. Reward Moment:
+Trigger a FoxCoins bonus or Treasure Drop when chat gets active.
+
+4. OBS Moment:
+Use an overlay alert: "The Fox Spirit is watching... chat has activated bonus rewards."
+
+5. Closing:
+Thank MVPs, OGs, voters, subs, tippers, raiders, and remind everyone to follow for the next hunt.`,
+
+    quest:
+`${toneLine}
+
+COMMUNITY QUEST IDEA
+${base}
+
+Quest Name: Fox Spirit Hunt
+Command: !startquest chat 25
+Goal: 25 chat interactions
+Reward: 100 FoxCoins
+Chat Message:
+"Community Quest Started: Fox Spirit Hunt. Help the stream reach 25 chat actions and everyone can claim bonus FoxCoins!"`,
+
+    reward:
+`${toneLine}
+
+REWARD SHOP IDEA
+${base}
+
+Reward Name: foxboost
+Cost: 75 FoxCoins
+Command Idea:
+!addreward foxboost 75 @{username} activated Fox Boost! Chat gets extra hype and the Fox Spirit approves.
+
+Use Case:
+Great for viewers who want to trigger a fun stream moment without interrupting gameplay.`,
+
+    event:
+`${toneLine}
+
+STREAM EVENT IDEA
+${base}
+
+Event Name: Cyber Fox Frenzy
+Trigger: Mid-stream hype moment, raid, sub train, or big match win.
+Viewer Action: Type !event to claim.
+Reward: 50 FoxCoins
+Overlay Text:
+"CYBER FOX FRENZY ACTIVE — rewards boosted, chat energy unlocked."`,
+
+    giveaway:
+`${toneLine}
+
+GIVEAWAY IDEA
+${base}
+
+Giveaway Name: Fox Spirit Drop
+Entry Command: !enter
+Bonus Entry Ideas:
+- Follow the channel
+- Vote/support the creator
+- Stay active in chat
+- Sub or gift sub for extra hype
+
+Announcement:
+"Fox Spirit Drop is live! Type !enter and stay active. Winner gets chosen before stream ends."`,
+
+    shoutout:
+`${toneLine}
+
+SHOUTOUT MESSAGE
+${base}
+
+"HUGE Fox Spirit shoutout to @{viewer}! Thanks for showing love, supporting the stream, and keeping the Blaze community alive. Everyone go show them some love!"`,
+
+    overlay:
+`${toneLine}
+
+OBS OVERLAY TEXT
+${base}
+
+Main Alert:
+"FOX SPIRIT EVENT ACTIVATED"
+
+Subtext:
+"Chat rewards are live. Type !help, !daily, !quest, or !boss."
+
+Lower Third:
+"Powered by FoxBot Studio"`,
+
+    commands:
+`${toneLine}
+
+COMMAND IDEAS
+${base}
+
+!foxboost — viewer spends FoxCoins to trigger hype.
+!raidlove — welcome raiders with a special message.
+!clipthat — asks chat to clip a huge moment.
+!mvp — celebrates top viewer of the stream.
+!nextdrop — shows the next giveaway or reward event.`,
+
+    moderation:
+`${toneLine}
+
+MODERATION HELPER
+${base}
+
+Soft Warning:
+"Keep it respectful, Fox Fam. We are here for good energy and a fun stream."
+
+Spam Warning:
+"Please slow down on spam so everyone can enjoy chat."
+
+Final Warning:
+"Last warning — keep the chat clean or mods may step in."`
+  };
+
+  writeFoxAIOutput(templates[type] || templates.stream_plan);
+}
+
+async function askFoxAIDemo() {
+  const prompt = getFoxAIPrompt();
+
+  try {
+    const response = await fetch(`/chat?message=${encodeURIComponent("!ask " + prompt)}&username=${encodeURIComponent("Ryan")}`);
+    const data = await response.json();
+    writeFoxAIOutput(`FOX AI DEMO RESPONSE\n\n${data.response || "No response returned."}`);
+  } catch (error) {
+    writeFoxAIOutput("Fox AI demo request failed. The local generators still work.");
+  }
+}
+
+async function runFoxAICommand(command) {
+  try {
+    const response = await fetch(`/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent("Ryan")}`);
+    const data = await response.json();
+    writeFoxAIOutput(`COMMAND TEST: ${command}\n\n${data.response || "No response returned."}`);
+  } catch (error) {
+    writeFoxAIOutput(`Command test failed: ${command}`);
+  }
+}
+
+async function copyFoxAIOutput() {
+  const output = document.getElementById("aiOutput");
+  if (!output) return;
+
+  const text = output.innerText || output.textContent || "";
+
+  try {
+    await navigator.clipboard.writeText(text);
+    addFeed("🧠 Fox AI output copied.");
+  } catch (error) {
+    addFeed("⚠️ Could not copy Fox AI output.");
+  }
+}
+
+function getFoxAITone() {
+  const el = document.getElementById("aiTone");
+  return el ? el.value : "hype";
+}
+
+function getFoxAIOutputType() {
+  const el = document.getElementById("aiOutputType");
+  return el ? el.value : "stream";
+}
+
+function setFoxAIPrompt(text) {
+  const input = document.getElementById("aiPrompt");
+  if (input) input.value = text;
+  generateFoxAI("stream_plan");
+}
+
+function writeFoxAIOutput(text) {
+  const output = document.getElementById("aiOutput");
+  if (!output) return;
+
+  output.classList.add("generated");
+  output.textContent = text;
+}
+
+function getFoxAIPrompt() {
+  const input = document.getElementById("aiPrompt");
+  return input && input.value.trim()
+    ? input.value.trim()
+    : "Make tonight's Blaze stream more exciting with FoxBot quests, rewards, events, and hype moments.";
+}
+
+function generateFoxAI(type) {
+  const prompt = getFoxAIPrompt();
+  const tone = getFoxAITone();
+  const outputType = getFoxAIOutputType();
+
+  const toneLine = `Tone: ${tone.toUpperCase()} | Output: ${outputType.toUpperCase()}`;
+  const base = `Prompt: ${prompt}`;
+
+  const templates = {
+    stream_plan:
+`${toneLine}
+
+FOX AI STREAM PLAN
+${base}
+
+1. Opening Hook:
+Welcome everyone in with Fox Spirit energy, remind chat to use !help, and tease a reward drop.
+
+2. Engagement Loop:
+Run !daily, !checkin, !quest, and !boss during key moments to keep chat active.
+
+3. Reward Moment:
+Trigger a FoxCoins bonus or Treasure Drop when chat gets active.
+
+4. OBS Moment:
+Use an overlay alert: "The Fox Spirit is watching... chat has activated bonus rewards."
+
+5. Closing:
+Thank MVPs, OGs, voters, subs, tippers, raiders, and remind everyone to follow for the next hunt.`,
+
+    quest:
+`${toneLine}
+
+COMMUNITY QUEST IDEA
+${base}
+
+Quest Name: Fox Spirit Hunt
+Command: !startquest chat 25
+Goal: 25 chat interactions
+Reward: 100 FoxCoins
+Chat Message:
+"Community Quest Started: Fox Spirit Hunt. Help the stream reach 25 chat actions and everyone can claim bonus FoxCoins!"`,
+
+    reward:
+`${toneLine}
+
+REWARD SHOP IDEA
+${base}
+
+Reward Name: foxboost
+Cost: 75 FoxCoins
+Command Idea:
+!addreward foxboost 75 @{username} activated Fox Boost! Chat gets extra hype and the Fox Spirit approves.
+
+Use Case:
+Great for viewers who want to trigger a fun stream moment without interrupting gameplay.`,
+
+    event:
+`${toneLine}
+
+STREAM EVENT IDEA
+${base}
+
+Event Name: Cyber Fox Frenzy
+Trigger: Mid-stream hype moment, raid, sub train, or big match win.
+Viewer Action: Type !event to claim.
+Reward: 50 FoxCoins
+Overlay Text:
+"CYBER FOX FRENZY ACTIVE — rewards boosted, chat energy unlocked."`,
+
+    giveaway:
+`${toneLine}
+
+GIVEAWAY IDEA
+${base}
+
+Giveaway Name: Fox Spirit Drop
+Entry Command: !enter
+Bonus Entry Ideas:
+- Follow the channel
+- Vote/support the creator
+- Stay active in chat
+- Sub or gift sub for extra hype
+
+Announcement:
+"Fox Spirit Drop is live! Type !enter and stay active. Winner gets chosen before stream ends."`,
+
+    shoutout:
+`${toneLine}
+
+SHOUTOUT MESSAGE
+${base}
+
+"HUGE Fox Spirit shoutout to @{viewer}! Thanks for showing love, supporting the stream, and keeping the Blaze community alive. Everyone go show them some love!"`,
+
+    overlay:
+`${toneLine}
+
+OBS OVERLAY TEXT
+${base}
+
+Main Alert:
+"FOX SPIRIT EVENT ACTIVATED"
+
+Subtext:
+"Chat rewards are live. Type !help, !daily, !quest, or !boss."
+
+Lower Third:
+"Powered by FoxBot Studio"`,
+
+    commands:
+`${toneLine}
+
+COMMAND IDEAS
+${base}
+
+!foxboost — viewer spends FoxCoins to trigger hype.
+!raidlove — welcome raiders with a special message.
+!clipthat — asks chat to clip a huge moment.
+!mvp — celebrates top viewer of the stream.
+!nextdrop — shows the next giveaway or reward event.`,
+
+    moderation:
+`${toneLine}
+
+MODERATION HELPER
+${base}
+
+Soft Warning:
+"Keep it respectful, Fox Fam. We are here for good energy and a fun stream."
+
+Spam Warning:
+"Please slow down on spam so everyone can enjoy chat."
+
+Final Warning:
+"Last warning — keep the chat clean or mods may step in."`
+  };
+
+  writeFoxAIOutput(templates[type] || templates.stream_plan);
+}
+
+async function askFoxAIDemo() {
+  const prompt = getFoxAIPrompt();
+
+  try {
+    const response = await fetch(`/chat?message=${encodeURIComponent("!ask " + prompt)}&username=${encodeURIComponent("Ryan")}`);
+    const data = await response.json();
+    writeFoxAIOutput(`FOX AI DEMO RESPONSE\n\n${data.response || "No response returned."}`);
+  } catch (error) {
+    writeFoxAIOutput("Fox AI demo request failed. The local generators still work.");
+  }
+}
+
+async function runFoxAICommand(command) {
+  try {
+    const response = await fetch(`/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent("Ryan")}`);
+    const data = await response.json();
+    writeFoxAIOutput(`COMMAND TEST: ${command}\n\n${data.response || "No response returned."}`);
+  } catch (error) {
+    writeFoxAIOutput(`Command test failed: ${command}`);
+  }
+}
+
+async function copyFoxAIOutput() {
+  const output = document.getElementById("aiOutput");
+  if (!output) return;
+
+  const text = output.innerText || output.textContent || "";
+
+  try {
+    await navigator.clipboard.writeText(text);
+    addFeed("🧠 Fox AI output copied.");
+  } catch (error) {
+    addFeed("⚠️ Could not copy Fox AI output.");
+  }
+}

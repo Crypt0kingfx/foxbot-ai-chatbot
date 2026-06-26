@@ -1593,3 +1593,172 @@ body {
     text-align: left;
   }
 }
+
+/* AI Command Center 2.0 */
+.ai-hero {
+  background:
+    radial-gradient(circle at top right, rgba(157, 122, 255, .24), transparent 34%),
+    radial-gradient(circle at bottom left, rgba(255, 122, 24, .16), transparent 36%),
+    linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
+}
+
+.ai-command-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.ai-main-card,
+.ai-output-card {
+  min-height: 420px;
+}
+
+.ai-textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  margin-top: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.24);
+  color: var(--text);
+  padding: 16px;
+  font: inherit;
+  outline: none;
+}
+
+.ai-textarea:focus {
+  border-color: rgba(255,122,24,.65);
+  box-shadow: 0 0 0 3px rgba(255,122,24,.12);
+}
+
+.ai-button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ai-button-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ai-button-grid button,
+.ai-preset-list button {
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: rgba(255,255,255,.08);
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ai-button-grid button:first-child {
+  background: var(--orange);
+  color: #120904;
+  border-color: transparent;
+}
+
+.ai-output {
+  min-height: 315px;
+  margin-top: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.12);
+  background:
+    radial-gradient(circle at top, rgba(157,122,255,.22), transparent 42%),
+    radial-gradient(circle at bottom right, rgba(255,122,24,.16), transparent 40%),
+    #050807;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.ai-output.generated {
+  display: block;
+  text-align: left;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.ai-output h3 {
+  margin: 8px 0 4px;
+  font-size: 24px;
+}
+
+.ai-output p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.ai-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.ai-preset-list,
+.ai-command-list,
+.ai-roadmap {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.ai-preset-list button {
+  text-align: left;
+}
+
+.ai-command-list div,
+.ai-roadmap div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.045);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.ai-command-list code {
+  color: var(--orange);
+  font-weight: 900;
+}
+
+.ai-command-list span,
+.ai-roadmap span {
+  color: var(--muted);
+  text-align: right;
+}
+
+.ai-roadmap strong {
+  color: var(--orange);
+}
+
+@media (max-width: 1200px) {
+  .ai-command-grid,
+  .ai-tools-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .ai-button-grid,
+  .ai-button-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-command-list div,
+  .ai-roadmap div {
+    flex-direction: column;
+  }
+
+  .ai-command-list span,
+  .ai-roadmap span {
+    text-align: left;
+  }
+}
