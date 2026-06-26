@@ -1237,7 +1237,165 @@
           </div>
         </div>
       </section>
-      <section id="analytics" class="section"><div class="card"><h2>Analytics</h2><p>Followers, subs, votes, tips, chat activity, FoxCoins generated, and growth charts.</p></div></section>
+      <section id="analytics" class="section">
+        <div class="studio-hero analytics-hero">
+          <div>
+            <div class="eyebrow">Analytics Center 2.0</div>
+            <h1>Track stream growth, rewards, and community activity.</h1>
+            <p>Monitor followers, subs, tips, votes, FoxCoins generated, rewards redeemed, boss battles, stream events, quests, streaks, and live activity trends.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="refreshAnalyticsCenter()">Refresh Analytics</button>
+            <button class="ghost-btn" onclick="previewAnalyticsReport('summary')">Preview Report</button>
+          </div>
+        </div>
+
+        <div class="analytics-stat-grid">
+          <div class="card analytics-stat-card">
+            <div class="card-title">Followers Today</div>
+            <div id="analyticsFollowersToday" class="card-value">0</div>
+            <p>New follower recognition events.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">Subs Today</div>
+            <div id="analyticsSubsToday" class="card-value">0</div>
+            <p>New sub recognition events.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">Votes Today</div>
+            <div id="analyticsVotesToday" class="card-value">0</div>
+            <p>Vote support tracked by FoxBot.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">Tips Today</div>
+            <div id="analyticsTipsToday" class="card-value">      <section id="analytics" class="section"><div class="card"><h2>Analytics</h2><p>Followers, subs, votes, tips, chat activity, FoxCoins generated, and growth charts.</p></div></section>
+</div>
+            <p>Tip recognition total.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">FoxCoins Generated</div>
+            <div id="analyticsFoxCoinsToday" class="card-value">0</div>
+            <p>Reward economy activity today.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">Known Viewers</div>
+            <div id="analyticsViewerCount" class="card-value">0</div>
+            <p>Viewers with tracked command activity.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">Arcade Plays</div>
+            <div id="analyticsArcadePlays" class="card-value">0</div>
+            <p>Mini-game activity from chat.</p>
+          </div>
+          <div class="card analytics-stat-card">
+            <div class="card-title">Wallets / Balances</div>
+            <div id="analyticsBalanceCount" class="card-value">0</div>
+            <p>FoxCoins economy participants.</p>
+          </div>
+        </div>
+
+        <div class="analytics-grid">
+          <div class="card">
+            <h2>Growth Snapshot</h2>
+            <p>Live counters from the Studio stats API.</p>
+
+            <div class="analytics-bars">
+              <div class="analytics-bar-row">
+                <span>Followers</span>
+                <div class="analytics-bar"><div id="barFollowers" style="width: 5%"></div></div>
+                <strong id="barFollowersValue">0</strong>
+              </div>
+              <div class="analytics-bar-row">
+                <span>Subs</span>
+                <div class="analytics-bar"><div id="barSubs" style="width: 5%"></div></div>
+                <strong id="barSubsValue">0</strong>
+              </div>
+              <div class="analytics-bar-row">
+                <span>Votes</span>
+                <div class="analytics-bar"><div id="barVotes" style="width: 5%"></div></div>
+                <strong id="barVotesValue">0</strong>
+              </div>
+              <div class="analytics-bar-row">
+                <span>FoxCoins</span>
+                <div class="analytics-bar"><div id="barFoxCoins" style="width: 5%"></div></div>
+                <strong id="barFoxCoinsValue">0</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Viewer Leaderboard</h2>
+            <p>Top tracked viewers by FoxBot command activity.</p>
+
+            <div id="analyticsLeaderboard" class="analytics-list">
+              <div class="analytics-empty">No viewer activity loaded yet.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>FoxCoins Economy</h2>
+            <p>Reward economy health and payout activity.</p>
+
+            <div class="analytics-mini-grid">
+              <div>
+                <span>Currency</span>
+                <strong id="analyticsCurrencyName">FoxCoins</strong>
+              </div>
+              <div>
+                <span>Balances</span>
+                <strong id="analyticsEconomyBalances">0</strong>
+              </div>
+              <div>
+                <span>Transactions</span>
+                <strong id="analyticsTransactions">0</strong>
+              </div>
+              <div>
+                <span>Daily Claims</span>
+                <strong id="analyticsDailyClaims">0</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Arcade Analytics</h2>
+            <p>Mini-game usage across Fox Hunt, coinflip, roll, 8ball, and RPS.</p>
+
+            <div id="analyticsArcadeList" class="analytics-list">
+              <div class="analytics-empty">No arcade activity loaded yet.</div>
+            </div>
+          </div>
+
+          <div class="card analytics-report-card">
+            <div class="preview-header">
+              <div>
+                <h2>Analytics Report Preview</h2>
+                <p>Quick summary for stream recaps and planning.</p>
+              </div>
+              <button class="ghost-btn small" onclick="previewAnalyticsReport('reset')">Reset</button>
+            </div>
+
+            <div id="analyticsReportPreview" class="analytics-report-preview">
+              <div class="preview-orb">📊</div>
+              <h3>Analytics Ready</h3>
+              <p>Refresh analytics or preview a stream summary.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Analytics Tools</h2>
+            <p>Open raw data endpoints and prepare future export/report features.</p>
+
+            <div class="analytics-button-grid">
+              <button onclick="openOverlayPage('/api/studio/stats/live')">Studio Live JSON</button>
+              <button onclick="openOverlayPage('/viewer-stats')">Viewer Stats</button>
+              <button onclick="openOverlayPage('/foxcoins')">FoxCoins JSON</button>
+              <button onclick="openOverlayPage('/arcade-stats')">Arcade Stats</button>
+              <button onclick="previewAnalyticsReport('growth')">Growth Report</button>
+              <button onclick="previewAnalyticsReport('rewards')">Rewards Report</button>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="ai" class="section"><div class="card"><h2>Fox AI Assistant</h2><input class="input" placeholder="Ask Fox AI to create events, rewards, quests, or improve stream engagement..."></div></section>
       <section id="diagnostics" class="section"><div class="card"><h2>Diagnostics</h2><p>Smoke tests, API health, polling status, logs, and system checks.</p></div></section>
     </main>
@@ -1250,6 +1408,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 

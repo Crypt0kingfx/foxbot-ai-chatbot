@@ -427,3 +427,169 @@ function previewOverlayCard(type, url) {
     <p>${item.message}</p>
   `;
 }
+
+function setAnalyticsText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function setAnalyticsBar(id, value, max) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const safeValue = Number(value || 0);
+  const safeMax = Math.max(Number(max || 1), 1);
+  const width = Math.max(5, Math.min(100, Math.round((safeValue / safeMax) * 100)));
+
+  el.style.width = width + "%";
+}
+
+function renderAnalyticsList(id, rows, labelKey, valueKey, emptyText) {
+  const list = document.getElementById(id);
+  if (!list) return;
+
+  if (!rows || rows.length === 0) {
+    list.innerHTML = `<div class="analytics-empty">${emptyText}</div>`;
+    return;
+  }
+
+  list.innerHTML = rows.map((row, index) => {
+    const label = row[labelKey] || row.display_name || row.name || row.command || ("Item " + (index + 1));
+    const value = row[valueKey] || row.commands || row.value || 0;
+
+    return `
+      <div class="analytics-list-item">
+        <span>#${index + 1} ${label}</span>
+        <strong>${value}</strong>
+      </div>
+    `;
+  }).join("");
+}
+
+async function refreshAnalyticsCenter() {
+  try {
+    const [studioRes, viewerRes, foxcoinsRes, arcadeRes] = await Promise.all([
+      fetch("/api/studio/stats/live"),
+      fetch("/viewer-stats"),
+      fetch("/foxcoins"),
+      fetch("/arcade-stats")
+    ]);
+
+    const studio = await studioRes.json();
+    const viewers = await viewerRes.json();
+    const foxcoins = await foxcoinsRes.json();
+    const arcade = await arcadeRes.json();
+
+    const followers = Number(studio.followersToday || 0);
+    const subs = Number(studio.subsToday || 0);
+    const votes = Number(studio.votesToday || 0);
+    const foxcoinsToday = Number(studio.foxcoinsToday || 0);
+
+    setAnalyticsText("analyticsFollowersToday", followers);
+    setAnalyticsText("analyticsSubsToday", subs);
+    setAnalyticsText("analyticsVotesToday", votes);
+    setAnalyticsText("analyticsTipsToday", studio.tipsToday || "$0");
+    setAnalyticsText("analyticsFoxCoinsToday", foxcoinsToday);
+    setAnalyticsText("analyticsViewerCount", viewers.viewer_count || 0);
+
+    const arcadeStats = arcade.stats || {};
+    setAnalyticsText("analyticsArcadePlays", arcadeStats.plays || 0);
+
+    const balances = foxcoins.balances || {};
+    const transactions = foxcoins.transactions || [];
+    const dailyClaims = foxcoins.daily_claims || {};
+
+    setAnalyticsText("analyticsBalanceCount", Object.keys(balances).length);
+    setAnalyticsText("analyticsCurrencyName", foxcoins.currency_name || "FoxCoins");
+    setAnalyticsText("analyticsEconomyBalances", Object.keys(balances).length);
+    setAnalyticsText("analyticsTransactions", transactions.length || 0);
+    setAnalyticsText("analyticsDailyClaims", Object.keys(dailyClaims).length);
+
+    setAnalyticsText("barFollowersValue", followers);
+    setAnalyticsText("barSubsValue", subs);
+    setAnalyticsText("barVotesValue", votes);
+    setAnalyticsText("barFoxCoinsValue", foxcoinsToday);
+
+    const maxEngagement = Math.max(followers, subs, votes, 1);
+    setAnalyticsBar("barFollowers", followers, maxEngagement);
+    setAnalyticsBar("barSubs", subs, maxEngagement);
+    setAnalyticsBar("barVotes", votes, maxEngagement);
+    setAnalyticsBar("barFoxCoins", foxcoinsToday, Math.max(foxcoinsToday, 1000));
+
+    renderAnalyticsList(
+      "analyticsLeaderboard",
+      (viewers.leaderboard || []).slice(0, 5),
+      "display_name",
+      "commands",
+      "No viewer command activity yet."
+    );
+
+    const arcadeRows = Object.entries(arcadeStats)
+      .filter(([key]) => key !== "plays")
+      .map(([key, value]) => ({ command: key, value }))
+      .sort((a, b) => Number(b.value || 0) - Number(a.value || 0))
+      .slice(0, 6);
+
+    renderAnalyticsList(
+      "analyticsArcadeList",
+      arcadeRows,
+      "command",
+      "value",
+      "No arcade activity yet."
+    );
+
+    previewAnalyticsReport("refreshed");
+  } catch (error) {
+    previewAnalyticsReport("error");
+  }
+}
+
+function previewAnalyticsReport(mode) {
+  const preview = document.getElementById("analyticsReportPreview");
+  if (!preview) return;
+
+  const data = {
+    summary: {
+      icon: "📊",
+      title: "Stream Summary Preview",
+      message: "FoxBot will summarize growth, rewards, activity, and community engagement."
+    },
+    growth: {
+      icon: "📈",
+      title: "Growth Report",
+      message: "Tracks followers, subs, votes, tips, and overall support trends."
+    },
+    rewards: {
+      icon: "💰",
+      title: "Rewards Report",
+      message: "Tracks FoxCoins generated, redemptions, streak bonuses, and event payouts."
+    },
+    refreshed: {
+      icon: "✅",
+      title: "Analytics Refreshed",
+      message: "Live Studio, viewer, FoxCoins, and arcade data were loaded."
+    },
+    error: {
+      icon: "⚠️",
+      title: "Analytics Load Error",
+      message: "One or more analytics endpoints did not respond."
+    },
+    reset: {
+      icon: "📊",
+      title: "Analytics Ready",
+      message: "Refresh analytics or preview a stream summary."
+    }
+  };
+
+  const item = data[mode] || data.summary;
+
+  preview.innerHTML = `
+    <div class="preview-orb">${item.icon}</div>
+    <h3>${item.title}</h3>
+    <p>${item.message}</p>
+  `;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(refreshAnalyticsCenter, 600);
+});
