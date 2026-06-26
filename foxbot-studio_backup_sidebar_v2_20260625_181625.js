@@ -84,20 +84,3 @@ async function blazeService(action) {
     addFeed(`⚠️ Blaze Service failed: ${action}`);
   }
 }
-
-function toggleSidebar() {
-  const studio = document.querySelector(".studio");
-  if (!studio) return;
-
-  studio.classList.toggle("sidebar-collapsed");
-
-  const collapsed = studio.classList.contains("sidebar-collapsed");
-  localStorage.setItem("foxbotSidebarCollapsed", collapsed ? "1" : "0");
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  const studio = document.querySelector(".studio");
-  if (studio && localStorage.getItem("foxbotSidebarCollapsed") === "1") {
-    studio.classList.add("sidebar-collapsed");
-  }
-});
