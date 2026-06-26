@@ -1,4 +1,4 @@
-﻿function showSection(id) {
+function showSection(id) {
   document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
   document.querySelectorAll(".nav button").forEach(b => b.classList.remove("active"));
 
@@ -78,10 +78,10 @@ async function blazeService(action) {
   try {
     const res = await fetch(url, options);
     const data = await res.json();
-    addFeed(`ðŸ”Œ Blaze Service: ${data.message || data.mapped_event || action}`);
+    addFeed(`🔌 Blaze Service: ${data.message || data.mapped_event || action}`);
     loadStudioStats();
   } catch (err) {
-    addFeed(`âš ï¸ Blaze Service failed: ${action}`);
+    addFeed(`⚠️ Blaze Service failed: ${action}`);
   }
 }
 
@@ -107,36 +107,6 @@ async function clearActivity() {
     await fetch("/api/studio/activity/clear", { method: "POST" });
     loadStudioStats();
   } catch (err) {
-    addFeed("âš ï¸ Failed to clear activity feed.");
+    addFeed("⚠️ Failed to clear activity feed.");
   }
 }
-
-function renderActivityItem(item) {
-  const icon = item.icon || "ðŸ¦Š";
-  const title = item.title || item.message || "FoxBot event";
-  const detail = item.detail || "";
-  const time = item.time || "Now";
-  const type = item.type || "default";
-
-  return `
-    <div class="feed-item feed-${type}">
-      <div class="feed-icon">${icon}</div>
-      <div class="feed-content">
-        <strong>${time}</strong>
-        <div class="feed-title">${title}</div>
-        ${detail ? `<div class="feed-detail">${detail}</div>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-async function demoActivity() {
-  try {
-    await fetch("/api/studio/activity/demo", { method: "POST" });
-    loadStudioStats();
-  } catch (err) {
-    addFeed("âš ï¸ Failed to create demo activity.");
-  }
-}
-
-
