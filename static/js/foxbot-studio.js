@@ -1009,3 +1009,126 @@ async function copyFoxAIOutput() {
     addFeed("⚠️ Could not copy Fox AI output.");
   }
 }
+
+function openDiagnosticsUrl(path) {
+  window.open(path, "_blank", "noopener,noreferrer");
+}
+
+function writeDiagnosticsOutput(title, data) {
+  const output = document.getElementById("diagnosticsOutput");
+  if (!output) return;
+
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  output.textContent = `${title}\n\n${body}`;
+}
+
+function clearDiagnosticsOutput() {
+  writeDiagnosticsOutput("Diagnostics ready.", "Run a health check.");
+}
+
+async function fetchDiagnosticsJSON(path) {
+  const response = await fetch(path);
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return {
+      ok: response.ok,
+      status: response.status,
+      text
+    };
+  }
+}
+
+async function runDiagnosticsCheck(path) {
+  writeDiagnosticsOutput(`Checking ${path}...`, "Loading...");
+
+  try {
+    const data = await fetchDiagnosticsJSON(path);
+    writeDiagnosticsOutput(`Result: ${path}`, data);
+    refreshDiagnosticsCenter();
+  } catch (error) {
+    writeDiagnosticsOutput(`Error: ${path}`, String(error));
+  }
+}
+
+async function runDiagnosticsCommand(command) {
+  const path = `/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent("Ryan")}`;
+  writeDiagnosticsOutput(`Testing command ${command}...`, "Loading...");
+
+  try {
+    const data = await fetchDiagnosticsJSON(path);
+    writeDiagnosticsOutput(`Command Result: ${command}`, data);
+    refreshDiagnosticsCenter();
+  } catch (error) {
+    writeDiagnosticsOutput(`Command Error: ${command}`, String(error));
+  }
+}
+
+async function refreshDiagnosticsCenter() {
+  try {
+    const proof = await fetchDiagnosticsJSON("/proof");
+    const proofData = proof.proof || {};
+
+    const connected = proofData.blaze_connected ? "Yes" : "No";
+    const listener = proofData.listener_running ? "Running" : "Stopped";
+
+    const connectedEl = document.getElementById("diagBlazeConnected");
+    const listenerEl = document.getElementById("diagListenerStatus");
+    const checkedEl = document.getElementById("diagMessagesChecked");
+    const commandsEl = document.getElementById("diagCommandsProcessed");
+
+    if (connectedEl) connectedEl.textContent = connected;
+    if (listenerEl) listenerEl.textContent = listener;
+    if (checkedEl) checkedEl.textContent = proofData.messages_checked ?? 0;
+    if (commandsEl) commandsEl.textContent = proofData.commands_processed ?? 0;
+
+    writeDiagnosticsOutput("Health Check: /proof", proof);
+  } catch (error) {
+    writeDiagnosticsOutput("Diagnostics health check failed.", String(error));
+  }
+}
+
+async function runDiagnosticsSuite() {
+  const endpoints = [
+    "/proof",
+    "/project-status",
+    "/data-status",
+    "/api/studio/stats/live",
+    "/blaze/polling-status",
+    "/foxcoins",
+    "/rewards",
+    "/redemptions"
+  ];
+
+  const results = [];
+
+  writeDiagnosticsOutput("Running Diagnostics Mini Suite...", "Checking endpoints...");
+
+  for (const endpoint of endpoints) {
+    try {
+      const data = await fetchDiagnosticsJSON(endpoint);
+      results.push({
+        endpoint,
+        ok: true,
+        status: "PASS",
+        keys: data && typeof data === "object" ? Object.keys(data).slice(0, 8) : []
+      });
+    } catch (error) {
+      results.push({
+        endpoint,
+        ok: false,
+        status: "FAIL",
+        error: String(error)
+      });
+    }
+  }
+
+  writeDiagnosticsOutput("Diagnostics Mini Suite Results", results);
+  refreshDiagnosticsCenter();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(refreshDiagnosticsCenter, 900);
+});

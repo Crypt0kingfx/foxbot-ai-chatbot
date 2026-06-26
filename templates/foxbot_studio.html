@@ -1519,8 +1519,124 @@
           </div>
         </div>
       </section>
-      <section id="diagnostics" class="section"><div class="card"><h2>Diagnostics</h2><p>Smoke tests, API health, polling status, logs, and system checks.</p></div></section>
-    </main>
+      <section id="diagnostics" class="section">
+        <div class="studio-hero diagnostics-hero">
+          <div>
+            <div class="eyebrow">Diagnostics Center 2.0</div>
+            <h1>Check FoxBot health before going live.</h1>
+            <p>Run smoke tests, verify Blaze OAuth, check polling listener status, inspect proof data, test overlay routes, review saved data, and debug endpoints from one system command center.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="refreshDiagnosticsCenter()">Run Health Check</button>
+            <button class="ghost-btn" onclick="openDiagnosticsUrl('/smoke-test')">Open Smoke Test</button>
+          </div>
+        </div>
+
+        <div class="diagnostics-stat-grid">
+          <div class="card diagnostics-stat-card">
+            <div class="card-title">Blaze Connected</div>
+            <div id="diagBlazeConnected" class="card-value">Checking</div>
+            <p>OAuth/token connection status.</p>
+          </div>
+          <div class="card diagnostics-stat-card">
+            <div class="card-title">Listener</div>
+            <div id="diagListenerStatus" class="card-value">Checking</div>
+            <p>Polling listener run state.</p>
+          </div>
+          <div class="card diagnostics-stat-card">
+            <div class="card-title">Messages Checked</div>
+            <div id="diagMessagesChecked" class="card-value">0</div>
+            <p>Total polling checks.</p>
+          </div>
+          <div class="card diagnostics-stat-card">
+            <div class="card-title">Commands Processed</div>
+            <div id="diagCommandsProcessed" class="card-value">0</div>
+            <p>Commands handled by FoxBot.</p>
+          </div>
+        </div>
+
+        <div class="diagnostics-grid">
+          <div class="card">
+            <h2>System Health Checks</h2>
+            <p>Run quick checks against the most important FoxBot endpoints.</p>
+
+            <div class="diagnostics-button-grid">
+              <button onclick="runDiagnosticsCheck('/proof')">Proof JSON</button>
+              <button onclick="runDiagnosticsCheck('/project-status')">Project Status</button>
+              <button onclick="runDiagnosticsCheck('/data-status')">Data Status</button>
+              <button onclick="runDiagnosticsCheck('/api/studio/stats/live')">Studio Stats</button>
+              <button onclick="runDiagnosticsCheck('/blaze/polling-status')">Polling Status</button>
+              <button onclick="runDiagnosticsSuite()">Run Mini Suite</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Blaze Listener Controls</h2>
+            <p>Start, stop, check, or inspect recent chat polling.</p>
+
+            <div class="diagnostics-button-grid">
+              <button onclick="runDiagnosticsCheck('/blaze/start-polling-listener')">Start Listener</button>
+              <button onclick="runDiagnosticsCheck('/blaze/stop-polling-listener')">Stop Listener</button>
+              <button onclick="runDiagnosticsCheck('/blaze/polling-status')">Listener Status</button>
+              <button onclick="runDiagnosticsCheck('/blaze/check-recent-messages')">Check Recent Chat</button>
+              <button onclick="openDiagnosticsUrl('/login/blaze')">Login With Blaze</button>
+              <button onclick="openDiagnosticsUrl('/proof')">Open Proof Panel</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Overlay Route Checks</h2>
+            <p>Open each OBS overlay route to confirm browser sources are alive.</p>
+
+            <div class="diagnostics-route-list">
+              <button onclick="openDiagnosticsUrl('/overlay/giveaway')"><span>🎁 Giveaway</span><strong>/overlay/giveaway</strong></button>
+              <button onclick="openDiagnosticsUrl('/overlay/redemptions')"><span>💎 Redemptions</span><strong>/overlay/redemptions</strong></button>
+              <button onclick="openDiagnosticsUrl('/overlay/boss')"><span>👑 Boss</span><strong>/overlay/boss</strong></button>
+              <button onclick="openDiagnosticsUrl('/smoke-test')"><span>🧪 Smoke Test</span><strong>/smoke-test</strong></button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Quick Command Doctor</h2>
+            <p>Test core commands without leaving Studio.</p>
+
+            <div class="diagnostics-button-grid">
+              <button onclick="runDiagnosticsCommand('!help')">Test !help</button>
+              <button onclick="runDiagnosticsCommand('!daily')">Test !daily</button>
+              <button onclick="runDiagnosticsCommand('!boss')">Test !boss</button>
+              <button onclick="runDiagnosticsCommand('!event')">Test !event</button>
+              <button onclick="runDiagnosticsCommand('!quest')">Test !quest</button>
+              <button onclick="runDiagnosticsCommand('!shop')">Test !shop</button>
+            </div>
+          </div>
+
+          <div class="card diagnostics-output-card">
+            <div class="preview-header">
+              <div>
+                <h2>Debug Output</h2>
+                <p>Endpoint responses and command results show here.</p>
+              </div>
+              <button class="ghost-btn small" onclick="clearDiagnosticsOutput()">Clear</button>
+            </div>
+
+            <pre id="diagnosticsOutput" class="diagnostics-output">Diagnostics ready. Run a health check.</pre>
+          </div>
+
+          <div class="card">
+            <h2>System Notes</h2>
+            <p>Live checklist before streaming or demoing.</p>
+
+            <div class="diagnostics-checklist">
+              <div><span>1</span><p>Render app loads without errors.</p></div>
+              <div><span>2</span><p>Blaze login is active after restart.</p></div>
+              <div><span>3</span><p>Polling listener is running before stream.</p></div>
+              <div><span>4</span><p>OBS browser overlays open correctly.</p></div>
+              <div><span>5</span><p>Smoke test passes core commands.</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+</main>
   </div>
 
     <script src="/static/js/studio-core.js?v=1"></script>
@@ -1530,6 +1646,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 
