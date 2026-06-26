@@ -246,109 +246,29 @@
         </div>
       </section>
 
-            <section id="recognition" class="section">
-        <div class="studio-heading">
-          <h2>Recognition Center</h2>
-          <span class="mini-badge">Auto Support Engine</span>
-        </div>
-
-        <div class="recognition-status-grid">
+      <section id="recognition" class="section">
+        <div class="two-col">
           <div class="card">
-            <div class="card-title">Engine Status</div>
-            <div class="card-value">Online</div>
-          </div>
-          <div class="card">
-            <div class="card-title">Queue</div>
-            <div id="recognitionQueue" class="card-value">0</div>
-          </div>
-          <div class="card">
-            <div class="card-title">Events Today</div>
-            <div class="card-value">0</div>
-          </div>
-        </div>
-
-        <div class="recognition-grid">
-          <div class="card">
-            <h2>Watched Events</h2>
-            <p>FoxBot will eventually detect these automatically from Blaze.</p>
-
-            <div class="event-checks">
-              <div class="event-check">⭐ Follows</div>
-              <div class="event-check">🗳️ Votes</div>
-              <div class="event-check">🔥 Subs</div>
-              <div class="event-check">🎁 Gift Subs</div>
-              <div class="event-check">💰 Tips</div>
-              <div class="event-check">🚀 Raids</div>
-            </div>
-
-            <br>
-
-            <div class="quick-actions-v2">
-              <button class="quick-action-card" onclick="studioAction('test_follow')">
-                <div class="quick-action-icon">⭐</div>
-                <div class="quick-action-title">Test Follow</div>
-                <div class="quick-action-desc">Trigger follow recognition.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('test_vote')">
-                <div class="quick-action-icon">🗳️</div>
-                <div class="quick-action-title">Test Vote</div>
-                <div class="quick-action-desc">Trigger vote recognition.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('test_sub')">
-                <div class="quick-action-icon">🔥</div>
-                <div class="quick-action-title">Test Sub</div>
-                <div class="quick-action-desc">Trigger sub recognition.</div>
-              </button>
-
-              <button class="quick-action-card" onclick="studioAction('test_tip')">
-                <div class="quick-action-icon">💰</div>
-                <div class="quick-action-title">Test Tip</div>
-                <div class="quick-action-desc">Trigger tip recognition.</div>
-              </button>
+            <h2>Recognition Engine</h2>
+            <p>Auto-detect follows, votes, subs, gift subs, raids, and tips.</p>
+            <div class="actions">
+              <button class="action-btn" onclick="studioAction('test_follow')">Test Follow</button>
+              <button class="action-btn" onclick="studioAction('test_vote')">Test Vote</button>
+              <button class="action-btn" onclick="studioAction('test_sub')">Test Sub</button>
+              <button class="action-btn" onclick="studioAction('test_tip')">Test Tip</button>
+              <button class="action-btn" onclick="studioAction('test_raid')">Test Raid</button>
+              <button class="action-btn" onclick="studioAction('toggle_recognition')">Enable/Disable</button>
             </div>
           </div>
 
           <div class="card">
-            <h2>Message Templates</h2>
-
-            <div class="template-row">
-              <label>Follow</label>
-              <textarea class="textarea">Thanks {user} for following the Fox Spirit family! 🦊🔥</textarea>
-            </div>
-
-            <div class="template-row">
-              <label>Sub</label>
-              <textarea class="textarea">Huge love to {user} for subscribing! 🔥</textarea>
-            </div>
-
-            <div class="template-row">
-              <label>Tip</label>
-              <textarea class="textarea">{user} just tipped {amount}! Absolute legend! 💚</textarea>
-            </div>
-
-            <button class="action-btn" onclick="studioAction('save_recognition_templates')">Save Templates</button>
-          </div>
-        </div>
-
-        <br>
-
-        <div class="card">
-          <div class="timeline-header">
-            <h2>Recognition History</h2>
-            <button class="small-btn" onclick="demoActivity()">Demo Event</button>
-          </div>
-
-          <div id="recognitionHistory" class="feed">
-            <div class="feed-item">
-              <div class="feed-icon">🦊</div>
-              <div class="feed-content">
-                <strong>Ready</strong>
-                <div class="feed-title">Recognition Center loaded.</div>
-                <div class="feed-detail">Automatic Blaze event detection is the next backend milestone.</div>
-              </div>
-            </div>
+            <h2>Templates</h2>
+            <label>Follow Message</label>
+            <textarea class="textarea">Thanks {user} for following the Fox Spirit family! ????</textarea>
+            <label>Sub Message</label>
+            <textarea class="textarea">Huge love to {user} for subscribing! ??</textarea>
+            <label>Tip Message</label>
+            <textarea class="textarea">{user} just tipped {amount}! Absolute legend! ??</textarea>
           </div>
         </div>
       </section>
@@ -374,7 +294,6 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
-
 
 
 
