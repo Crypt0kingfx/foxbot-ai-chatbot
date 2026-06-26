@@ -6942,7 +6942,7 @@ setInterval(refreshAll, 5000);
 """
 
 
-@app.get("/legacy-admin", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse)
 def foxbot_admin_page():
     return foxbot_admin_html
 
@@ -7004,7 +7004,7 @@ try:
 except Exception:
     pass
 
-@app.get("/legacy-admin", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse)
 async def foxbot_studio_admin():
     with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
         return f.read()
@@ -7453,17 +7453,6 @@ async def blaze_service_event(raw_event: dict):
 
 @app.get("/studio", response_class=HTMLResponse)
 async def foxbot_studio_clean():
-    with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
-        return f.read()
-
-
-
-# ==============================
-# FoxBot Studio Primary Admin Route
-# ==============================
-
-@app.get("/admin", response_class=HTMLResponse)
-async def foxbot_studio_primary_admin():
     with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
         return f.read()
 
