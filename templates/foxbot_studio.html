@@ -652,7 +652,172 @@
           </div>
         </div>
       </section>
-      <section id="events" class="section"><div class="card"><h2>Stream Events</h2><p>Golden Fox, Spirit Storm, Treasure Drop, Fox Frenzy, schedules, weights, and cooldowns.</p></div></section>
+      <section id="events" class="section">
+        <div class="studio-hero events-hero">
+          <div>
+            <div class="eyebrow">Stream Events Center 2.0</div>
+            <h1>Trigger hype moments automatically.</h1>
+            <p>Control Golden Fox, Spirit Storm, Treasure Drop, Fox Frenzy, random events, cooldowns, weights, rewards, and OBS overlay previews.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="triggerStreamEvent('golden_fox')">Launch Golden Fox</button>
+            <button class="ghost-btn" onclick="triggerStreamEvent('random')">Roll Random Event</button>
+          </div>
+        </div>
+
+        <div class="events-command-grid">
+          <div class="event-control-card golden">
+            <div class="event-topline">
+              <div class="event-icon">🦊</div>
+              <div>
+                <h2>Golden Fox</h2>
+                <p>Rare bonus event for follows, subs, votes, and community hype.</p>
+              </div>
+            </div>
+            <div class="event-meta">
+              <span>Weight: 12%</span>
+              <span>Cooldown: 30m</span>
+              <span>Reward: 250 FoxCoins</span>
+            </div>
+            <div class="event-actions">
+              <button onclick="triggerStreamEvent('golden_fox')">Trigger</button>
+              <button onclick="previewStreamEvent('golden_fox')">Preview</button>
+            </div>
+          </div>
+
+          <div class="event-control-card storm">
+            <div class="event-topline">
+              <div class="event-icon">🌩️</div>
+              <div>
+                <h2>Spirit Storm</h2>
+                <p>Chat-wide storm that rewards active viewers and lights up overlays.</p>
+              </div>
+            </div>
+            <div class="event-meta">
+              <span>Weight: 20%</span>
+              <span>Cooldown: 20m</span>
+              <span>Reward: 100 FoxCoins</span>
+            </div>
+            <div class="event-actions">
+              <button onclick="triggerStreamEvent('spirit_storm')">Trigger</button>
+              <button onclick="previewStreamEvent('spirit_storm')">Preview</button>
+            </div>
+          </div>
+
+          <div class="event-control-card treasure">
+            <div class="event-topline">
+              <div class="event-icon">💰</div>
+              <div>
+                <h2>Treasure Drop</h2>
+                <p>Drop bonus coins or giveaway entries during big stream moments.</p>
+              </div>
+            </div>
+            <div class="event-meta">
+              <span>Weight: 35%</span>
+              <span>Cooldown: 10m</span>
+              <span>Reward: 50 FoxCoins</span>
+            </div>
+            <div class="event-actions">
+              <button onclick="triggerStreamEvent('treasure_drop')">Trigger</button>
+              <button onclick="previewStreamEvent('treasure_drop')">Preview</button>
+            </div>
+          </div>
+
+          <div class="event-control-card frenzy">
+            <div class="event-topline">
+              <div class="event-icon">🔥</div>
+              <div>
+                <h2>Fox Frenzy</h2>
+                <p>High-energy combo event for votes, tips, subs, and raid moments.</p>
+              </div>
+            </div>
+            <div class="event-meta">
+              <span>Weight: 8%</span>
+              <span>Cooldown: 45m</span>
+              <span>Reward: 500 FoxCoins</span>
+            </div>
+            <div class="event-actions">
+              <button onclick="triggerStreamEvent('fox_frenzy')">Trigger</button>
+              <button onclick="previewStreamEvent('fox_frenzy')">Preview</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="events-tools-grid">
+          <div class="card event-settings-card">
+            <h2>Random Event Engine</h2>
+            <p>FoxBot will use weights, cooldowns, and stream activity to choose events automatically.</p>
+
+            <label class="setting-row">
+              <span>Random Events</span>
+              <select class="input">
+                <option>Enabled</option>
+                <option>Manual Only</option>
+                <option>Disabled</option>
+              </select>
+            </label>
+
+            <label class="setting-row">
+              <span>Global Cooldown</span>
+              <select class="input">
+                <option>10 minutes</option>
+                <option>15 minutes</option>
+                <option>30 minutes</option>
+                <option>45 minutes</option>
+              </select>
+            </label>
+
+            <label class="setting-row">
+              <span>Reward Mode</span>
+              <select class="input">
+                <option>FoxCoins</option>
+                <option>Giveaway Entries</option>
+                <option>FoxCoins + Entries</option>
+              </select>
+            </label>
+
+            <button class="action-btn wide" onclick="triggerStreamEvent('random')">Roll Weighted Random Event</button>
+          </div>
+
+          <div class="card event-preview-card">
+            <div class="preview-header">
+              <div>
+                <h2>Overlay Preview</h2>
+                <p>Preview what viewers will see in OBS.</p>
+              </div>
+              <button class="ghost-btn small" onclick="previewStreamEvent('reset')">Reset</button>
+            </div>
+
+            <div id="streamEventPreview" class="stream-event-preview">
+              <div class="preview-orb">🦊</div>
+              <h3>FoxBot Stream Event Ready</h3>
+              <p>Select an event preview or trigger one live.</p>
+            </div>
+          </div>
+
+          <div class="card event-rules-card">
+            <h2>Automation Rules</h2>
+            <div class="rule-list">
+              <div class="rule-item">
+                <span class="rule-dot"></span>
+                <div><strong>Follows</strong><p>Thank viewer, award FoxCoins, chance to trigger Treasure Drop.</p></div>
+              </div>
+              <div class="rule-item">
+                <span class="rule-dot"></span>
+                <div><strong>Subs</strong><p>Thank supporter, award bonus coins, chance to trigger Golden Fox.</p></div>
+              </div>
+              <div class="rule-item">
+                <span class="rule-dot"></span>
+                <div><strong>Tips</strong><p>Shout out tipper, boost Boss Battle, chance to trigger Fox Frenzy.</p></div>
+              </div>
+              <div class="rule-item">
+                <span class="rule-dot"></span>
+                <div><strong>Votes</strong><p>Thank voter, count toward community quests, chance to trigger Spirit Storm.</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="streaks" class="section"><div class="card"><h2>Streaks</h2><p>Check-ins, leaderboards, reset tools, and streak statistics.</p></div></section>
       <section id="overlays" class="section"><div class="card"><h2>OBS Overlays</h2><p>Preview overlays, copy OBS URLs, edit animations, themes, fonts, and colors.</p></div></section>
       <section id="analytics" class="section"><div class="card"><h2>Analytics</h2><p>Followers, subs, votes, tips, chat activity, FoxCoins generated, and growth charts.</p></div></section>
@@ -668,6 +833,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 

@@ -140,3 +140,67 @@ async function demoActivity() {
 }
 
 
+
+function getStreamEventLabel(eventKey) {
+  const labels = {
+    golden_fox: "Golden Fox",
+    spirit_storm: "Spirit Storm",
+    treasure_drop: "Treasure Drop",
+    fox_frenzy: "Fox Frenzy",
+    random: "Random Event",
+    reset: "FoxBot Stream Event Ready"
+  };
+  return labels[eventKey] || "Stream Event";
+}
+
+function getStreamEventIcon(eventKey) {
+  const icons = {
+    golden_fox: "🦊",
+    spirit_storm: "🌩️",
+    treasure_drop: "💰",
+    fox_frenzy: "🔥",
+    random: "🎲",
+    reset: "🦊"
+  };
+  return icons[eventKey] || "⚡";
+}
+
+function getStreamEventMessage(eventKey) {
+  const messages = {
+    golden_fox: "A rare Golden Fox has appeared! Viewers earn bonus FoxCoins.",
+    spirit_storm: "Spirit Storm is live! Active chatters get rewarded.",
+    treasure_drop: "Treasure Drop activated! Bonus rewards are falling.",
+    fox_frenzy: "Fox Frenzy has started! Huge hype rewards are active.",
+    random: "FoxBot rolled a weighted random stream event.",
+    reset: "Select an event preview or trigger one live."
+  };
+  return messages[eventKey] || "FoxBot stream event ready.";
+}
+
+function previewStreamEvent(eventKey) {
+  const preview = document.getElementById("streamEventPreview");
+  if (!preview) return;
+
+  const label = getStreamEventLabel(eventKey);
+  const icon = getStreamEventIcon(eventKey);
+  const message = getStreamEventMessage(eventKey);
+
+  preview.innerHTML = `
+    <div class="preview-orb">${icon}</div>
+    <h3>${label}</h3>
+    <p>${message}</p>
+  `;
+}
+
+function triggerStreamEvent(eventKey) {
+  previewStreamEvent(eventKey);
+
+  if (typeof studioAction === "function") {
+    studioAction(eventKey === "random" ? "random_event" : eventKey);
+  }
+
+  const currentEvent = document.getElementById("currentEvent");
+  if (currentEvent) {
+    currentEvent.textContent = getStreamEventLabel(eventKey);
+  }
+}
