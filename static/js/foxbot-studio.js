@@ -347,3 +347,83 @@ function triggerRewardAction(action) {
     currentEvent.textContent = "Reward: " + action.replaceAll("_", " ");
   }
 }
+
+function getOverlayAbsoluteUrl(path) {
+  return window.location.origin + path;
+}
+
+function openOverlayPage(path) {
+  window.open(path, "_blank", "noopener,noreferrer");
+}
+
+async function copyOverlayUrl(path) {
+  const url = getOverlayAbsoluteUrl(path);
+
+  try {
+    await navigator.clipboard.writeText(url);
+    previewOverlayCard("copied", url);
+  } catch (error) {
+    previewOverlayCard("copy_failed", url);
+  }
+}
+
+function previewOverlayCard(type, url) {
+  const preview = document.getElementById("overlayPreviewPanel");
+  if (!preview) return;
+
+  const data = {
+    giveaway: {
+      icon: "🎁",
+      title: "Giveaway Overlay",
+      message: "Shows prize, latest entry, total entries, and winner."
+    },
+    redemptions: {
+      icon: "💎",
+      title: "Redemptions Overlay",
+      message: "Shows recent FoxCoins reward redemptions."
+    },
+    boss: {
+      icon: "👑",
+      title: "Boss Battle Overlay",
+      message: "Shows boss HP, battle state, damage board, and defeated count."
+    },
+    events: {
+      icon: "⚡",
+      title: "Stream Events Overlay",
+      message: "Future overlay for Golden Fox, Spirit Storm, Treasure Drop, and Fox Frenzy."
+    },
+    streaks: {
+      icon: "🔥",
+      title: "Streak Overlay",
+      message: "Future overlay for check-ins, streak leaders, MVPs, and OGs."
+    },
+    activity: {
+      icon: "📡",
+      title: "Activity Feed Overlay",
+      message: "Future overlay for follows, subs, tips, votes, raids, and shoutouts."
+    },
+    copied: {
+      icon: "✅",
+      title: "OBS URL Copied",
+      message: url || "Overlay URL copied to clipboard."
+    },
+    copy_failed: {
+      icon: "⚠️",
+      title: "Copy Failed",
+      message: url || "Copy failed. Manually copy the overlay path."
+    },
+    reset: {
+      icon: "🎬",
+      title: "OBS Overlay Manager Ready",
+      message: "Select an overlay preview or copy a browser-source URL."
+    }
+  };
+
+  const item = data[type] || data.reset;
+
+  preview.innerHTML = `
+    <div class="preview-orb">${item.icon}</div>
+    <h3>${item.title}</h3>
+    <p>${item.message}</p>
+  `;
+}

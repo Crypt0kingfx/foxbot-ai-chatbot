@@ -1047,7 +1047,196 @@
           </div>
         </div>
       </section>
-      <section id="overlays" class="section"><div class="card"><h2>OBS Overlays</h2><p>Preview overlays, copy OBS URLs, edit animations, themes, fonts, and colors.</p></div></section>
+      <section id="overlays" class="section">
+        <div class="studio-hero overlays-hero">
+          <div>
+            <div class="eyebrow">OBS Overlay Manager 2.0</div>
+            <h1>Manage every live browser source from one command center.</h1>
+            <p>Preview overlays, copy OBS URLs, open browser sources, tune themes, choose animation styles, and prepare future real-time widgets.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="openOverlayPage('/overlay/giveaway')">Open Giveaway Overlay</button>
+            <button class="ghost-btn" onclick="copyOverlayUrl('/overlay/giveaway')">Copy OBS URL</button>
+          </div>
+        </div>
+
+        <div class="overlay-stat-grid">
+          <div class="card overlay-stat-card">
+            <div class="card-title">Live Routes</div>
+            <div class="card-value">3</div>
+            <p>Giveaway, Redemptions, Boss Battle.</p>
+          </div>
+          <div class="card overlay-stat-card">
+            <div class="card-title">Recommended Size</div>
+            <div class="card-value">1920x1080</div>
+            <p>Best for OBS browser sources.</p>
+          </div>
+          <div class="card overlay-stat-card">
+            <div class="card-title">Refresh Mode</div>
+            <div class="card-value">Polling</div>
+            <p>WebSockets coming later.</p>
+          </div>
+          <div class="card overlay-stat-card">
+            <div class="card-title">Theme</div>
+            <div class="card-value">Fox Dark</div>
+            <p>Orange, green, glass, glow.</p>
+          </div>
+        </div>
+
+        <div class="overlay-manager-grid">
+          <div class="overlay-card live">
+            <div class="overlay-card-top">
+              <div class="overlay-icon">🎁</div>
+              <div>
+                <h2>Giveaway Overlay</h2>
+                <p>Shows giveaway prize, entry count, latest entry, and winner.</p>
+              </div>
+            </div>
+            <div class="overlay-url">/overlay/giveaway</div>
+            <div class="overlay-actions">
+              <button onclick="openOverlayPage('/overlay/giveaway')">Open</button>
+              <button onclick="copyOverlayUrl('/overlay/giveaway')">Copy URL</button>
+              <button onclick="previewOverlayCard('giveaway')">Preview</button>
+            </div>
+          </div>
+
+          <div class="overlay-card live">
+            <div class="overlay-card-top">
+              <div class="overlay-icon">💎</div>
+              <div>
+                <h2>Redemptions Overlay</h2>
+                <p>Displays viewer reward redemptions from the FoxCoins shop.</p>
+              </div>
+            </div>
+            <div class="overlay-url">/overlay/redemptions</div>
+            <div class="overlay-actions">
+              <button onclick="openOverlayPage('/overlay/redemptions')">Open</button>
+              <button onclick="copyOverlayUrl('/overlay/redemptions')">Copy URL</button>
+              <button onclick="previewOverlayCard('redemptions')">Preview</button>
+            </div>
+          </div>
+
+          <div class="overlay-card live">
+            <div class="overlay-card-top">
+              <div class="overlay-icon">👑</div>
+              <div>
+                <h2>Boss Battle Overlay</h2>
+                <p>Shows boss HP, battle status, damage leaderboard, and defeated count.</p>
+              </div>
+            </div>
+            <div class="overlay-url">/overlay/boss</div>
+            <div class="overlay-actions">
+              <button onclick="openOverlayPage('/overlay/boss')">Open</button>
+              <button onclick="copyOverlayUrl('/overlay/boss')">Copy URL</button>
+              <button onclick="previewOverlayCard('boss')">Preview</button>
+            </div>
+          </div>
+
+          <div class="overlay-card planned">
+            <div class="overlay-card-top">
+              <div class="overlay-icon">⚡</div>
+              <div>
+                <h2>Stream Events Overlay</h2>
+                <p>Planned overlay for Golden Fox, Spirit Storm, Treasure Drop, and Fox Frenzy.</p>
+              </div>
+            </div>
+            <div class="overlay-url">/overlay/events</div>
+            <div class="overlay-actions">
+              <button onclick="previewOverlayCard('events')">Preview</button>
+              <button onclick="copyOverlayUrl('/overlay/events')">Copy Future URL</button>
+            </div>
+          </div>
+
+          <div class="overlay-card planned">
+            <div class="overlay-card-top">
+              <div class="overlay-icon">🔥</div>
+              <div>
+                <h2>Streak Overlay</h2>
+                <p>Planned overlay for daily check-ins, streak leaders, MVP boosts, and OG boosts.</p>
+              </div>
+            </div>
+            <div class="overlay-url">/overlay/streaks</div>
+            <div class="overlay-actions">
+              <button onclick="previewOverlayCard('streaks')">Preview</button>
+              <button onclick="copyOverlayUrl('/overlay/streaks')">Copy Future URL</button>
+            </div>
+          </div>
+
+          <div class="overlay-card planned">
+            <div class="overlay-card-top">
+              <div class="overlay-icon">📡</div>
+              <div>
+                <h2>Activity Feed Overlay</h2>
+                <p>Planned overlay for follows, subs, tips, votes, raids, and live activity.</p>
+              </div>
+            </div>
+            <div class="overlay-url">/overlay/activity</div>
+            <div class="overlay-actions">
+              <button onclick="previewOverlayCard('activity')">Preview</button>
+              <button onclick="copyOverlayUrl('/overlay/activity')">Copy Future URL</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="overlay-tools-grid">
+          <div class="card">
+            <h2>Overlay Preview</h2>
+            <p>Preview the selected overlay style before opening it in OBS.</p>
+            <div id="overlayPreviewPanel" class="overlay-preview-panel">
+              <div class="preview-orb">🎬</div>
+              <h3>OBS Overlay Manager Ready</h3>
+              <p>Select an overlay preview or copy a browser-source URL.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>OBS Setup</h2>
+            <p>Use these settings when adding browser sources.</p>
+
+            <div class="obs-settings-list">
+              <div><span>Width</span><strong>1920</strong></div>
+              <div><span>Height</span><strong>1080</strong></div>
+              <div><span>Shutdown source when hidden</span><strong>Off</strong></div>
+              <div><span>Refresh browser when scene active</span><strong>On</strong></div>
+              <div><span>Custom CSS</span><strong>Optional</strong></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Style Controls</h2>
+            <p>UI-only controls for now. We’ll wire them into saved overlay themes later.</p>
+
+            <label class="setting-row">
+              <span>Theme</span>
+              <select class="input">
+                <option>Fox Dark</option>
+                <option>Golden Fox</option>
+                <option>Spirit Storm</option>
+                <option>Cyber Green</option>
+              </select>
+            </label>
+
+            <label class="setting-row">
+              <span>Animation</span>
+              <select class="input">
+                <option>Glow Pulse</option>
+                <option>Slide In</option>
+                <option>Pop Alert</option>
+                <option>Minimal Fade</option>
+              </select>
+            </label>
+
+            <label class="setting-row">
+              <span>Font Size</span>
+              <select class="input">
+                <option>Medium</option>
+                <option>Large</option>
+                <option>Huge</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </section>
       <section id="analytics" class="section"><div class="card"><h2>Analytics</h2><p>Followers, subs, votes, tips, chat activity, FoxCoins generated, and growth charts.</p></div></section>
       <section id="ai" class="section"><div class="card"><h2>Fox AI Assistant</h2><input class="input" placeholder="Ask Fox AI to create events, rewards, quests, or improve stream engagement..."></div></section>
       <section id="diagnostics" class="section"><div class="card"><h2>Diagnostics</h2><p>Smoke tests, API health, polling status, logs, and system checks.</p></div></section>
@@ -1061,6 +1250,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 
