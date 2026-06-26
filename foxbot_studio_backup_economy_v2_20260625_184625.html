@@ -353,73 +353,7 @@
         </div>
       </section>
 
-            <section id="economy" class="section">
-        <div class="studio-heading">
-          <h2>Economy Center</h2>
-          <span class="mini-badge">FoxCoins Manager</span>
-        </div>
-
-        <div class="grid">
-          <div class="card"><div class="card-title">FoxCoins Earned Today</div><div id="foxcoinsToday" class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Top Balance</div><div class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Transactions</div><div class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Active Rewards</div><div class="card-value">5</div></div>
-        </div>
-
-        <div class="economy-grid">
-          <div class="card">
-            <h2>Admin Actions</h2>
-            <div class="economy-actions">
-              <input class="input" placeholder="Viewer username">
-              <input class="input" placeholder="Amount">
-              <button class="action-btn" onclick="studioAction('give_points')">Give FoxCoins</button>
-              <button class="action-btn" onclick="studioAction('take_points')">Take FoxCoins</button>
-              <button class="action-btn" onclick="studioAction('reset_user')">Reset User</button>
-              <button class="action-btn" onclick="studioAction('export_economy')">Export Economy</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <h2>Economy Snapshot</h2>
-            <div class="stat-line"><span>Currency</span><strong>FoxCoins</strong></div>
-            <div class="stat-line"><span>Daily Reward</span><strong>Enabled</strong></div>
-            <div class="stat-line"><span>Ranks</span><strong>Fox Spirit Ranks</strong></div>
-            <div class="stat-line"><span>Shop</span><strong>Active</strong></div>
-            <div class="stat-line"><span>Persistence</span><strong>Auto-save</strong></div>
-          </div>
-        </div>
-
-        <br>
-
-        <div class="economy-grid">
-          <div class="card">
-            <h2>Reward Values</h2>
-            <div class="template-row">
-              <label>Follow Reward</label>
-              <input class="input" value="100">
-            </div>
-            <div class="template-row">
-              <label>Sub Reward</label>
-              <input class="input" value="500">
-            </div>
-            <div class="template-row">
-              <label>Tip Per Dollar</label>
-              <input class="input" value="200">
-            </div>
-            <button class="action-btn" onclick="studioAction('save_support_rewards')">Save Reward Values</button>
-          </div>
-
-          <div class="card">
-            <h2>Recent Transactions</h2>
-            <table class="table">
-              <tr><th>Viewer</th><th>Amount</th><th>Reason</th></tr>
-              <tr><td>Ryan</td><td>+50</td><td>Follow recognition</td></tr>
-              <tr><td>Viewer</td><td>+25</td><td>Daily reward</td></tr>
-              <tr><td>FoxFan</td><td>-10</td><td>Reward redeem</td></tr>
-            </table>
-          </div>
-        </div>
-      </section>
+      <section id="economy" class="section"><div class="card"><h2>Economy</h2><p>Balances, ranks, transactions, imports, exports, and user resets.</p></div></section>
       <section id="rewards" class="section"><div class="card"><h2>Rewards</h2><p>Create, edit, delete, preview, and manage reward redemptions.</p></div></section>
       <section id="giveaways" class="section"><div class="card"><h2>Giveaways</h2><p>Create giveaways, view entries, pick winners, and preview overlays.</p></div></section>
       <section id="boss" class="section"><div class="card"><h2>Boss Battle</h2><p>Create bosses, edit HP, rewards, damage, leaderboards, and overlays.</p></div></section>
@@ -440,7 +374,6 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
-
 
 
 

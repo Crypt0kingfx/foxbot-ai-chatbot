@@ -567,33 +567,3 @@ body {
     grid-template-columns: 1fr;
   }
 }
-
-.economy-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-}
-
-.economy-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.stat-line {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.stat-line strong {
-  color: var(--orange);
-}
-
-@media (max-width: 950px) {
-  .economy-grid,
-  .economy-actions {
-    grid-template-columns: 1fr;
-  }
-}
