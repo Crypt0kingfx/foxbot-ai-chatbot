@@ -7702,3 +7702,132 @@ async def blaze_event_bridge_info():
         }
     }
 
+
+# ==============================
+# Auto Chat Event Parser v1
+# Detects Blaze-style system/chat messages and triggers recognition automatically.
+# ==============================
+
+auto_chat_event_seen = set()
+
+def parse_auto_chat_event(message_text: str, username: str = "viewer"):
+    text = str(message_text or "").strip()
+    lower = text.lower()
+
+    if not text:
+        return None
+
+    event_user = normalize_viewer_name(username or "viewer")
+    amount = 1
+    event_type = None
+
+    words = text.replace("@", "").replace("!", "").split()
+    if words:
+        event_user = normalize_viewer_name(words[0])
+
+    if "followed" in lower or "new follower" in lower:
+        event_type = "follow"
+
+    elif "subscribed" in lower or "new sub" in lower or "new subscription" in lower:
+        event_type = "sub"
+
+    elif "gifted" in lower and ("sub" in lower or "subscription" in lower):
+        event_type = "giftsub"
+        for word in words:
+            if word.isdigit():
+                amount = int(word)
+                break
+
+    elif "voted" in lower or "vote" in lower:
+        event_type = "vote"
+        for word in words:
+            if word.isdigit():
+                amount = int(word)
+                break
+
+    elif "tipped" in lower or "tip" in lower or "donated" in lower:
+        event_type = "tip"
+        for word in words:
+            cleaned = word.replace("$", "").replace(",", "")
+            try:
+                value = float(cleaned)
+                if value > 0:
+                    amount = value
+                    break
+            except Exception:
+                pass
+
+    elif "raided" in lower or "raid" in lower:
+        event_type = "raid"
+
+    if not event_type:
+        return None
+
+    return {
+        "event_type": event_type,
+        "username": event_user,
+        "amount": amount,
+        "raw_message": text
+    }
+
+
+def handle_auto_chat_event(message_id: str, message_text: str, username: str = "viewer"):
+    event = parse_auto_chat_event(message_text, username)
+
+    if not event:
+        return None
+
+    dedupe_key = str(message_id or event.get("raw_message") or "").strip()
+
+    if dedupe_key:
+        if dedupe_key in auto_chat_event_seen:
+            return {
+                "ok": True,
+                "duplicate": True,
+                "event": event
+            }
+
+        auto_chat_event_seen.add(dedupe_key)
+
+        if len(auto_chat_event_seen) > 500:
+            auto_chat_event_seen.clear()
+
+    message = recognition_response(
+        event["event_type"],
+        event["username"],
+        event["amount"]
+    )
+
+    return {
+        "ok": True,
+        "event": event,
+        "message": message
+    }
+
+
+@app.get("/api/blaze/parse-auto-event")
+def test_parse_auto_event(message: str = "BridgeFan followed", username: str = "BridgeFan"):
+    event = parse_auto_chat_event(message, username)
+    return {
+        "ok": bool(event),
+        "input": message,
+        "username": username,
+        "event": event
+    }
+
+
+@app.get("/api/blaze/test-auto-chat-event")
+def test_auto_chat_event(message: str = "BridgeFan followed", username: str = "BridgeFan"):
+    result = handle_auto_chat_event(
+        message_id=f"manual-test-{message}-{username}",
+        message_text=message,
+        username=username
+    )
+
+    return {
+        "ok": bool(result),
+        "input": message,
+        "username": username,
+        "result": result
+    }
+
