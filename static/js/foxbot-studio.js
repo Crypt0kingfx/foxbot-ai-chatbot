@@ -1402,3 +1402,148 @@ window.blazeService = async function(action) {
     foxbotStudioResult(`Blaze action failed: ${action}`, String(error));
   }
 };
+
+/* Functionality Wiring Pass 2.0
+   Wires custom Studio panels: Stream Events, Streaks, Rewards.
+*/
+
+function foxbotVisibleOutput(title, data) {
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+
+  const visibleTargets = [
+    "diagnosticsOutput",
+    "giveawayOutput",
+    "analyticsReportPreview",
+    "aiOutput",
+    "eventPreview",
+    "streakPreview",
+    "rewardPreview"
+  ];
+
+  for (const id of visibleTargets) {
+    const el = document.getElementById(id);
+    if (el && el.offsetParent !== null) {
+      el.textContent = `${title}\n\n${body}`;
+      el.classList.add("generated");
+      return;
+    }
+  }
+
+  if (typeof addFeed === "function") {
+    addFeed(`${title}: ${typeof data === "string" ? data : "completed"}`);
+  }
+}
+
+async function foxbotCommand(command, username = "Ryan") {
+  const path = `/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent(username)}`;
+  const data = await foxbotFetchJSON(path);
+  foxbotVisibleOutput(`Command ${command}`, data);
+
+  if (typeof loadStudioStats === "function") loadStudioStats();
+  if (typeof refreshAnalyticsCenter === "function") refreshAnalyticsCenter();
+  if (typeof refreshGiveawayCenter === "function") refreshGiveawayCenter();
+
+  return data;
+}
+
+window.triggerStreamEvent = async function(eventKey) {
+  const eventMap = {
+    golden_fox: "goldenfox",
+    goldenfox: "goldenfox",
+    spirit_storm: "spiritstorm",
+    spiritstorm: "spiritstorm",
+    treasure_drop: "treasuredrop",
+    treasuredrop: "treasuredrop",
+    fox_frenzy: "foxfrenzy",
+    foxfrenzy: "foxfrenzy"
+  };
+
+  try {
+    if (eventKey === "random") {
+      const options = ["goldenfox", "spiritstorm", "treasuredrop", "foxfrenzy"];
+      const picked = options[Math.floor(Math.random() * options.length)];
+      return foxbotCommand(`!startevent ${picked}`);
+    }
+
+    const mapped = eventMap[eventKey] || eventKey;
+    return foxbotCommand(`!startevent ${mapped}`);
+  } catch (error) {
+    foxbotVisibleOutput("Stream Event Error", String(error));
+  }
+};
+
+window.previewStreamEvent = function(eventKey) {
+  const previews = {
+    golden_fox: "Golden Fox preview: Fox Hunt rewards are boosted and chat can claim event rewards with !event.",
+    spirit_storm: "Spirit Storm preview: Boss attacks and stream energy get boosted during the event.",
+    treasure_drop: "Treasure Drop preview: Chat can claim bonus FoxCoins with !event.",
+    fox_frenzy: "Fox Frenzy preview: High-energy event for votes, tips, subs, raids, and arcade moments.",
+    reset: "Stream event preview reset."
+  };
+
+  foxbotVisibleOutput("Stream Event Preview", previews[eventKey] || "Event preview ready.");
+};
+
+window.triggerStreakAction = async function(action) {
+  try {
+    const routes = {
+      daily_checkin: () => foxbotCommand("!checkin"),
+      award_bonus: () => foxbotCommand("!daily"),
+      repair_streak: () => foxbotVisibleOutput("Repair Streak", "Manual repair is planned. Current working commands: !checkin, !streak, !streaks, !resetstreak."),
+      reset_streak: () => foxbotCommand("!resetstreak"),
+      boost_mvp: () => foxbotCommand("!mvp FoxFan"),
+      boost_og: () => foxbotCommand("!og OGSpirit")
+    };
+
+    if (routes[action]) return await routes[action]();
+
+    return foxbotVisibleOutput(`Streak Action: ${action}`, "No route wired yet.");
+  } catch (error) {
+    foxbotVisibleOutput("Streak Action Error", String(error));
+  }
+};
+
+window.previewStreakOverlay = function(mode) {
+  const previews = {
+    leaderboard: "Streak Leaderboard Preview:\n#1 Ryan — 30 day streak\n#2 FoxFan — 21 day streak\n#3 Daily Hunter — 14 day streak",
+    reset: "Streak overlay preview reset."
+  };
+
+  foxbotVisibleOutput("Streak Overlay Preview", previews[mode] || "Streak preview ready.");
+};
+
+window.triggerRewardAction = async function(action) {
+  try {
+    const routes = {
+      bonus_drop: () => foxbotCommand("!givepoints FoxFan 50"),
+      create_reward: () => foxbotCommand("!addreward hydrate 25 @{username} redeemed hydrate. Drink water!"),
+      edit_reward: () => foxbotVisibleOutput("Edit Reward", "Editing rewards from Studio is planned. For now, delete and recreate with !delreward / !addreward."),
+      delete_reward: () => foxbotCommand("!delreward hydrate"),
+      preview_reward: () => foxbotCommand("!shop"),
+      mvp_bonus: () => foxbotCommand("!mvp FoxFan"),
+      og_bonus: () => foxbotCommand("!og OGSpirit"),
+      streak_reward: () => foxbotCommand("!daily"),
+      event_reward: () => foxbotCommand("!event"),
+      giveaway_entry: () => foxbotCommand("!enter", "FoxFan"),
+      approve_redemption: () => foxbotVisibleOutput("Approve Redemption", "Redemption approval queue is a planned backend action. Current queue is visible at /redemptions."),
+      complete_redemption: () => foxbotVisibleOutput("Complete Redemption", "Completion workflow is planned. Current queue is visible at /redemptions."),
+      clear_queue: () => foxbotCommand("!clearredeems"),
+      refresh_queue: () => foxbotRunEndpoint("/redemptions")
+    };
+
+    if (routes[action]) return await routes[action]();
+
+    return foxbotVisibleOutput(`Reward Action: ${action}`, "No route wired yet.");
+  } catch (error) {
+    foxbotVisibleOutput("Reward Action Error", String(error));
+  }
+};
+
+window.previewRewardOverlay = function(mode) {
+  const previews = {
+    redemption: "Reward Overlay Preview:\nLatest Redemption: @FoxFan redeemed hydrate.\nQueue: waiting for next redemption.",
+    reset: "Reward overlay preview reset."
+  };
+
+  foxbotVisibleOutput("Reward Overlay Preview", previews[mode] || "Reward preview ready.");
+};
