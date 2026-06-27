@@ -177,6 +177,35 @@
       <section id="control" class="section">
         <div class="card">
           <h2>Bot Control</h2>
+
+<div id="studioBlazeLoginButtonRow" style="display:flex;gap:12px;flex-wrap:wrap;margin:14px 0 22px;">
+  <a id="studioBlazeLoginButton" href="/login/blaze" style="
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:52px;
+    padding:0 24px;
+    border-radius:14px;
+    background:linear-gradient(135deg,#ff7a18,#ffb347);
+    color:#111;
+    font-weight:900;
+    text-decoration:none;
+    box-shadow:0 12px 30px rgba(255,122,24,.25);
+  ">Login With Blaze</a>
+
+  <a id="studioBlazeStatusButton" href="/blaze/polling-status" target="_blank" style="
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:52px;
+    padding:0 24px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.2);
+    color:#fff;
+    font-weight:900;
+    text-decoration:none;
+  ">Listener Status</a>
+</div>
           <div class="actions">
             <button class="action-btn" onclick="studioAction('start_bot')">Start</button>
             <button class="action-btn" onclick="studioAction('stop_bot')">Stop</button>
@@ -1851,6 +1880,7 @@ async function forceBridgeLog() {
 
 </body>
 </html>
+
 
 
 
