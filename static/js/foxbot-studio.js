@@ -1237,3 +1237,168 @@ document.addEventListener("DOMContentLoaded", () => {
   setTimeout(refreshGiveawayCenter, 1000);
 });
 
+
+/* Functionality Wiring Pass 1.0
+   This overrides the older generic Studio action handlers with real endpoint/command routing.
+*/
+
+function foxbotStudioResult(title, data) {
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+
+  console.log(title, data);
+
+  if (typeof addFeed === "function") {
+    addFeed(`${title}: ${typeof data === "string" ? data : "completed"}`);
+  }
+
+  const possibleOutputs = [
+    "diagnosticsOutput",
+    "giveawayOutput",
+    "aiOutput",
+    "analyticsReportPreview"
+  ];
+
+  for (const id of possibleOutputs) {
+    const el = document.getElementById(id);
+    if (el && el.offsetParent !== null) {
+      el.textContent = `${title}\n\n${body}`;
+      el.classList.add("generated");
+      return;
+    }
+  }
+}
+
+async function foxbotFetchJSON(path, options = {}) {
+  const response = await fetch(path, options);
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return {
+      ok: response.ok,
+      status: response.status,
+      text
+    };
+  }
+}
+
+async function foxbotRunCommand(command, username = "Ryan") {
+  const path = `/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent(username)}`;
+  const data = await foxbotFetchJSON(path);
+  foxbotStudioResult(`Command ${command}`, data);
+
+  if (typeof loadStudioStats === "function") loadStudioStats();
+  if (typeof refreshGiveawayCenter === "function") refreshGiveawayCenter();
+  if (typeof refreshAnalyticsCenter === "function") refreshAnalyticsCenter();
+
+  return data;
+}
+
+async function foxbotRunEndpoint(path, method = "GET") {
+  const data = await foxbotFetchJSON(path, { method });
+  foxbotStudioResult(`Endpoint ${path}`, data);
+
+  if (typeof loadStudioStats === "function") loadStudioStats();
+
+  return data;
+}
+
+async function foxbotRestartPolling() {
+  await foxbotRunEndpoint("/blaze/stop-polling-listener");
+  await new Promise(resolve => setTimeout(resolve, 700));
+  return foxbotRunEndpoint("/blaze/start-polling-listener");
+}
+
+function foxbotPromptValue(label, fallback) {
+  const value = prompt(label, fallback);
+  return value && value.trim() ? value.trim() : fallback;
+}
+
+window.studioAction = async function(action) {
+  try {
+    const routes = {
+      start_bot: () => foxbotRunEndpoint("/blaze/start-polling-listener"),
+      stop_bot: () => foxbotRunEndpoint("/blaze/stop-polling-listener"),
+      restart_bot: () => foxbotRestartPolling(),
+      reconnect_blaze: () => {
+        window.open("/login/blaze", "_blank", "noopener,noreferrer");
+        foxbotStudioResult("Reconnect Blaze", "Opened Blaze login.");
+      },
+      save_data: () => foxbotRunEndpoint("/save-data"),
+      load_data: () => foxbotRunEndpoint("/data-status"),
+      treasure_drop: () => foxbotRunCommand("!startevent treasuredrop"),
+      start_boss: () => foxbotRunCommand("!startboss Cyber Fox Dragon"),
+      end_boss: () => foxbotRunCommand("!endboss"),
+      reset_boss: async () => {
+        await foxbotRunCommand("!endboss");
+        return foxbotRunCommand("!startboss Cyber Fox Dragon");
+      },
+      boss_overlay: () => window.open("/overlay/boss", "_blank", "noopener,noreferrer"),
+      smoke_test: () => window.open("/smoke-test", "_blank", "noopener,noreferrer"),
+      restart_polling: () => foxbotRestartPolling(),
+      clear_cache: () => foxbotRunEndpoint("/api/studio/activity/clear", "POST"),
+      backup: () => foxbotRunEndpoint("/save-data"),
+
+      test_follow: () => foxbotRunCommand("!thankfollow FoxFan"),
+      test_vote: () => foxbotRunCommand("!thankvote FoxFan 10"),
+      test_sub: () => foxbotRunCommand("!thanksub FoxFan"),
+      test_tip: () => foxbotRunCommand("!thanktip FoxFan 5"),
+
+      give_points: () => {
+        const user = foxbotPromptValue("Viewer username", "FoxFan");
+        const amount = foxbotPromptValue("FoxCoins amount", "50");
+        return foxbotRunCommand(`!givepoints ${user} ${amount}`);
+      },
+      take_points: () => {
+        const user = foxbotPromptValue("Viewer username", "FoxFan");
+        const amount = foxbotPromptValue("FoxCoins amount", "25");
+        return foxbotRunCommand(`!takepoints ${user} ${amount}`);
+      },
+      reset_user: () => foxbotStudioResult("Reset User", "Planned safety action. For now, use Take FoxCoins or backend tools."),
+      export_economy: () => window.open("/foxcoins", "_blank", "noopener,noreferrer"),
+      save_support_rewards: () => foxbotRunEndpoint("/rewards"),
+
+      start_quest: () => foxbotRunCommand("!startquest foxhunt 10 100"),
+      end_quest: () => foxbotRunCommand("!endquest"),
+      complete_quest: () => foxbotRunCommand("!questadd 999"),
+      reset_quest: () => foxbotRunCommand("!endquest"),
+
+      save_recognition_templates: () => foxbotStudioResult("Recognition Templates", "Template saving is planned. Test recognition commands are wired now.")
+    };
+
+    if (routes[action]) {
+      return await routes[action]();
+    }
+
+    return foxbotRunEndpoint(`/api/studio/action/${encodeURIComponent(action)}`, "POST");
+  } catch (error) {
+    foxbotStudioResult(`Studio action failed: ${action}`, String(error));
+  }
+};
+
+window.blazeService = async function(action) {
+  try {
+    const routes = {
+      connect: () => {
+        window.open("/login/blaze", "_blank", "noopener,noreferrer");
+        foxbotStudioResult("Blaze Connect", "Opened Blaze login. After login, start the listener.");
+      },
+      disconnect: () => foxbotRunEndpoint("/blaze/stop-polling-listener"),
+      status: async () => {
+        const proof = await foxbotFetchJSON("/proof");
+        const polling = await foxbotFetchJSON("/blaze/polling-status");
+        foxbotStudioResult("Blaze Status", { proof, polling });
+      },
+      test_follow: () => foxbotRunCommand("!thankfollow FoxFan")
+    };
+
+    if (routes[action]) {
+      return await routes[action]();
+    }
+
+    return foxbotStudioResult(`Blaze action: ${action}`, "No route is wired for this Blaze action yet.");
+  } catch (error) {
+    foxbotStudioResult(`Blaze action failed: ${action}`, String(error));
+  }
+};
