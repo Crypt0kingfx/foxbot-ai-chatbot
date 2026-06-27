@@ -576,6 +576,130 @@
           </div>
         </div>
       </section>
+      <section id="giveaways" class="section">
+        <div class="studio-hero giveaways-hero">
+          <div>
+            <div class="eyebrow">Giveaways Center 2.0</div>
+            <h1>Run giveaways, track entries, and pick winners from Studio.</h1>
+            <p>Start a giveaway, simulate entries, check duplicate protection, pick a random winner, open the OBS giveaway overlay, and monitor live giveaway data from one control center.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" onclick="runGiveawayCommand('!giveaway')">Start Giveaway</button>
+            <button class="ghost-btn" onclick="openGiveawayOverlay()">Open Overlay</button>
+          </div>
+        </div>
+
+        <div class="giveaway-stat-grid">
+          <div class="card giveaway-stat-card">
+            <div class="card-title">Status</div>
+            <div id="giveawayStatus" class="card-value">Checking</div>
+            <p>Live giveaway state.</p>
+          </div>
+          <div class="card giveaway-stat-card">
+            <div class="card-title">Entries</div>
+            <div id="giveawayEntryCount" class="card-value">0</div>
+            <p>Total current entries.</p>
+          </div>
+          <div class="card giveaway-stat-card">
+            <div class="card-title">Latest Entry</div>
+            <div id="giveawayLatestEntry" class="card-value">@None</div>
+            <p>Most recent viewer entered.</p>
+          </div>
+          <div class="card giveaway-stat-card">
+            <div class="card-title">Winner</div>
+            <div id="giveawayWinner" class="card-value">Not picked</div>
+            <p>Current selected winner.</p>
+          </div>
+        </div>
+
+        <div class="giveaway-grid">
+          <div class="card">
+            <h2>Giveaway Controls</h2>
+            <p>Run the main giveaway commands directly through FoxBot.</p>
+
+            <div class="giveaway-button-grid">
+              <button onclick="runGiveawayCommand('!giveaway')">Start Giveaway</button>
+              <button onclick="runGiveawayCommand('!enter', 'Ryan')">Enter Ryan</button>
+              <button onclick="runGiveawayCommand('!entries')">Show Entries</button>
+              <button onclick="runGiveawayCommand('!pickwinner')">Pick Winner</button>
+              <button onclick="runGiveawayCommand('!rules')">Show Rules</button>
+              <button onclick="runGiveawayCommand('!giveawaylink')">Giveaway Link</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Entry Simulator</h2>
+            <p>Test entries with sample viewer names before going live.</p>
+
+            <div class="giveaway-user-row">
+              <input id="giveawayTestUser" class="input" value="FoxFan" placeholder="Viewer username">
+              <button class="primary-btn" onclick="enterGiveawayUser()">Enter Viewer</button>
+            </div>
+
+            <div class="giveaway-button-grid">
+              <button onclick="runGiveawayCommand('!enter', 'FoxFan')">FoxFan</button>
+              <button onclick="runGiveawayCommand('!enter', 'MVPHunter')">MVPHunter</button>
+              <button onclick="runGiveawayCommand('!enter', 'OGSpirit')">OGSpirit</button>
+              <button onclick="runGiveawayCommand('!enter', 'BlazeViewer')">BlazeViewer</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>OBS Giveaway Overlay</h2>
+            <p>Add this route as a browser source in OBS. Recommended size: 1920x1080.</p>
+
+            <div class="giveaway-overlay-card">
+              <div class="overlay-icon">🎁</div>
+              <div>
+                <strong>/overlay/giveaway</strong>
+                <p>Shows prize, entry count, latest entry, active status, and winner.</p>
+              </div>
+            </div>
+
+            <div class="giveaway-button-grid">
+              <button onclick="openGiveawayOverlay()">Open Overlay</button>
+              <button onclick="copyGiveawayOverlayUrl()">Copy OBS URL</button>
+              <button onclick="refreshGiveawayCenter()">Refresh Data</button>
+              <button onclick="runGiveawayCommand('!entries')">Preview Entries</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Giveaway Prize</h2>
+            <p>Current prize comes from your Render environment variable.</p>
+
+            <div class="giveaway-prize-box">
+              <span>Current Prize</span>
+              <strong id="giveawayPrize">Loading...</strong>
+            </div>
+
+            <div class="giveaway-note">
+              To change this permanently, update <code>GIVEAWAY_PRIZE</code> in Render environment settings.
+            </div>
+          </div>
+
+          <div class="card giveaway-output-card">
+            <div class="preview-header">
+              <div>
+                <h2>Giveaway Command Output</h2>
+                <p>Command results and overlay data appear here.</p>
+              </div>
+              <button class="ghost-btn small" onclick="clearGiveawayOutput()">Clear</button>
+            </div>
+
+            <pre id="giveawayOutput" class="giveaway-output">Giveaways ready. Start a giveaway or refresh data.</pre>
+          </div>
+
+          <div class="card">
+            <h2>Live Entry List</h2>
+            <p>Current giveaway participants.</p>
+
+            <div id="giveawayEntryList" class="giveaway-entry-list">
+              <div class="giveaway-empty">No entries loaded yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section id="boss" class="section">
         <div class="studio-heading">
           <h2>Boss Battle Center</h2>
@@ -1646,6 +1770,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 
