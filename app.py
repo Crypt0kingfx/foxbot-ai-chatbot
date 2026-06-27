@@ -7799,6 +7799,14 @@ def handle_auto_chat_event(message_id: str, message_text: str, username: str = "
     if not event:
         return None
 
+    if not automation_event_enabled(event.get("event_type")):
+        return {
+            "ok": False,
+            "disabled": True,
+            "event": event,
+            "message": f"Automation disabled for {event.get('event_type')} events."
+        }
+
     dedupe_key = str(message_id or event.get("raw_message") or "").strip()
 
     if dedupe_key:
@@ -7851,5 +7859,95 @@ def test_auto_chat_event(message: str = "BridgeFan followed", username: str = "B
         "input": message,
         "username": username,
         "result": result
+    }
+
+
+
+# ==============================
+# Automation Control Center v1 backend
+# Controls live recognition automation and event type toggles.
+# ==============================
+
+AUTOMATION_EVENT_DEFAULTS = {
+    "follow": True,
+    "vote": True,
+    "sub": True,
+    "giftsub": True,
+    "tip": True,
+    "raid": True,
+    "mvp": True,
+    "og": True
+}
+
+
+def ensure_automation_settings():
+    recognition_settings.setdefault("enabled", True)
+    recognition_settings.setdefault("surprise_bonus_enabled", True)
+    recognition_settings.setdefault("surprise_bonus_chance", 15)
+    recognition_settings.setdefault("enabled_events", AUTOMATION_EVENT_DEFAULTS.copy())
+
+    for event_type, enabled in AUTOMATION_EVENT_DEFAULTS.items():
+        recognition_settings["enabled_events"].setdefault(event_type, enabled)
+
+    return recognition_settings
+
+
+def automation_event_enabled(event_type: str):
+    settings = ensure_automation_settings()
+
+    if not settings.get("enabled", True):
+        return False
+
+    enabled_events = settings.get("enabled_events", {})
+    return bool(enabled_events.get(str(event_type or "").lower(), True))
+
+
+@app.get("/api/automation/status")
+def automation_control_status():
+    settings = ensure_automation_settings()
+
+    return {
+        "ok": True,
+        "recognition": settings,
+        "polling": polling_status,
+        "recent_log": recognition_log[:10],
+        "supported_events": list(AUTOMATION_EVENT_DEFAULTS.keys())
+    }
+
+
+@app.post("/api/automation/recognition/{state}")
+def automation_control_recognition(state: str):
+    settings = ensure_automation_settings()
+    enabled = str(state).lower() in ["on", "true", "1", "enabled", "enable"]
+
+    settings["enabled"] = enabled
+
+    return {
+        "ok": True,
+        "message": f"Recognition automation {'enabled' if enabled else 'disabled'}.",
+        "recognition": settings
+    }
+
+
+@app.post("/api/automation/event/{event_type}/{state}")
+def automation_control_event_toggle(event_type: str, state: str):
+    settings = ensure_automation_settings()
+
+    clean_event = str(event_type or "").lower().strip()
+    if clean_event not in AUTOMATION_EVENT_DEFAULTS:
+        return {
+            "ok": False,
+            "reason": "unsupported_event",
+            "event_type": clean_event,
+            "supported_events": list(AUTOMATION_EVENT_DEFAULTS.keys())
+        }
+
+    enabled = str(state).lower() in ["on", "true", "1", "enabled", "enable"]
+    settings["enabled_events"][clean_event] = enabled
+
+    return {
+        "ok": True,
+        "message": f"{clean_event} automation {'enabled' if enabled else 'disabled'}.",
+        "recognition": settings
     }
 
