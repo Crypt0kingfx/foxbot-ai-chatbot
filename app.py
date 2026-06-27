@@ -7052,7 +7052,7 @@ STUDIO_STATE = {
     "activity": [
         {
             "time": datetime.now().strftime("%I:%M:%S %p"),
-            "message": "?? FoxBot Studio online."
+            "message": "🦊 FoxBot Studio online."
         }
     ]
 }
@@ -7521,4 +7521,5 @@ async def foxbot_demo_activity():
         "event": item,
         "activity": STUDIO_STATE["activity"]
     }
+
 

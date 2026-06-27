@@ -1236,3 +1236,4 @@ async function copyGiveawayOverlayUrl() {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(refreshGiveawayCenter, 1000);
 });
+
