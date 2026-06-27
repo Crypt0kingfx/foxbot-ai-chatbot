@@ -1132,3 +1132,107 @@ async function runDiagnosticsSuite() {
 document.addEventListener("DOMContentLoaded", () => {
   setTimeout(refreshDiagnosticsCenter, 900);
 });
+
+function writeGiveawayOutput(title, data) {
+  const output = document.getElementById("giveawayOutput");
+  if (!output) return;
+
+  const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  output.textContent = `${title}\n\n${body}`;
+}
+
+function clearGiveawayOutput() {
+  writeGiveawayOutput("Giveaways ready.", "Start a giveaway or refresh data.");
+}
+
+async function fetchGiveawayJSON(path) {
+  const response = await fetch(path);
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return {
+      ok: response.ok,
+      status: response.status,
+      text
+    };
+  }
+}
+
+async function refreshGiveawayCenter() {
+  try {
+    const data = await fetchGiveawayJSON("/overlay/giveaway-data");
+
+    const statusEl = document.getElementById("giveawayStatus");
+    const countEl = document.getElementById("giveawayEntryCount");
+    const latestEl = document.getElementById("giveawayLatestEntry");
+    const winnerEl = document.getElementById("giveawayWinner");
+    const prizeEl = document.getElementById("giveawayPrize");
+    const listEl = document.getElementById("giveawayEntryList");
+
+    if (statusEl) statusEl.textContent = data.active ? "Live" : "Waiting";
+    if (countEl) countEl.textContent = data.entry_count ?? 0;
+    if (latestEl) latestEl.textContent = data.latest_entry ? `@${data.latest_entry}` : "@None";
+    if (winnerEl) winnerEl.textContent = data.winner ? `@${data.winner}` : "Not picked";
+    if (prizeEl) prizeEl.textContent = data.prize || "a Blaze community prize";
+
+    if (listEl) {
+      const entries = Array.isArray(data.entries) ? data.entries : [];
+
+      if (!entries.length) {
+        listEl.innerHTML = '<div class="giveaway-empty">No entries yet. Start a giveaway and test !enter.</div>';
+      } else {
+        listEl.innerHTML = entries.map((name, index) => `
+          <div class="giveaway-entry-row">
+            <span>#${index + 1}</span>
+            <strong>@${name}</strong>
+          </div>
+        `).join("");
+      }
+    }
+
+    writeGiveawayOutput("Giveaway Data: /overlay/giveaway-data", data);
+  } catch (error) {
+    writeGiveawayOutput("Giveaway data failed.", String(error));
+  }
+}
+
+async function runGiveawayCommand(command, username = "Ryan") {
+  const path = `/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent(username)}`;
+  writeGiveawayOutput(`Running ${command} as @${username}...`, "Loading...");
+
+  try {
+    const data = await fetchGiveawayJSON(path);
+    writeGiveawayOutput(`Command Result: ${command}`, data);
+    refreshGiveawayCenter();
+  } catch (error) {
+    writeGiveawayOutput(`Command Error: ${command}`, String(error));
+  }
+}
+
+function enterGiveawayUser() {
+  const input = document.getElementById("giveawayTestUser");
+  const username = input && input.value.trim() ? input.value.trim() : "FoxFan";
+  runGiveawayCommand("!enter", username);
+}
+
+function openGiveawayOverlay() {
+  window.open("/overlay/giveaway", "_blank", "noopener,noreferrer");
+}
+
+async function copyGiveawayOverlayUrl() {
+  const url = `${window.location.origin}/overlay/giveaway`;
+
+  try {
+    await navigator.clipboard.writeText(url);
+    writeGiveawayOutput("OBS Giveaway URL copied.", url);
+    if (typeof addFeed === "function") addFeed("🎁 Giveaway overlay URL copied.");
+  } catch (error) {
+    writeGiveawayOutput("Copy failed.", url);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(refreshGiveawayCenter, 1000);
+});
