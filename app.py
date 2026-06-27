@@ -3541,6 +3541,28 @@ def blaze_polling_worker():
                 if not message_text:
                     continue
 
+                auto_event_result = None
+                try:
+                    auto_event_result = handle_auto_chat_event(message_id, message_text, username)
+                except Exception as auto_event_error:
+                    polling_status["last_auto_event_error"] = str(auto_event_error)
+
+                if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
+                    foxbot_reply = auto_event_result.get("message")
+                    polling_status["last_auto_event"] = auto_event_result
+
+                    if foxbot_reply:
+                        send_blaze_chat_message(foxbot_reply)
+                        polling_status["commands_processed"] += 1
+                        proof_stats["commands_processed"] += 1
+                        proof_stats["last_command"] = message_text
+                        proof_stats["last_reply"] = foxbot_reply
+                        proof_stats["last_username"] = username
+                        proof_stats["last_message"] = message_text
+                        polling_status["last_reply"] = foxbot_reply
+
+                    continue
+
                 if not message_text.startswith("!"):
                     continue
 
