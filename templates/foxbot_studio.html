@@ -1726,8 +1726,132 @@
   <script src="/static/js/dashboard.js?v=1"></script>
   <script src="/static/js/recognition.js?v=1"></script>
   <script src="/static/js/economy.js?v=1"></script>
+
+<!-- Force Visible Event Bridge Panel v1 -->
+<div id="forceEventBridgePanel" style="
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  width: min(440px, calc(100vw - 44px));
+  z-index: 99998;
+  background: rgba(8,10,8,.97);
+  border: 1px solid rgba(255,170,70,.5);
+  border-radius: 18px;
+  padding: 14px;
+  color: #fff;
+  box-shadow: 0 18px 60px rgba(0,0,0,.5);
+">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+    <strong style="color:#ffb15a;">Blaze Event Bridge</strong>
+    <button onclick="document.getElementById('forceEventBridgePanel').style.display='none'" style="border:0;border-radius:10px;padding:5px 9px;cursor:pointer;">Hide</button>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <input id="forceBridgeUser" value="BridgeFan" style="flex:1;min-width:150px;padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;">
+    <input id="forceBridgeAmount" value="1" style="width:80px;padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:#111;color:#fff;">
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <button onclick="forceBridgeEvent('new_follow')" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Follow</button>
+    <button onclick="forceBridgeEvent('user_voted',10)" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Vote x10</button>
+    <button onclick="forceBridgeEvent('new_sub')" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Sub</button>
+    <button onclick="forceBridgeEvent('user_tipped',5)" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Tip $5</button>
+    <button onclick="forceBridgeEvent('incoming_raid')" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Raid</button>
+    <button onclick="forceBridgeDuplicate()" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Duplicate</button>
+    <button onclick="forceBridgeLog()" style="padding:8px 10px;border-radius:10px;border:0;cursor:pointer;">Log</button>
+  </div>
+
+  <pre id="forceBridgeOut" style="white-space:pre-wrap;max-height:220px;overflow:auto;margin:0;font-size:12px;color:#dfffe1;">Ready.</pre>
+</div>
+
+<script>
+async function forceBridgeEvent(eventType, forcedAmount) {
+  const out = document.getElementById("forceBridgeOut");
+  const user = document.getElementById("forceBridgeUser")?.value || "BridgeFan";
+  const amount = forcedAmount || document.getElementById("forceBridgeAmount")?.value || 1;
+
+  const body = {
+    event_type: eventType,
+    username: user,
+    amount: amount,
+    post_to_chat: false
+  };
+
+  out.textContent = "Sending event...\n\n" + JSON.stringify(body, null, 2);
+
+  const res = await fetch("/api/blaze/event-bridge", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+
+  const data = await res.json();
+  out.textContent = JSON.stringify(data, null, 2);
+
+  if (typeof window.showFoxBotActionResult === "function") {
+    window.showFoxBotActionResult("Event Bridge Result", data);
+  }
+
+  return data;
+}
+
+async function forceBridgeDuplicate() {
+  const out = document.getElementById("forceBridgeOut");
+  const user = document.getElementById("forceBridgeUser")?.value || "DuplicateFan";
+
+  const body = {
+    event_id: "admin-dupe-test-fixed-001",
+    event_type: "new_follow",
+    username: user,
+    amount: 1,
+    post_to_chat: false
+  };
+
+  out.textContent = "Sending duplicate test #1...";
+  await fetch("/api/blaze/event-bridge", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+
+  out.textContent = "Sending duplicate test #2...";
+  const res = await fetch("/api/blaze/event-bridge", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+
+  const data = await res.json();
+  out.textContent = JSON.stringify(data, null, 2);
+
+  if (typeof window.showFoxBotActionResult === "function") {
+    window.showFoxBotActionResult("Duplicate Event Result", data);
+  }
+
+  return data;
+}
+
+async function forceBridgeLog() {
+  const out = document.getElementById("forceBridgeOut");
+  out.textContent = "Loading recognition log...";
+
+  const res = await fetch("/recognition");
+  const data = await res.json();
+
+  out.textContent = JSON.stringify(data, null, 2);
+
+  if (typeof window.showFoxBotActionResult === "function") {
+    window.showFoxBotActionResult("Recognition Log", data);
+  }
+
+  return data;
+}
+</script>
+<!-- End Force Visible Event Bridge Panel v1 -->
+
 </body>
 </html>
+
 
 
 
