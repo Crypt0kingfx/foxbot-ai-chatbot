@@ -7523,3 +7523,182 @@ async def foxbot_demo_activity():
     }
 
 
+
+# ==============================
+# Blaze Event Bridge v1
+# Receives Blaze-style event payloads and maps them into FoxBot recognition.
+# ==============================
+
+blaze_event_bridge_seen = set()
+
+BLAZE_EVENT_BRIDGE_ALIASES = {
+    "follow": "follow",
+    "follower": "follow",
+    "new_follow": "follow",
+    "new_follower": "follow",
+    "user_followed": "follow",
+
+    "vote": "vote",
+    "votes": "vote",
+    "voted": "vote",
+    "user_voted": "vote",
+
+    "sub": "sub",
+    "subscribe": "sub",
+    "subscription": "sub",
+    "new_sub": "sub",
+    "new_subscription": "sub",
+    "user_subscribed": "sub",
+
+    "giftsub": "giftsub",
+    "gift_sub": "giftsub",
+    "gifted_sub": "giftsub",
+    "gifted_subscription": "giftsub",
+
+    "tip": "tip",
+    "tips": "tip",
+    "donation": "tip",
+    "donate": "tip",
+    "tipped": "tip",
+    "user_tipped": "tip",
+
+    "raid": "raid",
+    "raided": "raid",
+    "incoming_raid": "raid",
+
+    "mvp": "mvp",
+    "og": "og"
+}
+
+
+def normalize_blaze_event_type(raw_event_type):
+    raw = str(raw_event_type or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+    if raw in BLAZE_EVENT_BRIDGE_ALIASES:
+        return BLAZE_EVENT_BRIDGE_ALIASES[raw]
+
+    for alias, mapped in BLAZE_EVENT_BRIDGE_ALIASES.items():
+        if alias in raw:
+            return mapped
+
+    return None
+
+
+def first_bridge_value(payload, keys, default=None):
+    if not isinstance(payload, dict):
+        return default
+
+    for key in keys:
+        if key in payload and payload.get(key) not in [None, ""]:
+            return payload.get(key)
+
+    data = payload.get("data")
+    if isinstance(data, dict):
+        for key in keys:
+            if key in data and data.get(key) not in [None, ""]:
+                return data.get(key)
+
+    user = payload.get("user")
+    if isinstance(user, dict):
+        for key in keys:
+            if key in user and user.get(key) not in [None, ""]:
+                return user.get(key)
+
+    return default
+
+
+@app.post("/api/blaze/event-bridge")
+async def blaze_event_bridge(payload: dict):
+    event_id = first_bridge_value(
+        payload,
+        ["id", "event_id", "eventId", "message_id", "messageId", "transaction_id", "transactionId"],
+        None
+    )
+
+    if event_id:
+        event_id = str(event_id)
+        if event_id in blaze_event_bridge_seen:
+            return {
+                "ok": True,
+                "duplicate": True,
+                "event_id": event_id,
+                "message": "Duplicate Blaze event ignored."
+            }
+
+        blaze_event_bridge_seen.add(event_id)
+
+        if len(blaze_event_bridge_seen) > 500:
+            blaze_event_bridge_seen.clear()
+
+    raw_event_type = first_bridge_value(
+        payload,
+        ["event_type", "eventType", "type", "event", "name", "action"],
+        ""
+    )
+
+    mapped_event = normalize_blaze_event_type(raw_event_type)
+
+    username = first_bridge_value(
+        payload,
+        ["username", "user_name", "userName", "display_name", "displayName", "viewer", "sender", "from"],
+        "viewer"
+    )
+
+    amount = first_bridge_value(
+        payload,
+        ["amount", "value", "votes", "vote_count", "voteCount", "tip", "dollars", "count", "quantity"],
+        1
+    )
+
+    post_to_chat = bool(first_bridge_value(payload, ["post_to_chat", "postToChat", "send_to_chat", "sendToChat"], False))
+
+    if not mapped_event:
+        return {
+            "ok": False,
+            "reason": "unmapped_event",
+            "raw_event_type": raw_event_type,
+            "username": username,
+            "amount": amount,
+            "supported_events": sorted(set(BLAZE_EVENT_BRIDGE_ALIASES.values()))
+        }
+
+    message = recognition_response(mapped_event, username, amount)
+
+    posted_to_blaze = False
+    post_error = None
+
+    if post_to_chat:
+        try:
+            send_blaze_chat_message(message)
+            posted_to_blaze = True
+        except Exception as error:
+            post_error = str(error)
+
+    return {
+        "ok": True,
+        "event_id": event_id,
+        "raw_event_type": raw_event_type,
+        "mapped_event": mapped_event,
+        "username": username,
+        "amount": amount,
+        "message": message,
+        "posted_to_blaze": posted_to_blaze,
+        "post_error": post_error
+    }
+
+
+@app.get("/api/blaze/event-bridge")
+async def blaze_event_bridge_info():
+    return {
+        "ok": True,
+        "route": "/api/blaze/event-bridge",
+        "method": "POST",
+        "supported_events": sorted(set(BLAZE_EVENT_BRIDGE_ALIASES.values())),
+        "example_payload": {
+            "event_type": "follow",
+            "username": "FoxFan",
+            "amount": 1,
+            "post_to_chat": False
+        }
+    }
+
