@@ -1764,26 +1764,29 @@
 
 
 
-<!-- FoxBot Action Result Global Popup v3 -->
+
+
+
+<!-- FoxBot Calm Action Result Popup v4 -->
 <script>
 (function () {
-  if (window.foxbotActionPopupV3Installed) return;
-  window.foxbotActionPopupV3Installed = true;
+  if (window.foxbotCalmPopupV4Installed) return;
+  window.foxbotCalmPopupV4Installed = true;
 
   function ensurePopup() {
-    let panel = document.getElementById("foxbotActionPopupV3");
+    let panel = document.getElementById("foxbotCalmActionPopup");
 
     if (!panel) {
       panel = document.createElement("div");
-      panel.id = "foxbotActionPopupV3";
+      panel.id = "foxbotCalmActionPopup";
       panel.style.position = "fixed";
       panel.style.right = "22px";
       panel.style.bottom = "22px";
-      panel.style.width = "min(430px, calc(100vw - 44px))";
-      panel.style.maxHeight = "320px";
+      panel.style.width = "min(420px, calc(100vw - 44px))";
+      panel.style.maxHeight = "300px";
       panel.style.overflow = "auto";
       panel.style.zIndex = "999999";
-      panel.style.border = "1px solid rgba(255,170,70,.5)";
+      panel.style.border = "1px solid rgba(255,170,70,.45)";
       panel.style.borderRadius = "18px";
       panel.style.background = "rgba(8,10,8,.96)";
       panel.style.boxShadow = "0 18px 60px rgba(0,0,0,.5)";
@@ -1794,14 +1797,14 @@
       panel.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;">
           <strong style="color:#ffb15a;">FoxBot Action Result</strong>
-          <button id="foxbotActionPopupV3Close" style="border:0;border-radius:10px;padding:5px 9px;cursor:pointer;">Close</button>
+          <button id="foxbotCalmActionPopupClose" style="border:0;border-radius:10px;padding:5px 9px;cursor:pointer;">Close</button>
         </div>
-        <pre id="foxbotActionPopupV3Body" style="white-space:pre-wrap;margin:0;font-size:12px;line-height:1.45;color:#e9fbe9;"></pre>
+        <pre id="foxbotCalmActionPopupBody" style="white-space:pre-wrap;margin:0;font-size:12px;line-height:1.45;color:#e9fbe9;"></pre>
       `;
 
       document.body.appendChild(panel);
 
-      document.getElementById("foxbotActionPopupV3Close").addEventListener("click", function () {
+      document.getElementById("foxbotCalmActionPopupClose").addEventListener("click", function () {
         panel.style.display = "none";
       });
     }
@@ -1809,9 +1812,29 @@
     return panel;
   }
 
-  function showFoxBotPopup(title, data) {
+  function shouldIgnoreUrl(url) {
+    const text = String(url || "");
+    return (
+      text.includes("/api/studio/stats") ||
+      text.includes("/api/automation/status") ||
+      text.includes("/blaze/polling-status") ||
+      text.includes("/recognition") ||
+      text.includes("/data-status") ||
+      text.includes("/project-status")
+    );
+  }
+
+  function isMeaningfulAction(data) {
+    if (!data || typeof data !== "object") return false;
+    if (data.response || data.message) return true;
+    if (data.mapped_event || data.raw_event_type || data.posted_to_blaze !== undefined) return true;
+    if (data.success && data.status) return true;
+    return false;
+  }
+
+  function showCalmPopup(title, data) {
     const panel = ensurePopup();
-    const body = document.getElementById("foxbotActionPopupV3Body");
+    const body = document.getElementById("foxbotCalmActionPopupBody");
 
     let output = data;
 
@@ -1824,24 +1847,14 @@
     body.textContent = title + "\n\n" + (output || "Done.");
     panel.style.display = "block";
 
-    clearTimeout(window.foxbotActionPopupV3Timer);
-    window.foxbotActionPopupV3Timer = setTimeout(function () {
-      const current = document.getElementById("foxbotActionPopupV3");
+    clearTimeout(window.foxbotCalmActionPopupTimer);
+    window.foxbotCalmActionPopupTimer = setTimeout(function () {
+      const current = document.getElementById("foxbotCalmActionPopup");
       if (current) current.style.display = "none";
-    }, 12000);
+    }, 9000);
   }
 
-  window.showFoxBotActionResult = showFoxBotPopup;
-
-  document.addEventListener("click", function (event) {
-    const button = event.target.closest("button, a");
-    if (!button) return;
-
-    const label = (button.innerText || button.textContent || button.getAttribute("href") || "Action").trim();
-    if (!label) return;
-
-    showFoxBotPopup("Clicked", label + "\n\nWaiting for result...");
-  }, true);
+  window.showFoxBotActionResult = showCalmPopup;
 
   const originalFetch = window.fetch;
   window.fetch = async function () {
@@ -1849,22 +1862,28 @@
     const response = await originalFetch.apply(this, arguments);
 
     try {
+      if (shouldIgnoreUrl(url)) return response;
+
       const cloned = response.clone();
       const contentType = cloned.headers.get("content-type") || "";
 
       if (contentType.includes("application/json")) {
         const data = await cloned.json();
-        showFoxBotPopup("Action Complete", data);
+
+        if (isMeaningfulAction(data)) {
+          showCalmPopup("Action Complete", data);
+        }
       }
     } catch (error) {
-      // Ignore non-JSON responses.
+      // Ignore popup errors.
     }
 
     return response;
   };
 })();
 </script>
-<!-- End FoxBot Action Result Global Popup v3 -->
+<!-- End FoxBot Calm Action Result Popup v4 -->
+
 
 </body>
 </html>
