@@ -1547,3 +1547,112 @@ window.previewRewardOverlay = function(mode) {
 
   foxbotVisibleOutput("Reward Overlay Preview", previews[mode] || "Reward preview ready.");
 };
+
+/* Functionality Wiring Pass 3.0
+   Reads real Studio form fields for economy, rewards, boss, and quests.
+*/
+
+function foxbotInputValue(id, fallback = "") {
+  const el = document.getElementById(id);
+  return el && String(el.value || "").trim() ? String(el.value).trim() : fallback;
+}
+
+async function foxbotPass3Command(command, username = "Ryan") {
+  if (typeof foxbotCommand === "function") return foxbotCommand(command, username);
+  if (typeof foxbotRunCommand === "function") return foxbotRunCommand(command, username);
+
+  const path = `/chat?message=${encodeURIComponent(command)}&username=${encodeURIComponent(username)}`;
+  const response = await fetch(path);
+  const data = await response.json();
+
+  if (typeof foxbotVisibleOutput === "function") {
+    foxbotVisibleOutput(`Command ${command}`, data);
+  }
+
+  return data;
+}
+
+const foxbotPass3PreviousStudioAction = window.studioAction || async function(action) {
+  if (typeof foxbotVisibleOutput === "function") {
+    foxbotVisibleOutput("Studio Action", `No handler found for ${action}`);
+  }
+};
+
+window.studioAction = async function(action) {
+  try {
+    if (action === "give_points") {
+      const user = foxbotInputValue("economyViewer", "FoxFan");
+      const amount = foxbotInputValue("economyAmount", "100");
+      return foxbotPass3Command(`!givepoints ${user} ${amount}`);
+    }
+
+    if (action === "take_points") {
+      const user = foxbotInputValue("economyViewer", "FoxFan");
+      const amount = foxbotInputValue("economyAmount", "25");
+      return foxbotPass3Command(`!takepoints ${user} ${amount}`);
+    }
+
+    if (action === "start_boss") {
+      const hp = foxbotInputValue("bossStartHp", "500");
+      const name = foxbotInputValue("bossStartName", "Cyber Fox Dragon");
+      return foxbotPass3Command(`!startboss ${hp} ${name}`);
+    }
+
+    if (action === "reset_boss") {
+      const hp = foxbotInputValue("bossStartHp", "500");
+      const name = foxbotInputValue("bossStartName", "Cyber Fox Dragon");
+      await foxbotPass3Command("!endboss");
+      return foxbotPass3Command(`!startboss ${hp} ${name}`);
+    }
+
+    if (action === "start_quest") {
+      const type = foxbotInputValue("questType", "foxhunt");
+      const goal = foxbotInputValue("questGoal", "10");
+      const reward = foxbotInputValue("questReward", "100");
+      return foxbotPass3Command(`!startquest ${type} ${goal} ${reward}`);
+    }
+
+    if (action === "complete_quest") {
+      const goal = foxbotInputValue("questGoal", "10");
+      return foxbotPass3Command(`!questadd ${goal}`);
+    }
+
+    return foxbotPass3PreviousStudioAction(action);
+  } catch (error) {
+    if (typeof foxbotVisibleOutput === "function") {
+      foxbotVisibleOutput(`Studio action failed: ${action}`, String(error));
+    }
+  }
+};
+
+const foxbotPass3PreviousRewardAction = window.triggerRewardAction || async function(action) {
+  if (typeof foxbotVisibleOutput === "function") {
+    foxbotVisibleOutput("Reward Action", `No handler found for ${action}`);
+  }
+};
+
+window.triggerRewardAction = async function(action) {
+  try {
+    const name = foxbotInputValue("studioRewardName", "hydrate").replace(/^!/, "");
+    const cost = foxbotInputValue("studioRewardCost", "25");
+    const message = foxbotInputValue("studioRewardMessage", "@{username} redeemed hydrate. Drink water!");
+
+    if (action === "create_reward" || action === "edit_reward") {
+      return foxbotPass3Command(`!addreward ${name} ${cost} ${message}`);
+    }
+
+    if (action === "delete_reward") {
+      return foxbotPass3Command(`!delreward ${name}`);
+    }
+
+    if (action === "preview_reward") {
+      return foxbotPass3Command("!shop");
+    }
+
+    return foxbotPass3PreviousRewardAction(action);
+  } catch (error) {
+    if (typeof foxbotVisibleOutput === "function") {
+      foxbotVisibleOutput(`Reward action failed: ${action}`, String(error));
+    }
+  }
+};

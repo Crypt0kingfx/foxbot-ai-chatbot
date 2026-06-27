@@ -2087,3 +2087,22 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Functionality Pass 3.0 Forms */
+.studio-form-stack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 12px 0;
+  width: 100%;
+}
+
+.studio-form-stack .input {
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .economy-actions .studio-form-stack {
+    grid-column: 1 / -1;
+  }
+}

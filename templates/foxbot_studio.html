@@ -370,8 +370,8 @@
           <div class="card">
             <h2>Admin Actions</h2>
             <div class="economy-actions">
-              <input class="input" placeholder="Viewer username">
-              <input class="input" placeholder="Amount">
+              <input id="economyViewer" class="input" value="FoxFan" placeholder="Viewer username">
+              <input id="economyAmount" class="input" value="100" placeholder="Amount">
               <button class="action-btn" onclick="studioAction('give_points')">Give FoxCoins</button>
               <button class="action-btn" onclick="studioAction('take_points')">Take FoxCoins</button>
               <button class="action-btn" onclick="studioAction('reset_user')">Reset User</button>
@@ -519,6 +519,11 @@
             </label>
 
             <div class="reward-button-grid">
+                            <div class="studio-form-stack">
+                <input id="studioRewardName" class="input" value="hydrate" placeholder="Reward name">
+                <input id="studioRewardCost" class="input" value="25" placeholder="Cost">
+                <input id="studioRewardMessage" class="input" value="@{username} redeemed hydrate. Drink water!" placeholder="Reward message">
+              </div>
               <button onclick="triggerRewardAction('create_reward')">Create</button>
               <button onclick="triggerRewardAction('edit_reward')">Edit</button>
               <button onclick="triggerRewardAction('delete_reward')">Delete</button>
@@ -730,7 +735,10 @@
             </div>
 
             <div class="economy-actions">
-              <button class="action-btn" onclick="studioAction('start_boss')">Start Boss</button>
+                            <div class="studio-form-stack">
+                <input id="bossStartHp" class="input" value="500" placeholder="Boss HP">
+                <input id="bossStartName" class="input" value="Cyber Fox Dragon" placeholder="Boss name">
+              </div><button class="action-btn" onclick="studioAction('start_boss')">Start Boss</button>
               <button class="action-btn" onclick="studioAction('end_boss')">End Boss</button>
               <button class="action-btn" onclick="studioAction('reset_boss')">Reset HP</button>
               <button class="action-btn" onclick="studioAction('boss_overlay')">Preview Overlay</button>
@@ -814,7 +822,17 @@
             </div>
 
             <div class="economy-actions">
-              <button class="action-btn" onclick="studioAction('start_quest')">Start Quest</button>
+                            <div class="studio-form-stack">
+                <select id="questType" class="input">
+                  <option value="foxhunt">Fox Hunt</option>
+                  <option value="boss">Boss</option>
+                  <option value="redeem">Redeem</option>
+                  <option value="chat">Chat</option>
+                  <option value="arcade">Arcade</option>
+                </select>
+                <input id="questGoal" class="input" value="10" placeholder="Goal">
+                <input id="questReward" class="input" value="100" placeholder="Reward">
+              </div><button class="action-btn" onclick="studioAction('start_quest')">Start Quest</button>
               <button class="action-btn" onclick="studioAction('end_quest')">End Quest</button>
               <button class="action-btn" onclick="studioAction('complete_quest')">Complete Quest</button>
               <button class="action-btn" onclick="studioAction('reset_quest')">Reset Quest</button>
@@ -1770,6 +1788,7 @@
   <script src="/static/js/economy.js?v=1"></script>
 </body>
 </html>
+
 
 
 
