@@ -7807,6 +7807,15 @@ def handle_auto_chat_event(message_id: str, message_text: str, username: str = "
             "message": f"Automation disabled for {event.get('event_type')} events."
         }
 
+    if not foxbot_automation_allowed(event.get("event_type"), event.get("username")):
+        return {
+            "ok": True,
+            "duplicate": True,
+            "cooldown": True,
+            "event": event,
+            "message": "Automation cooldown ignored repeat event."
+        }
+
     dedupe_key = str(message_id or event.get("raw_message") or "").strip()
 
     if dedupe_key:
@@ -7949,5 +7958,70 @@ def automation_control_event_toggle(event_type: str, state: str):
         "ok": True,
         "message": f"{clean_event} automation {'enabled' if enabled else 'disabled'}.",
         "recognition": settings
+    }
+
+
+
+# ==============================
+# FoxBot v1 Final Hardening
+# Adds automation cooldowns, readiness status, and final health summary.
+# ==============================
+
+automation_recent_events = {}
+
+def foxbot_automation_cooldown_key(event_type: str, username: str):
+    return f"{str(event_type or '').lower()}:{normalize_viewer_name(username or 'viewer').lower()}"
+
+def foxbot_automation_allowed(event_type: str, username: str, cooldown_seconds: int = 20):
+    now = time.time()
+    key = foxbot_automation_cooldown_key(event_type, username)
+    last_seen = automation_recent_events.get(key, 0)
+
+    if now - float(last_seen or 0) < cooldown_seconds:
+        return False
+
+    automation_recent_events[key] = now
+
+    if len(automation_recent_events) > 500:
+        automation_recent_events.clear()
+
+    return True
+
+@app.get("/api/foxbot/v1/status")
+def foxbot_v1_status():
+    return {
+        "ok": True,
+        "version": "foxbot-v1",
+        "studio": {
+            "admin": True,
+            "automation_control_center": True,
+            "event_bridge_panel": True,
+            "action_feedback": True
+        },
+        "automation": {
+            "recognition_enabled": recognition_settings.get("enabled", True),
+            "surprise_bonus_enabled": recognition_settings.get("surprise_bonus_enabled", True),
+            "polling_running": polling_status.get("running", False),
+            "checks": polling_status.get("checks", 0),
+            "messages_seen": polling_status.get("messages_seen", 0),
+            "commands_processed": polling_status.get("commands_processed", 0),
+            "last_error": polling_status.get("last_error"),
+            "last_auto_event": polling_status.get("last_auto_event"),
+            "last_reply": polling_status.get("last_reply")
+        },
+        "features": {
+            "foxcoins": True,
+            "rewards": True,
+            "giveaways": True,
+            "boss_battle": True,
+            "community_quests": True,
+            "stream_events": True,
+            "streaks": True,
+            "recognition": True,
+            "blaze_event_bridge": True,
+            "auto_chat_parser": True,
+            "live_blaze_listener": True
+        },
+        "recent_recognition": recognition_log[:10]
     }
 
