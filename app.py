@@ -8025,3 +8025,46 @@ def foxbot_v1_status():
         "recent_recognition": recognition_log[:10]
     }
 
+
+
+
+# ==============================
+# Connected Creators v1
+# ==============================
+
+@app.get("/api/connected-creators")
+def api_connected_creators():
+    return {
+        "ok": True,
+        "count": len(connected_creators),
+        "current_connected": bool(bot_tokens.get("accessToken")),
+        "current_channel_id": os.getenv("BLAZE_CHANNEL_ID"),
+        "current_channel_slug": os.getenv("BLAZE_CHANNEL_SLUG"),
+        "creators": list(connected_creators.values())
+    }
+
+
+@app.get("/connected-creators")
+def connected_creators_page():
+    data = json.dumps(api_connected_creators(), indent=2)
+    return HTMLResponse(f"""
+<!DOCTYPE html>
+<html>
+<head>
+<title>FoxBot Connected Creators</title>
+<style>
+body {{ background:#050807; color:white; font-family:Arial; padding:30px; }}
+a {{ color:#111; background:#ff8a2a; padding:12px 16px; border-radius:10px; text-decoration:none; font-weight:bold; margin-right:10px; }}
+pre {{ background:#07100d; padding:18px; border-radius:14px; border:1px solid #333; overflow:auto; }}
+</style>
+</head>
+<body>
+<h1>FoxBot Connected Creators</h1>
+<p>Shows Blaze accounts that connected after this update.</p>
+<a href="/admin">Back to Admin</a>
+<a href="/login/blaze">Connect Blaze Account</a>
+<h2>Status</h2>
+<pre>{data}</pre>
+</body>
+</html>
+    """)
