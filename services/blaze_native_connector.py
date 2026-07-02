@@ -537,3 +537,238 @@ def stop_listener():
     STATE["connected"] = False
 
     return {"ok": True, "stopped": True, "state": STATE}
+
+# === FoxBot Safe Blaze Diagnostics Override v1 ===
+def _fb_json_http_diag(method, url, payload=None, headers=None, timeout=15):
+    import json
+    import urllib.error
+    import urllib.request
+
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers or {},
+        method=method
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            try:
+                body = json.loads(raw or "{}")
+            except Exception:
+                body = {"raw": raw}
+            return {"ok": True, "status": res.status, "body": body}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+
+        try:
+            body = json.loads(raw or "{}")
+        except Exception:
+            body = {"raw": raw}
+
+        return {
+            "ok": False,
+            "status": e.code,
+            "reason": e.reason,
+            "body": body
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _fb_blaze_headers_diag(token=None):
+    token = token or env("BLAZE_ACCESS_TOKEN", "")
+    return {
+        "authorization": f"Bearer {token}",
+        "client-id": env("BLAZE_CLIENT_ID", ""),
+        "content-type": "application/json",
+        "accept": "application/json",
+        "origin": "https://blaze.stream",
+        "user-agent": "FoxBotAI/1.0"
+    }
+
+
+def _fb_save_tokens_diag(tokens):
+    import json
+    from pathlib import Path
+    from datetime import datetime, timezone
+
+    if not isinstance(tokens, dict):
+        return {}
+
+    path = Path("data") / "blaze_oauth_tokens.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            existing = {}
+
+    existing.update(tokens)
+    existing["saved_at"] = datetime.now(timezone.utc).isoformat()
+    path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    return existing
+
+
+def _fb_refresh_token_diag():
+    payload = {
+        "clientId": env("BLAZE_CLIENT_ID", ""),
+        "clientSecret": env("BLAZE_CLIENT_SECRET", ""),
+        "refreshToken": env("BLAZE_REFRESH_TOKEN", "")
+    }
+
+    if not payload["clientId"] or not payload["clientSecret"] or not payload["refreshToken"]:
+        return {"ok": False, "error": "Missing client ID, client secret, or refresh token."}
+
+    res = _fb_json_http_diag(
+        "POST",
+        "https://blaze.stream/bapi/oauth2/refresh",
+        payload,
+        {
+            "content-type": "application/json",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    if res.get("ok"):
+        body = res.get("body") or {}
+        _fb_save_tokens_diag(body)
+        access = body.get("accessToken") or body.get("access_token") or env("BLAZE_ACCESS_TOKEN", "")
+        return {
+            "ok": True,
+            "has_access_token": bool(access),
+            "accessToken": access
+        }
+
+    return res
+
+
+def _fb_resolve_channel_diag():
+    import urllib.parse
+
+    slug = (
+        env("BLAZE_CHANNEL_SLUG", "")
+        or env("FOXBOT_BLAZE_PROFILE_HANDLE", "")
+        or ""
+    ).strip().lstrip("@")
+
+    if not slug:
+        return {"ok": False, "error": "No BLAZE_CHANNEL_SLUG or FOXBOT_BLAZE_PROFILE_HANDLE set."}
+
+    url = "https://api.blaze.stream/v1/channels?slug[]=" + urllib.parse.quote(slug) + "&type=all"
+    res = _fb_json_http_diag("GET", url, None, _fb_blaze_headers_diag())
+    res["slug"] = slug
+
+    try:
+        rows = (((res.get("body") or {}).get("data") or {}).get("rows") or [])
+        res["first_channel_id"] = rows[0].get("id") if rows else None
+        res["first_channel_user_id"] = rows[0].get("userId") if rows else None
+        res["row_count"] = len(rows)
+    except Exception as e:
+        res["parse_error"] = str(e)
+
+    return res
+
+
+def blaze_native_diagnostics_v1():
+    profile = _fb_json_http_diag(
+        "GET",
+        "https://api.blaze.stream/v1/users/profile",
+        None,
+        _fb_blaze_headers_diag()
+    )
+
+    return {
+        "ok": True,
+        "configured_channel_id": env("BLAZE_CHANNEL_ID", ""),
+        "configured_channel_slug": env("BLAZE_CHANNEL_SLUG", ""),
+        "bot_profile_handle": env("FOXBOT_BLAZE_PROFILE_HANDLE", ""),
+        "has_access_token": bool(env("BLAZE_ACCESS_TOKEN", "")),
+        "has_refresh_token": bool(env("BLAZE_REFRESH_TOKEN", "")),
+        "profile": profile,
+        "channel_by_slug": _fb_resolve_channel_diag(),
+        "state": STATE
+    }
+
+
+def subscribe_default_events():
+    session_id = STATE.get("session_id") or STATE.get("socket_sid")
+    channel_id = env("BLAZE_CHANNEL_ID", "").strip()
+
+    if not session_id:
+        return [{"ok": False, "error": "Missing session_id"}]
+
+    if not channel_id:
+        resolved = _fb_resolve_channel_diag()
+        channel_id = str(resolved.get("first_channel_id") or "").strip()
+        add_log(f"Resolved channel_id from slug: {channel_id}")
+
+    if not channel_id:
+        return [{"ok": False, "error": "Missing BLAZE_CHANNEL_ID and could not resolve channel."}]
+
+    refreshed = _fb_refresh_token_diag()
+    token = env("BLAZE_ACCESS_TOKEN", "")
+
+    if refreshed.get("ok") and refreshed.get("accessToken"):
+        token = refreshed.get("accessToken")
+        add_log("Refreshed token before subscribe.")
+    else:
+        add_log(f"Token refresh before subscribe failed or skipped: {refreshed}")
+
+    event_types = [
+        "channel.chat.message",
+        "channel.follow",
+        "channel.vote",
+        "channel.subscribe",
+        "channel.subscription.gift",
+        "channel.raid",
+        "stream.online",
+        "stream.offline"
+    ]
+
+    results = []
+
+    for event_type in event_types:
+        payload = {
+            "type": event_type,
+            "version": "1",
+            "sessionId": session_id,
+            "condition": {
+                "channelId": channel_id
+            }
+        }
+
+        res = _fb_json_http_diag(
+            "POST",
+            "https://api.blaze.stream/v1/events/subscriptions",
+            payload,
+            _fb_blaze_headers_diag(token)
+        )
+
+        results.append({
+            "type": event_type,
+            "ok": bool(res.get("ok")),
+            "status": res.get("status"),
+            "reason": res.get("reason"),
+            "body": res.get("body"),
+            "error": res.get("error"),
+            "channelId": channel_id,
+            "sessionId": session_id
+        })
+
+    return results
+# === End FoxBot Safe Blaze Diagnostics Override v1 ===
+

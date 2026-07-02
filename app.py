@@ -9632,3 +9632,17 @@ def foxbot_blaze_oauth_debug_v1():
     }
 # === End FoxBot Blaze OAuth Debug Routes v1 ===
 
+# === FoxBot Blaze Native Diagnostics Route v1 ===
+@app.get("/api/blaze/native/diagnostics")
+def foxbot_blaze_native_diagnostics_route_v1():
+    from services import blaze_native_connector as native
+
+    if hasattr(native, "blaze_native_diagnostics_v1"):
+        return native.blaze_native_diagnostics_v1()
+
+    return {
+        "ok": False,
+        "error": "blaze_native_diagnostics_v1 is not installed"
+    }
+# === End FoxBot Blaze Native Diagnostics Route v1 ===
+
