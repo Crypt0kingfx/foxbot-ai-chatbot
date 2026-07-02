@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import threading
 import time
@@ -902,4 +902,303 @@ def _foxbot_safe_live_reply_preview_v1(message):
         "auto_send_enabled": _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False),
     }
 # === End FoxBot Blaze Live Reply Safety v1 ===
+
+# === FoxBot Blaze Live Auto Reply v2 ===
+def _foxbot_live_http_json_v2(method, url, payload=None, headers=None, timeout=15):
+    import json
+    import urllib.error
+    import urllib.request
+
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers or {},
+        method=method
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            try:
+                body = json.loads(raw or "{}")
+            except Exception:
+                body = {"raw": raw}
+            return {"ok": True, "status": res.status, "body": body}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+
+        try:
+            body = json.loads(raw or "{}")
+        except Exception:
+            body = {"raw": raw}
+
+        return {
+            "ok": False,
+            "status": e.code,
+            "reason": e.reason,
+            "body": body
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _foxbot_live_app_token_v2():
+    client_id = env("BLAZE_CLIENT_ID", "").strip()
+    client_secret = env("BLAZE_CLIENT_SECRET", "").strip()
+
+    if not client_id or not client_secret:
+        return {"ok": False, "error": "Missing BLAZE_CLIENT_ID or BLAZE_CLIENT_SECRET"}
+
+    res = _foxbot_live_http_json_v2(
+        "POST",
+        "https://blaze.stream/bapi/oauth2/token",
+        {
+            "clientId": client_id,
+            "clientSecret": client_secret,
+            "grantType": "client_credentials"
+        },
+        {
+            "content-type": "application/json",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    body = res.get("body") or {}
+    token = body.get("accessToken") or body.get("access_token") or ""
+
+    return {
+        "ok": bool(res.get("ok") and token),
+        "access_token": token,
+        "status": res.get("status"),
+        "reason": res.get("reason"),
+        "body": {"has_accessToken": bool(token), "success": body.get("success")}
+    }
+
+
+def _foxbot_live_profile_user_id_v2():
+    user_id = (env("BLAZE_BOT_USER_ID", "") or env("FOXBOT_BLAZE_USER_ID", "")).strip()
+    if user_id:
+        return {"ok": True, "user_id": user_id, "source": "env"}
+
+    token = env("BLAZE_ACCESS_TOKEN", "").strip()
+    client_id = env("BLAZE_CLIENT_ID", "").strip()
+
+    if not token or not client_id:
+        return {"ok": False, "error": "Missing BLAZE_ACCESS_TOKEN or BLAZE_CLIENT_ID"}
+
+    res = _foxbot_live_http_json_v2(
+        "GET",
+        "https://api.blaze.stream/v1/users/profile",
+        None,
+        {
+            "authorization": f"Bearer {token}",
+            "client-id": client_id,
+            "accept": "application/json",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    try:
+        user_id = ((res.get("body") or {}).get("data") or {}).get("userId") or ""
+    except Exception:
+        user_id = ""
+
+    return {
+        "ok": bool(res.get("ok") and user_id),
+        "user_id": user_id,
+        "source": "profile",
+        "status": res.get("status"),
+        "body": res.get("body")
+    }
+
+
+def _foxbot_live_send_chat_v2(message):
+    channel_id = env("BLAZE_CHANNEL_ID", "").strip()
+    client_id = env("BLAZE_CLIENT_ID", "").strip()
+
+    if not channel_id:
+        return {"ok": False, "sent": False, "error": "Missing BLAZE_CHANNEL_ID"}
+
+    if not client_id:
+        return {"ok": False, "sent": False, "error": "Missing BLAZE_CLIENT_ID"}
+
+    message = str(message or "").strip()
+    if not message:
+        return {"ok": False, "sent": False, "error": "Empty message"}
+
+    if len(message) > 450:
+        message = message[:447] + "..."
+
+    app = _foxbot_live_app_token_v2()
+    profile = _foxbot_live_profile_user_id_v2()
+
+    if not app.get("ok") or not profile.get("ok"):
+        return {
+            "ok": False,
+            "sent": False,
+            "error": "Could not get app token or bot profile user id",
+            "app": app,
+            "profile": profile
+        }
+
+    res = _foxbot_live_http_json_v2(
+        "POST",
+        "https://api.blaze.stream/v1/chats/messages",
+        {
+            "channelId": channel_id,
+            "message": message,
+            "senderId": profile.get("user_id")
+        },
+        {
+            "authorization": f"Bearer {app.get('access_token')}",
+            "client-id": client_id,
+            "content-type": "application/json",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    return {
+        "ok": bool(res.get("ok")),
+        "sent": bool(res.get("ok")),
+        "status": res.get("status"),
+        "reason": res.get("reason"),
+        "body": res.get("body"),
+        "mode": "app_token_sender_id"
+    }
+
+
+def _foxbot_live_command_reply_v2(chat):
+    username = str((chat or {}).get("username") or "viewer").strip().lstrip("@")
+    message = str((chat or {}).get("message") or "").strip()
+    command = message.split()[0].lower() if message else ""
+
+    # Try the real FoxBot Connect command engine first.
+    try:
+        import sys
+        app_mod = sys.modules.get("app")
+
+        fn = getattr(app_mod, "_foxbot_connect_process_command_v1", None) if app_mod else None
+
+        if fn:
+            attempts = [
+                (message, username),
+                (username, message),
+                (message, username, "blaze"),
+                (username, message, "blaze")
+            ]
+
+            for args in attempts:
+                try:
+                    result = fn(*args)
+
+                    if isinstance(result, dict):
+                        reply = (
+                            result.get("reply")
+                            or result.get("message")
+                            or result.get("response")
+                            or ""
+                        )
+                        if reply:
+                            return str(reply)
+
+                    if isinstance(result, str) and result.strip():
+                        return result.strip()
+
+                except TypeError:
+                    continue
+                except Exception as e:
+                    add_log(f"command engine attempt failed: {e}")
+
+    except Exception as e:
+        add_log(f"command engine import failed: {e}")
+
+    # Safe fallback replies.
+    if command == "!connect":
+        return f"🦊 @{username} you are connected to FoxBot! Try !profile or !rank next."
+
+    if command == "!profile":
+        return f"🦊 @{username} FoxBot profile is active. More profile stats are coming soon."
+
+    if command == "!rank":
+        return f"🏆 @{username} FoxBot rank tracking is live. Keep showing up in chat!"
+
+    if command == "!disconnect":
+        return f"🦊 @{username} FoxBot disconnect request received."
+
+    if command == "!help":
+        return "🦊 FoxBot commands: !connect, !profile, !rank, !disconnect, !help"
+
+    return ""
+
+
+def _foxbot_maybe_live_reply_v2(message):
+    try:
+        chat = _foxbot_extract_chat_v1(message) if "_foxbot_extract_chat_v1" in globals() else None
+
+        if not chat:
+            return {"ok": False, "reason": "not chat"}
+
+        ignore, reason = _foxbot_should_ignore_chat_v1(chat)
+
+        preview = {
+            "ok": not ignore,
+            "reason": reason,
+            "username": chat.get("username"),
+            "message": chat.get("message"),
+            "auto_send_enabled": _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False)
+        }
+
+        STATE["last_reply_preview"] = preview
+
+        if ignore:
+            add_log(f"live reply skipped: {reason}")
+            return preview
+
+        reply = _foxbot_live_command_reply_v2(chat)
+        preview["reply"] = reply
+
+        if not reply:
+            preview["ok"] = False
+            preview["reason"] = "no reply generated"
+            add_log("live reply skipped: no reply generated")
+            return preview
+
+        if not _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False):
+            preview["sent"] = False
+            preview["reason"] = "auto-send disabled dry run"
+            add_log(f"live reply dry run: {reply}")
+            return preview
+
+        send_result = _foxbot_live_send_chat_v2(reply)
+        preview["send_result"] = send_result
+        preview["sent"] = bool(send_result.get("sent"))
+
+        STATE["last_reply_attempt"] = preview
+
+        if send_result.get("sent"):
+            STATE["replies_sent"] = int(STATE.get("replies_sent") or 0) + 1
+            add_log(f"live reply sent: {reply}")
+        else:
+            STATE["last_error"] = f"live reply send failed: {send_result}"
+            add_log(STATE["last_error"])
+
+        return preview
+
+    except Exception as e:
+        STATE["last_error"] = f"live reply handler failed: {e}"
+        add_log(STATE["last_error"])
+        return {"ok": False, "error": str(e)}
+# === End FoxBot Blaze Live Auto Reply v2 ===
 

@@ -20065,3 +20065,36 @@ def foxbot_blaze_native_send_app_test_v1(message: str = "FoxBot app-token send t
     return _foxbot_blaze_send_app_token_v1(message)
 # === End FoxBot Blaze App Token Send Test v1 ===
 
+# === FoxBot Blaze Live Reply Test Route v2 ===
+@app.get("/api/blaze/native/live-reply-test")
+def foxbot_blaze_native_live_reply_test_v2(
+    username: str = "crypt0k1ng96",
+    message: str = "!connect"
+):
+    from services import blaze_native_connector as native
+
+    fake_event = {
+        "metadata": {
+            "messageType": "notification",
+            "subscriptionType": "channel.chat.message"
+        },
+        "payload": {
+            "channelId": "test",
+            "sender": {
+                "username": username,
+                "displayName": username
+            },
+            "messageId": "live-reply-test",
+            "message": message
+        }
+    }
+
+    if hasattr(native, "_foxbot_maybe_live_reply_v2"):
+        return native._foxbot_maybe_live_reply_v2(fake_event)
+
+    return {
+        "ok": False,
+        "error": "live reply helper not installed"
+    }
+# === End FoxBot Blaze Live Reply Test Route v2 ===
+
