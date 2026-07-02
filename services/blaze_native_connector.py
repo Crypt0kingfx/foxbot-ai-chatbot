@@ -817,6 +817,14 @@ _LIVE_REPLY_LAST_SEEN = {}
 _LIVE_REPLY_LAST_SENT = {}
 
 def _foxbot_bool_env_v1(name, default=False):
+    if str(name or "").strip() == "FOXBOT_BLAZE_AUTO_SEND":
+        try:
+            override = LIVE_CONTROL_OVERRIDE.get("auto_send") if "LIVE_CONTROL_OVERRIDE" in globals() else None
+            if override is not None:
+                return bool(override)
+        except Exception:
+            pass
+
     value = str(env(name, "")).strip().lower()
     if not value:
         return default
@@ -1611,4 +1619,57 @@ def _foxbot_maybe_role_shoutout_v1(message):
         add_log(STATE["last_error"])
         return {"ok": False, "error": str(e)}
 # === End FoxBot Blaze Role Shoutouts v1 ===
+
+# === FoxBot Live Control Override v1 ===
+LIVE_CONTROL_OVERRIDE = {
+    "auto_send": None,
+    "reason": "env default",
+    "updated_at": None,
+}
+
+def foxbot_live_control_set_v1(auto_send=None, reason="manual"):
+    import time
+
+    if auto_send is None:
+        LIVE_CONTROL_OVERRIDE["auto_send"] = None
+        LIVE_CONTROL_OVERRIDE["reason"] = "env default"
+    else:
+        LIVE_CONTROL_OVERRIDE["auto_send"] = bool(auto_send)
+        LIVE_CONTROL_OVERRIDE["reason"] = str(reason or "manual")
+
+    LIVE_CONTROL_OVERRIDE["updated_at"] = time.time()
+    add_log(f"live control override updated: {LIVE_CONTROL_OVERRIDE}")
+
+    return foxbot_live_control_status_v1()
+
+
+def foxbot_live_control_status_v1():
+    env_value = env("FOXBOT_BLAZE_AUTO_SEND", "")
+    override = LIVE_CONTROL_OVERRIDE.get("auto_send")
+
+    if override is None:
+        effective = _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False) if "_foxbot_bool_env_v1" in globals() else False
+        source = "env"
+    else:
+        effective = bool(override)
+        source = "runtime_override"
+
+    return {
+        "ok": True,
+        "auto_send_effective": effective,
+        "source": source,
+        "env_value": env_value,
+        "override": LIVE_CONTROL_OVERRIDE,
+        "running": STATE.get("running"),
+        "connected": STATE.get("connected"),
+        "session_id": STATE.get("session_id"),
+        "events_received": STATE.get("events_received"),
+        "chat_messages_received": STATE.get("chat_messages_received"),
+        "replies_sent": STATE.get("replies_sent"),
+        "last_error": STATE.get("last_error"),
+        "last_reply_attempt": STATE.get("last_reply_attempt"),
+        "last_event_reply_attempt": STATE.get("last_event_reply_attempt"),
+        "last_role_shoutout_attempt": STATE.get("last_role_shoutout_attempt"),
+    }
+# === End FoxBot Live Control Override v1 ===
 

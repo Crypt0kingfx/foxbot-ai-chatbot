@@ -20180,3 +20180,203 @@ def foxbot_blaze_native_event_thanks_test_v1(
     }
 # === End FoxBot Blaze Event Thanks Test Route v1 ===
 
+# === FoxBot Live Control Routes v1 ===
+@app.get("/api/blaze/native/live-control")
+def foxbot_live_control_api_status_v1():
+    from services import blaze_native_connector as native
+
+    if hasattr(native, "foxbot_live_control_status_v1"):
+        return native.foxbot_live_control_status_v1()
+
+    return {"ok": False, "error": "live control status helper missing"}
+
+
+@app.post("/api/blaze/native/live-control/on")
+def foxbot_live_control_api_on_v1():
+    from services import blaze_native_connector as native
+
+    if hasattr(native, "foxbot_live_control_set_v1"):
+        return native.foxbot_live_control_set_v1(True, "api on")
+
+    return {"ok": False, "error": "live control setter missing"}
+
+
+@app.post("/api/blaze/native/live-control/off")
+def foxbot_live_control_api_off_v1():
+    from services import blaze_native_connector as native
+
+    if hasattr(native, "foxbot_live_control_set_v1"):
+        return native.foxbot_live_control_set_v1(False, "api emergency off")
+
+    return {"ok": False, "error": "live control setter missing"}
+
+
+@app.post("/api/blaze/native/live-control/env")
+def foxbot_live_control_api_env_v1():
+    from services import blaze_native_connector as native
+
+    if hasattr(native, "foxbot_live_control_set_v1"):
+        return native.foxbot_live_control_set_v1(None, "api env default")
+
+    return {"ok": False, "error": "live control setter missing"}
+
+
+@app.get("/foxbot-live-control")
+def foxbot_live_control_page_v1():
+    return """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FoxBot Live Control</title>
+  <style>
+    body {
+      margin: 0;
+      background: #070b08;
+      color: #f5f5f5;
+      font-family: Arial, sans-serif;
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    .hero {
+      border: 1px solid rgba(255,122,24,.35);
+      background:
+        radial-gradient(circle at top right, rgba(255,122,24,.22), transparent 32%),
+        radial-gradient(circle at bottom left, rgba(57,255,136,.12), transparent 32%),
+        #0b100c;
+      border-radius: 22px;
+      padding: 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+    }
+    .sub {
+      color: #b8c8bc;
+      margin-bottom: 22px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .card {
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.045);
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .label {
+      color: #9fb0a3;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .value {
+      font-size: 24px;
+      font-weight: 800;
+      margin-top: 8px;
+    }
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 22px 0;
+    }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 18px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .on { background: #39ff88; color: #041006; }
+    .off { background: #ff3b3b; color: white; }
+    .env { background: #ffae42; color: #140b00; }
+    .refresh { background: #ffffff; color: #050505; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #020402;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 16px;
+      padding: 16px;
+      color: #c7ffd9;
+      max-height: 460px;
+      overflow: auto;
+    }
+    .good { color: #39ff88; }
+    .bad { color: #ff5b5b; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>🦊 FoxBot Live Control</h1>
+      <div class="sub">Emergency controls for Blaze auto-replies.</div>
+
+      <div class="buttons">
+        <button class="on" onclick="post('/api/blaze/native/live-control/on')">Turn Live Replies ON</button>
+        <button class="off" onclick="post('/api/blaze/native/live-control/off')">EMERGENCY OFF</button>
+        <button class="env" onclick="post('/api/blaze/native/live-control/env')">Use Render Env Default</button>
+        <button class="refresh" onclick="loadStatus()">Refresh Status</button>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="label">Auto Send</div>
+          <div class="value" id="auto">Loading...</div>
+        </div>
+        <div class="card">
+          <div class="label">Listener</div>
+          <div class="value" id="listener">Loading...</div>
+        </div>
+        <div class="card">
+          <div class="label">Replies Sent</div>
+          <div class="value" id="replies">Loading...</div>
+        </div>
+      </div>
+
+      <h2>Full Status</h2>
+      <pre id="status">Loading...</pre>
+    </div>
+  </div>
+
+<script>
+async function loadStatus() {
+  const res = await fetch('/api/blaze/native/live-control');
+  const data = await res.json();
+
+  document.getElementById('auto').innerHTML = data.auto_send_effective
+    ? '<span class="good">ON</span>'
+    : '<span class="bad">OFF</span>';
+
+  document.getElementById('listener').innerHTML = data.running && data.connected
+    ? '<span class="good">CONNECTED</span>'
+    : '<span class="bad">CHECK</span>';
+
+  document.getElementById('replies').textContent = data.replies_sent ?? 0;
+  document.getElementById('status').textContent = JSON.stringify(data, null, 2);
+}
+
+async function post(url) {
+  const res = await fetch(url, { method: 'POST' });
+  const data = await res.json();
+  document.getElementById('status').textContent = JSON.stringify(data, null, 2);
+  await loadStatus();
+}
+
+loadStatus();
+setInterval(loadStatus, 10000);
+</script>
+</body>
+</html>
+"""
+# === End FoxBot Live Control Routes v1 ===
+
