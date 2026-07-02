@@ -495,6 +495,13 @@ def start_listener(event_handler=None):
 
         if parsed.get("kind") == "chat":
             STATE["chat_messages_received"] += 1
+            try:
+                reply_result = _foxbot_maybe_live_reply_v2(message)
+                STATE["last_reply_attempt"] = reply_result
+                add_log(f"live reply hook result: {reply_result}")
+            except Exception as e:
+                STATE["last_error"] = f"live reply hook failed: {e}"
+                add_log(STATE["last_error"])
 
         if _event_handler:
             try:
