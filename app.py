@@ -8959,3 +8959,232 @@ def foxbot_connect_test_panel_v1():
     return HTMLResponse(html)
 # === End FoxBot Connect Test Panel v1 ===
 
+# === FoxBot Native Blaze Compatibility Routes v1 ===
+# Compatibility layer inspired by BLAZEIAN-style Blaze eventsub/chat flow.
+@app.get("/api/blaze/native/status")
+def foxbot_blaze_native_status_v1():
+    from services.blaze_native_connector import config_status
+    return config_status()
+
+
+@app.post("/api/blaze/native/start")
+def foxbot_blaze_native_start_v1():
+    from services.blaze_native_connector import start_listener
+
+    def handle_native_event(message):
+        try:
+            foxbot_blaze_native_event_ingest_sync_v1(message)
+        except Exception:
+            pass
+
+    return start_listener(handle_native_event)
+
+
+@app.post("/api/blaze/native/stop")
+def foxbot_blaze_native_stop_v1():
+    from services.blaze_native_connector import stop_listener
+    return stop_listener()
+
+
+@app.post("/api/blaze/native/send")
+async def foxbot_blaze_native_send_v1(payload: dict):
+    from services.blaze_native_connector import send_blaze_chat
+
+    channel_id = payload.get("channel_id") or payload.get("channelId") or payload.get("channel") or ""
+    message = payload.get("message") or payload.get("text") or ""
+
+    return send_blaze_chat(channel_id, message)
+
+
+def foxbot_blaze_native_event_ingest_sync_v1(payload: dict):
+    from services.blaze_native_connector import parse_blaze_event, send_blaze_chat
+    import os
+
+    parsed = parse_blaze_event(payload)
+    reply = ""
+    chat_result = None
+    send_result = None
+
+    if parsed.get("kind") == "chat":
+        username = parsed.get("username") or "viewer"
+        message = parsed.get("message") or ""
+
+        if message:
+            chat_result = chat(message=message, username=username)
+
+            if isinstance(chat_result, dict):
+                reply = chat_result.get("response") or chat_result.get("reply") or ""
+
+            auto_send = os.getenv("FOXBOT_BLAZE_AUTO_SEND", "false").lower() == "true"
+
+            if reply and auto_send:
+                send_result = send_blaze_chat(parsed.get("channel_id"), reply)
+
+    elif parsed.get("kind") == "follow":
+        username = parsed.get("username") or ""
+        if username:
+            try:
+                _foxbot_connect_mark_follow_v1(username, "verified_public_follow")
+                reply = f"🦊 @{username} followed FoxBot! Type !connect to activate your FoxBot profile."
+            except Exception:
+                reply = ""
+
+    return {
+        "ok": True,
+        "parsed": parsed,
+        "reply": reply,
+        "chat_result": chat_result,
+        "send_result": send_result,
+    }
+
+
+@app.post("/api/blaze/native/event")
+async def foxbot_blaze_native_event_ingest_v1(payload: dict):
+    return foxbot_blaze_native_event_ingest_sync_v1(payload)
+
+
+@app.get("/api/foxbot-connect/instructions")
+def foxbot_connect_public_instructions_v1():
+    import os
+    handle = os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "@FoxBotStudio").strip()
+    if handle and not handle.startswith("@"):
+        handle = "@" + handle
+
+    return {
+        "ok": True,
+        "bot_profile_handle": handle or "@FoxBotStudio",
+        "steps": [
+            f"Follow {handle or '@FoxBotStudio'} on Blaze.",
+            "Join a supported creator chat.",
+            "Type !connect.",
+            "Use !profile or !rank to check FoxCoins and status.",
+        ],
+        "safety": "FoxBot will never ask for Blaze passwords, private keys, wallet seed phrases, or login codes.",
+        "test_panel": "/foxbot-connect-test",
+        "connected_creators": "/connected-creators",
+    }
+
+
+def _foxbot_connect_mark_follow_v1(handle, follow_status="verified_public_follow"):
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    clean = str(handle or "").replace("@", "").strip()
+    if not clean:
+        return None
+
+    path = Path("data") / "connected_creators.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8") or "{}") if path.exists() else {}
+    except Exception:
+        raw = {}
+
+    key = clean
+    for existing in list(raw.keys()):
+        if str(existing).lower() == clean.lower():
+            key = existing
+            break
+
+    creator = raw.get(key) if isinstance(raw.get(key), dict) else {}
+    creator.setdefault("handle", clean)
+    creator["follow_status"] = follow_status
+    creator["follow_verified_at"] = datetime.now(timezone.utc).isoformat()
+    creator.setdefault("status", "connected")
+    creator.setdefault("commands", ["!connect", "!profile", "!rank", "!socials"])
+    creator.setdefault("badges", ["FoxBot Connected"])
+    if "FoxBot Follower" not in creator["badges"]:
+        creator["badges"].append("FoxBot Follower")
+
+    raw[key] = creator
+    path.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return creator
+
+
+@app.post("/api/foxbot-connect/verify-follow")
+async def foxbot_connect_verify_follow_v1(payload: dict):
+    handle = payload.get("handle") or payload.get("username") or payload.get("user") or ""
+    follow_status = payload.get("follow_status") or "verified_manual"
+
+    creator = _foxbot_connect_mark_follow_v1(handle, follow_status)
+
+    if not creator:
+        return {
+            "ok": False,
+            "error": "Missing handle"
+        }
+
+    return {
+        "ok": True,
+        "creator": creator
+    }
+
+
+@app.get("/foxbot-connect-start")
+def foxbot_connect_start_page_v1():
+    import os
+    from fastapi.responses import HTMLResponse
+
+    handle = os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "@FoxBotStudio").strip()
+    if handle and not handle.startswith("@"):
+        handle = "@" + handle
+
+    html = f"""
+    <!doctype html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Start Using FoxBot Connect</title>
+        <style>
+            body {{
+                margin: 0;
+                min-height: 100vh;
+                font-family: Arial, sans-serif;
+                background:
+                    radial-gradient(circle at top left, rgba(255,122,24,.25), transparent 35%),
+                    radial-gradient(circle at bottom right, rgba(57,255,136,.12), transparent 35%),
+                    #050807;
+                color: white;
+                padding: 32px;
+            }}
+            .wrap {{ max-width: 980px; margin: 0 auto; }}
+            .card {{
+                border: 1px solid rgba(255,255,255,.14);
+                background: rgba(255,255,255,.055);
+                border-radius: 24px;
+                padding: 28px;
+                margin-bottom: 18px;
+            }}
+            h1 {{ margin: 0 0 12px; font-size: 42px; }}
+            .handle {{ color: #ff9b3d; font-size: 34px; font-weight: 900; }}
+            li {{ margin: 12px 0; font-size: 19px; }}
+            .safe {{ color: #39ff88; font-weight: 800; }}
+            a {{ color: #39ff88; }}
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <div class="card">
+                <h1>🦊 Start Using FoxBot Connect</h1>
+                <p class="handle">{handle}</p>
+                <ol>
+                    <li>Follow the FoxBot Blaze profile: <b>{handle}</b></li>
+                    <li>Join a supported creator's Blaze chat.</li>
+                    <li>Type <b>!connect</b>.</li>
+                    <li>Use <b>!profile</b> or <b>!rank</b> to check your FoxCoins and status.</li>
+                </ol>
+                <p class="safe">FoxBot will never ask for passwords, private keys, seed phrases, or login codes.</p>
+                <p><a href="/connected-creators">View Connected Creators</a> · <a href="/foxbot-connect-test">Test Panel</a></p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(html)
+# === End FoxBot Native Blaze Compatibility Routes v1 ===
+
