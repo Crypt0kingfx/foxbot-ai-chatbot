@@ -500,6 +500,11 @@ def start_listener(event_handler=None):
 
         if parsed.get("kind") == "chat":
             STATE["chat_messages_received"] += 1
+            if "_foxbot_maybe_role_shoutout_v1" in globals():
+                role_result = _foxbot_maybe_role_shoutout_v1(message)
+                if role_result.get("ok") or role_result.get("sent"):
+                    STATE["last_role_shoutout_attempt"] = role_result
+                    add_log(f"role shoutout hook result: {role_result}")
             try:
                 reply_result = _foxbot_maybe_live_reply_v2(message)
                 STATE["last_reply_attempt"] = reply_result
@@ -1487,4 +1492,123 @@ def _foxbot_maybe_event_thank_you_v1(message):
         add_log(STATE["last_error"])
         return {"ok": False, "error": str(e)}
 # === End FoxBot Blaze Event Thank Yous v1 ===
+
+# === FoxBot Blaze Role Shoutouts v1 ===
+_ROLE_SHOUTOUT_COOLDOWNS = {}
+
+def _foxbot_chat_roles_v1(chat):
+    sender = (chat or {}).get("sender") or {}
+    roles = sender.get("roles") or []
+
+    normalized = set()
+    for role in roles:
+        role = str(role or "").strip().lower()
+        if role:
+            normalized.add(role)
+
+    if sender.get("isSubscriber") is True:
+        normalized.add("subscriber")
+
+    if sender.get("isOwner") is True:
+        normalized.add("owner")
+
+    if sender.get("isFollower") is True:
+        normalized.add("follower")
+
+    return normalized
+
+
+def _foxbot_role_shoutout_reply_v1(chat):
+    username = str((chat or {}).get("username") or "viewer").strip().lstrip("@")
+    roles = _foxbot_chat_roles_v1(chat)
+
+    if "owner" in roles:
+        return f"👑 The channel owner @{username} is in the Fox Den!"
+
+    if "moderator" in roles or "mod" in roles:
+        return f"🛡️ Mod check! @{username} is helping keep the Fox Den locked in."
+
+    if "og" in roles:
+        return f"🔥 OG spotted! @{username} has been with the Fox Den from the jump."
+
+    if "vip" in roles:
+        return f"⭐ VIP in chat! Much love to @{username}."
+
+    if "subscriber" in roles or "sub" in roles:
+        return f"🚀 Subscriber spotted! Thanks for powering up the stream, @{username}."
+
+    return ""
+
+
+def _foxbot_maybe_role_shoutout_v1(message):
+    import time
+
+    try:
+        chat = _foxbot_extract_chat_v1(message) if "_foxbot_extract_chat_v1" in globals() else None
+
+        if not chat:
+            return {"ok": False, "reason": "not chat"}
+
+        username = str(chat.get("username") or "").strip().lower().lstrip("@")
+        bot_handle = str(env("FOXBOT_BLAZE_PROFILE_HANDLE", "@foxbotai")).strip().lower().lstrip("@")
+        body = str(chat.get("message") or "").strip()
+
+        if not body:
+            return {"ok": False, "reason": "empty message"}
+
+        if username == bot_handle:
+            return {"ok": False, "reason": "ignored bot self-message"}
+
+        # Commands already get command replies. Do not double-send role shoutouts on commands.
+        if body.startswith(("!", "/")):
+            return {"ok": False, "reason": "skipped command message"}
+
+        reply = _foxbot_role_shoutout_reply_v1(chat)
+        if not reply:
+            return {"ok": False, "reason": "no shoutout role"}
+
+        now = time.time()
+        cooldown_seconds = float(env("FOXBOT_ROLE_SHOUTOUT_COOLDOWN_SECONDS", "1800") or "1800")
+        cooldown_key = username
+
+        last = _ROLE_SHOUTOUT_COOLDOWNS.get(cooldown_key, 0)
+        if now - last < cooldown_seconds:
+            return {"ok": False, "reason": f"role shoutout cooldown active for {username}"}
+
+        result = {
+            "ok": True,
+            "username": username,
+            "reply": reply,
+            "auto_send_enabled": _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False),
+        }
+
+        STATE["last_role_shoutout_preview"] = result
+
+        if not _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False):
+            result["sent"] = False
+            result["reason"] = "auto-send disabled dry run"
+            add_log(f"role shoutout dry run: {reply}")
+            return result
+
+        send_result = _foxbot_live_send_chat_v2(reply)
+        result["send_result"] = send_result
+        result["sent"] = bool(send_result.get("sent"))
+
+        STATE["last_role_shoutout_attempt"] = result
+
+        if send_result.get("sent"):
+            _ROLE_SHOUTOUT_COOLDOWNS[cooldown_key] = now
+            STATE["replies_sent"] = int(STATE.get("replies_sent") or 0) + 1
+            add_log(f"role shoutout sent: {username}")
+        else:
+            STATE["last_error"] = f"role shoutout send failed: {send_result}"
+            add_log(STATE["last_error"])
+
+        return result
+
+    except Exception as e:
+        STATE["last_error"] = f"role shoutout failed: {e}"
+        add_log(STATE["last_error"])
+        return {"ok": False, "error": str(e)}
+# === End FoxBot Blaze Role Shoutouts v1 ===
 
