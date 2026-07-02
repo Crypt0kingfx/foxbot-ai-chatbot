@@ -9194,19 +9194,36 @@ _FOXBOT_BLAZE_OAUTH_PENDING = {}
 
 def _foxbot_blaze_oauth_post_json_v1(url, payload, timeout=15):
     import json
+    import urllib.error
     import urllib.request
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"content-type": "application/json"},
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0"
+        },
         method="POST"
     )
 
-    with urllib.request.urlopen(req, timeout=timeout) as res:
-        raw = res.read().decode("utf-8", errors="replace")
-        return json.loads(raw or "{}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            return json.loads(raw or "{}")
+    except urllib.error.HTTPError as e:
+        details = ""
+        try:
+            details = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            details = ""
+
+        raise RuntimeError(
+            f"Blaze OAuth HTTP {e.code} {e.reason}. Response body: {details}"
+        )
 
 
 def _foxbot_blaze_oauth_mask_v1(value):
