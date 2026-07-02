@@ -9304,11 +9304,11 @@ def foxbot_blaze_oauth_login_v1():
             status_code=500
         )
 
-    _FOXBOT_BLAZE_OAUTH_PENDING[state] = {
+    _foxbot_oauth_set_pending_v2(state, {
         "codeVerifier": code_verifier,
         "redirectUri": redirect_uri,
         "created_at": time.time()
-    }
+    })
 
     return RedirectResponse(url)
 
@@ -9322,7 +9322,7 @@ def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
     if not code:
         return HTMLResponse("<h1>FoxBot Blaze OAuth Error</h1><p>No code received.</p>", status_code=400)
 
-    pending = _FOXBOT_BLAZE_OAUTH_PENDING.get(state)
+    pending = _foxbot_oauth_get_pending_v2(state)
 
     if not pending:
         return HTMLResponse(
@@ -9356,7 +9356,7 @@ def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
             status_code=500
         )
 
-    _FOXBOT_BLAZE_OAUTH_PENDING.pop(state, None)
+    _foxbot_oauth_pop_pending_v2(state)
     saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
 
     access_token = saved.get("accessToken") or saved.get("access_token") or ""
@@ -9645,4 +9645,106 @@ def foxbot_blaze_native_diagnostics_route_v1():
         "error": "blaze_native_diagnostics_v1 is not installed"
     }
 # === End FoxBot Blaze Native Diagnostics Route v1 ===
+
+# === FoxBot OAuth Clean State v2 ===
+def _foxbot_oauth_pending_file_v2():
+    from pathlib import Path
+    path = Path("data") / "blaze_oauth_pending.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _foxbot_oauth_read_pending_v2():
+    import json
+    path = _foxbot_oauth_pending_file_v2()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8") or "{}")
+    except Exception:
+        return {}
+
+
+def _foxbot_oauth_write_pending_v2(data):
+    import json
+    path = _foxbot_oauth_pending_file_v2()
+    path.write_text(json.dumps(data or {}, indent=2), encoding="utf-8")
+
+
+def _foxbot_oauth_prune_pending_v2(data):
+    import time
+    now = time.time()
+    clean = {}
+    for key, value in (data or {}).items():
+        try:
+            age = now - float(value.get("created_at", 0))
+            if age <= 900:
+                clean[key] = value
+        except Exception:
+            pass
+    return clean
+
+
+def _foxbot_oauth_set_pending_v2(state, payload):
+    data = _foxbot_oauth_prune_pending_v2(_foxbot_oauth_read_pending_v2())
+    data[state] = payload
+    _foxbot_oauth_write_pending_v2(data)
+    try:
+        _FOXBOT_BLAZE_OAUTH_PENDING[state] = payload
+    except Exception:
+        pass
+
+
+def _foxbot_oauth_get_pending_v2(state):
+    if not state:
+        return None
+
+    try:
+        found = _FOXBOT_BLAZE_OAUTH_PENDING.get(state)
+        if found:
+            return found
+    except Exception:
+        pass
+
+    return _foxbot_oauth_read_pending_v2().get(state)
+
+
+def _foxbot_oauth_pop_pending_v2(state):
+    try:
+        _foxbot_oauth_pop_pending_v2(state)
+    except Exception:
+        pass
+
+    data = _foxbot_oauth_read_pending_v2()
+    if state in data:
+        data.pop(state, None)
+        _foxbot_oauth_write_pending_v2(data)
+
+
+@app.post("/api/blaze/oauth/reset")
+def foxbot_blaze_oauth_reset_v2():
+    try:
+        _FOXBOT_BLAZE_OAUTH_PENDING.clear()
+    except Exception:
+        pass
+
+    _foxbot_oauth_write_pending_v2({})
+
+    return {
+        "ok": True,
+        "message": "OAuth pending login state cleared. Open /auth/blaze/login-clean next."
+    }
+
+
+@app.get("/auth/blaze/login-clean")
+def foxbot_blaze_oauth_login_clean_v2():
+    try:
+        _FOXBOT_BLAZE_OAUTH_PENDING.clear()
+    except Exception:
+        pass
+
+    _foxbot_oauth_write_pending_v2({})
+
+    return foxbot_blaze_oauth_login_v1()
+# === End FoxBot OAuth Clean State v2 ===
 
