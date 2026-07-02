@@ -415,9 +415,22 @@ def start_listener(event_handler=None):
                     add_log("socket sid fallback skipped: socket not connected")
                     return
 
-                if STATE.get("session_id"):
-                    add_log("socket sid fallback skipped: session_id already exists")
+                existing_session_id = STATE.get("session_id")
+                current_socket_sid = STATE.get("socket_sid")
+
+                try:
+                    current_socket_sid = current_socket_sid or sio.get_sid("/")
+                except Exception:
+                    current_socket_sid = current_socket_sid or getattr(sio, "sid", None)
+
+                if existing_session_id and current_socket_sid and existing_session_id == current_socket_sid:
+                    add_log("socket sid fallback skipped: session_id already matches current socket")
                     return
+
+                if existing_session_id and current_socket_sid and existing_session_id != current_socket_sid:
+                    add_log(f"clearing stale session_id before fallback: {existing_session_id} -> {current_socket_sid}")
+                    STATE["session_id"] = None
+                    STATE["subscriptions"] = []
 
                 sid = STATE.get("socket_sid")
                 try:
@@ -492,7 +505,15 @@ def start_listener(event_handler=None):
         STATE["running"] = True
         STATE["started_at"] = time.time()
         STATE["stopped_at"] = None
-        add_log("listener thread starting")
+
+        # FoxBot stale session cleanup v1
+        STATE["session_id"] = None
+        STATE["socket_sid"] = None
+        STATE["subscriptions"] = []
+        STATE["last_event"] = None
+        STATE["disconnect_reason"] = None
+
+        add_log("listener thread starting; cleared stale session state")
 
         try:
             sio.connect(
