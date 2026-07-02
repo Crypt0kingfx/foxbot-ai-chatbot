@@ -16,6 +16,10 @@ STATE = {
     "chat_messages_received": 0,
     "replies_sent": 0,
     "started_at": None,
+    "stopped_at": None,
+    "disconnect_reason": None,
+    "subscriptions": [],
+    "logs": [],
 }
 
 _socket = None
@@ -41,6 +45,19 @@ def _saved_oauth_tokens():
         return json.loads(path.read_text(encoding="utf-8") or "{}")
     except Exception:
         return {}
+
+
+def add_log(message):
+    try:
+        entry = {
+            "ts": time.time(),
+            "message": str(message)
+        }
+        STATE.setdefault("logs", []).append(entry)
+        STATE["logs"] = STATE["logs"][-80:]
+    except Exception:
+        pass
+
 
 def env(name, default=""):
     value = os.getenv(name)
@@ -241,6 +258,11 @@ def parse_blaze_event(message):
         "raw": message,
     }
 
+    if metadata.get("messageType") == "session_welcome":
+        parsed["kind"] = "session_welcome"
+        parsed["session_id"] = (payload or {}).get("sessionId") or (payload or {}).get("session_id")
+        return parsed
+
     if event_type == "channel.chat.message" or message.get("message") or message.get("text"):
         sender = payload.get("sender") or payload.get("user") or {}
         parsed["kind"] = "chat"
@@ -374,14 +396,19 @@ def start_listener(event_handler=None):
     def connect():
         STATE["connected"] = True
         STATE["last_error"] = None
+        STATE["disconnect_reason"] = None
+        add_log("socket connected")
 
     @sio.event
-    def disconnect():
+    def disconnect(reason=None):
         STATE["connected"] = False
+        STATE["disconnect_reason"] = str(reason)
+        add_log(f"socket disconnected: {reason}")
 
     @sio.event
     def connect_error(data):
         STATE["last_error"] = f"connect_error: {data}"
+        add_log(STATE["last_error"])
 
     @sio.on("eventsub")
     def on_eventsub(message):
@@ -389,41 +416,56 @@ def start_listener(event_handler=None):
         STATE["last_event"] = message
 
         parsed = parse_blaze_event(message)
+        add_log(f"eventsub received: {parsed.get('kind')} / {parsed.get('raw_type')}")
 
-        if parsed.get("kind") == "chat":
-            STATE["chat_messages_received"] += 1
-
-        if parsed.get("raw_type") == "session_welcome":
-            payload = message.get("payload") or {}
-            STATE["session_id"] = payload.get("sessionId")
+        if parsed.get("kind") == "session_welcome":
+            STATE["session_id"] = parsed.get("session_id")
+            add_log(f"session_welcome received: {STATE.get('session_id')}")
             if STATE["session_id"]:
                 try:
                     STATE["subscriptions"] = subscribe_default_events()
+                    add_log(f"subscription attempts: {STATE['subscriptions']}")
                 except Exception as e:
                     STATE["last_error"] = f"subscribe failed: {e}"
+                    add_log(STATE["last_error"])
+            return
+
+        if parsed.get("kind") == "chat":
+            STATE["chat_messages_received"] += 1
 
         if _event_handler:
             try:
                 _event_handler(message)
             except Exception as e:
                 STATE["last_error"] = f"event handler failed: {e}"
+                add_log(STATE["last_error"])
 
     def run():
         STATE["running"] = True
         STATE["started_at"] = time.time()
+        STATE["stopped_at"] = None
+        add_log("listener thread starting")
+
         try:
             sio.connect(
                 env("BLAZE_WS_URL", "https://blaze.stream"),
                 socketio_path=env("BLAZE_WS_PATH", "ws"),
                 transports=["websocket"],
-                wait_timeout=15,
+                wait_timeout=20,
             )
+            add_log("sio.connect returned; waiting for events")
             sio.wait()
+            if not STATE.get("last_error"):
+                STATE["last_error"] = "socket wait ended without exception"
+                add_log(STATE["last_error"])
         except Exception as e:
             STATE["last_error"] = str(e)
+            add_log(f"listener exception: {e}")
         finally:
             STATE["running"] = False
             STATE["connected"] = False
+            STATE["stopped_at"] = time.time()
+            add_log("listener thread stopped")
 
     _thread = threading.Thread(target=run, daemon=True)
     _thread.start()
