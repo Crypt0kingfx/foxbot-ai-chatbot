@@ -8442,3 +8442,271 @@ async def foxbot_connect_public_route_v2(request, call_next):
     return await call_next(request)
 # === End FoxBot Connect Public Route v2 ===
 
+# === FoxBot Connect Command Engine v1 ===
+# Handles Blaze chat commands like !connect, !profile, !rank, and !disconnect.
+def _foxbot_connect_now_iso_v1():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _foxbot_connect_clean_handle_v1(value):
+    value = str(value or "").strip()
+    value = value.replace("@", "").strip()
+    value = "".join(ch for ch in value if ch.isalnum() or ch in ["_", "-", "."])
+    return value[:64]
+
+
+def _foxbot_connect_data_path_v1():
+    from pathlib import Path
+    path = Path("data") / "connected_creators.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _foxbot_connect_load_raw_v1():
+    import json
+
+    path = _foxbot_connect_data_path_v1()
+
+    if not path.exists():
+        starter = {
+            "crypt0k1ng96": {
+                "handle": "crypt0k1ng96",
+                "status": "connected",
+                "commands": ["!connect", "!profile", "!rank", "!socials"],
+                "foxcoins": 73,
+                "stars": 0,
+                "messages": 72,
+                "connected_at": _foxbot_connect_now_iso_v1(),
+                "verification_method": "starter"
+            }
+        }
+        path.write_text(json.dumps(starter, indent=2), encoding="utf-8")
+        return starter
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8") or "{}")
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _foxbot_connect_save_raw_v1(raw):
+    import json
+
+    path = _foxbot_connect_data_path_v1()
+    path.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _foxbot_connect_get_creator_v1(handle):
+    raw = _foxbot_connect_load_raw_v1()
+    handle = _foxbot_connect_clean_handle_v1(handle)
+
+    if not handle:
+        return None
+
+    existing = raw.get(handle)
+
+    if isinstance(existing, dict):
+        existing.setdefault("handle", handle)
+        return existing
+
+    lower = handle.lower()
+    for key, value in raw.items():
+        if str(key).lower() == lower and isinstance(value, dict):
+            value.setdefault("handle", key)
+            return value
+
+    return None
+
+
+def _foxbot_connect_upsert_creator_v1(handle, display_name=None, source="blaze_chat_command"):
+    raw = _foxbot_connect_load_raw_v1()
+    handle = _foxbot_connect_clean_handle_v1(handle)
+
+    if not handle:
+        return None
+
+    existing_key = handle
+    for key in list(raw.keys()):
+        if str(key).lower() == handle.lower():
+            existing_key = key
+            break
+
+    creator = raw.get(existing_key)
+    if not isinstance(creator, dict):
+        creator = {}
+
+    creator.setdefault("handle", handle)
+    creator["handle"] = creator.get("handle") or handle
+
+    if display_name:
+        creator["display_name"] = str(display_name).strip()[:80]
+
+    creator["status"] = "connected"
+    creator["verification_method"] = source
+    creator["follow_status"] = creator.get("follow_status", "pending_public_sync")
+    creator["connected_at"] = creator.get("connected_at") or _foxbot_connect_now_iso_v1()
+    creator["last_seen_at"] = _foxbot_connect_now_iso_v1()
+    creator["messages"] = int(creator.get("messages", 0) or 0) + 1
+    creator["foxcoins"] = int(creator.get("foxcoins", 0) or 0) + 25
+    creator["stars"] = int(creator.get("stars", 0) or 0)
+    creator["commands"] = creator.get("commands") or ["!connect", "!profile", "!rank", "!socials"]
+    creator["badges"] = creator.get("badges") or ["FoxBot Connected"]
+
+    raw[existing_key] = creator
+    _foxbot_connect_save_raw_v1(raw)
+    return creator
+
+
+def _foxbot_connect_process_command_v1(handle, message, display_name=None):
+    handle = _foxbot_connect_clean_handle_v1(handle)
+    message = str(message or "").strip()
+
+    if not handle:
+        return {
+            "ok": False,
+            "handled": False,
+            "error": "Missing Blaze handle."
+        }
+
+    if not message.startswith("!"):
+        return {
+            "ok": True,
+            "handled": False,
+            "reply": None
+        }
+
+    command = message.split()[0].lower()
+
+    if command == "!connect":
+        creator = _foxbot_connect_upsert_creator_v1(handle, display_name=display_name)
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!connect",
+            "creator": creator,
+            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
+        }
+
+    if command in ["!profile", "!rank"]:
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return {
+                "ok": True,
+                "handled": True,
+                "command": command,
+                "reply": f"🦊 @{handle}, you are not connected yet. Follow the FoxBot Blaze profile and type !connect."
+            }
+
+        foxcoins = creator.get("foxcoins", 0)
+        messages = creator.get("messages", 0)
+        stars = creator.get("stars", 0)
+        status = creator.get("status", "connected")
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": command,
+            "creator": creator,
+            "reply": f"🦊 @{handle} FoxBot Profile | Status: {status} | FoxCoins: {foxcoins} | Messages: {messages} | Stars: {stars}"
+        }
+
+    if command == "!disconnect":
+        raw = _foxbot_connect_load_raw_v1()
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return {
+                "ok": True,
+                "handled": True,
+                "command": "!disconnect",
+                "reply": f"@{handle}, you were not connected yet."
+            }
+
+        key_to_update = handle
+        for key in raw.keys():
+            if str(key).lower() == handle.lower():
+                key_to_update = key
+                break
+
+        raw[key_to_update]["status"] = "disconnected"
+        raw[key_to_update]["disconnected_at"] = _foxbot_connect_now_iso_v1()
+        _foxbot_connect_save_raw_v1(raw)
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!disconnect",
+            "reply": f"🦊 @{handle} has been disconnected from FoxBot Connect."
+        }
+
+    return {
+        "ok": True,
+        "handled": False,
+        "command": command,
+        "reply": None
+    }
+
+
+@app.middleware("http")
+async def foxbot_connect_command_engine_v1(request, call_next):
+    path = request.url.path.rstrip("/") or "/"
+
+    if path in ["/api/foxbot-connect/command", "/api/blaze-command", "/api/connect-command"]:
+        from fastapi.responses import JSONResponse
+
+        if request.method.upper() != "POST":
+            return JSONResponse({
+                "ok": False,
+                "error": "Use POST with JSON: {handle, message, display_name}"
+            }, status_code=405)
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        handle = (
+            body.get("handle")
+            or body.get("username")
+            or body.get("user")
+            or body.get("name")
+            or ""
+        )
+
+        display_name = body.get("display_name") or body.get("displayName") or handle
+        message = body.get("message") or body.get("text") or body.get("content") or ""
+
+        result = _foxbot_connect_process_command_v1(
+            handle=handle,
+            message=message,
+            display_name=display_name
+        )
+
+        return JSONResponse(result)
+
+    if path.startswith("/api/foxbot-connect/profile/"):
+        from fastapi.responses import JSONResponse
+
+        handle = path.split("/api/foxbot-connect/profile/", 1)[-1]
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return JSONResponse({
+                "ok": False,
+                "found": False,
+                "handle": handle,
+                "error": "Creator not connected yet."
+            }, status_code=404)
+
+        return JSONResponse({
+            "ok": True,
+            "found": True,
+            "creator": creator
+        })
+
+    return await call_next(request)
+# === End FoxBot Connect Command Engine v1 ===
+
