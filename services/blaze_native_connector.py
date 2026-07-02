@@ -394,10 +394,58 @@ def start_listener(event_handler=None):
 
     @sio.event
     def connect():
+        import threading
+
         STATE["connected"] = True
         STATE["last_error"] = None
         STATE["disconnect_reason"] = None
-        add_log("socket connected")
+
+        socket_sid = None
+        try:
+            socket_sid = sio.get_sid("/")
+        except Exception:
+            socket_sid = getattr(sio, "sid", None)
+
+        STATE["socket_sid"] = socket_sid
+        add_log(f"socket connected; socket_sid={socket_sid}")
+
+        def _fallback_subscribe_with_socket_sid():
+            try:
+                if not STATE.get("connected"):
+                    add_log("socket sid fallback skipped: socket not connected")
+                    return
+
+                if STATE.get("session_id"):
+                    add_log("socket sid fallback skipped: session_id already exists")
+                    return
+
+                sid = STATE.get("socket_sid")
+                try:
+                    sid = sid or sio.get_sid("/")
+                except Exception:
+                    sid = sid or getattr(sio, "sid", None)
+
+                add_log(f"no session_welcome yet; trying socket_sid as session_id: {sid}")
+
+                if not sid:
+                    STATE["last_error"] = "socket sid fallback failed: no socket sid available"
+                    add_log(STATE["last_error"])
+                    return
+
+                STATE["session_id"] = sid
+
+                try:
+                    STATE["subscriptions"] = subscribe_default_events()
+                    add_log(f"socket sid fallback subscription attempts: {STATE['subscriptions']}")
+                except Exception as e:
+                    STATE["last_error"] = f"socket sid fallback subscribe failed: {e}"
+                    add_log(STATE["last_error"])
+
+            except Exception as e:
+                STATE["last_error"] = f"socket sid fallback crashed: {e}"
+                add_log(STATE["last_error"])
+
+        threading.Timer(2.0, _fallback_subscribe_with_socket_sid).start()
 
     @sio.event
     def disconnect(reason=None):
@@ -452,6 +500,10 @@ def start_listener(event_handler=None):
                 socketio_path=env("BLAZE_WS_PATH", "ws"),
                 transports=["websocket"],
                 wait_timeout=20,
+                headers={
+                    "Origin": "https://blaze.stream",
+                    "User-Agent": "FoxBotAI/1.0",
+                },
             )
             add_log("sio.connect returned; waiting for events")
             sio.wait()
