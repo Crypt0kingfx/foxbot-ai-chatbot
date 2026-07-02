@@ -8315,3 +8315,130 @@ async def foxbot_connected_creators_chat_test(payload: _FoxDict[str, _FoxAny]):
 # ============================================================
 # END FOXBOT CONNECTED CREATORS V1
 # ============================================================
+
+# === FoxBot Connect Public Route v2 ===
+# Safe public route for FoxBot Connect / Connected Creators.
+@app.middleware("http")
+async def foxbot_connect_public_route_v2(request, call_next):
+    path = request.url.path.rstrip("/") or "/"
+
+    if path in ["/connected-creators", "/foxbot-connect", "/api/connected-creators"]:
+        import json
+        from pathlib import Path
+        from fastapi.responses import HTMLResponse, JSONResponse
+
+        data_path = Path("data") / "connected_creators.json"
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not data_path.exists():
+            starter = {
+                "crypt0k1ng96": {
+                    "handle": "crypt0k1ng96",
+                    "status": "connected",
+                    "commands": ["!connect", "!profile", "!rank", "!socials"],
+                    "foxcoins": 73,
+                    "stars": 0,
+                    "messages": 72,
+                    "connected_at": ""
+                }
+            }
+            data_path.write_text(json.dumps(starter, indent=2), encoding="utf-8")
+
+        try:
+            raw = json.loads(data_path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            raw = {}
+
+        creators = []
+        if isinstance(raw, dict) and isinstance(raw.get("creators"), list):
+            creators = raw.get("creators", [])
+        elif isinstance(raw, dict):
+            for handle, info in raw.items():
+                if isinstance(info, dict):
+                    item = dict(info)
+                    item.setdefault("handle", handle)
+                    creators.append(item)
+        elif isinstance(raw, list):
+            creators = raw
+
+        payload = {"ok": True, "count": len(creators), "creators": creators}
+
+        if path == "/api/connected-creators":
+            return JSONResponse(payload)
+
+        cards = ""
+        for c in creators:
+            handle = c.get("handle", "unknown")
+            status = c.get("status", "connected")
+            messages = c.get("messages", 0)
+            stars = c.get("stars", 0)
+            foxcoins = c.get("foxcoins", 0)
+            commands = c.get("commands", [])
+            cards += f"""
+            <div class='card'>
+                <div class='handle'>@{handle}</div>
+                <div class='status'>{status}</div>
+                <div class='stats'><span>💬 {messages}</span><span>⭐ {stars}</span><span>🦊 {foxcoins}</span></div>
+                <div class='commands'>{' '.join(commands)}</div>
+            </div>
+            """
+
+        if not cards:
+            cards = "<p>No connected creators yet. Follow FoxBot and type <b>!connect</b> in Blaze chat.</p>"
+
+        html = f"""
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset='utf-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1'>
+            <title>FoxBot Connect</title>
+            <style>
+                body {{
+                    margin: 0;
+                    min-height: 100vh;
+                    font-family: Arial, sans-serif;
+                    background: radial-gradient(circle at top left, rgba(255,122,24,.22), transparent 35%), #050807;
+                    color: white;
+                    padding: 32px;
+                }}
+                .wrap {{ max-width: 1100px; margin: 0 auto; }}
+                .hero {{
+                    border: 1px solid rgba(255,255,255,.14);
+                    background: rgba(255,255,255,.05);
+                    border-radius: 24px;
+                    padding: 28px;
+                    margin-bottom: 20px;
+                }}
+                h1 {{ margin: 0 0 8px; font-size: 42px; }}
+                .sub {{ opacity: .8; font-size: 17px; }}
+                .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }}
+                .card {{
+                    border: 1px solid rgba(255,255,255,.14);
+                    background: rgba(255,255,255,.06);
+                    border-radius: 20px;
+                    padding: 20px;
+                }}
+                .handle {{ font-size: 24px; font-weight: 800; color: #ff9b3d; }}
+                .status {{ margin-top: 8px; color: #39ff88; font-weight: 700; }}
+                .stats {{ display: flex; gap: 14px; margin: 16px 0; font-size: 18px; }}
+                .commands {{ opacity: .8; line-height: 1.6; }}
+            </style>
+        </head>
+        <body>
+            <div class='wrap'>
+                <div class='hero'>
+                    <h1>🦊 FoxBot Connect</h1>
+                    <div class='sub'>Public Blaze connection system for connected creators.</div>
+                    <p>Follow the FoxBot Blaze profile, then type <b>!connect</b> in Blaze chat.</p>
+                </div>
+                <div class='grid'>{cards}</div>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(html)
+
+    return await call_next(request)
+# === End FoxBot Connect Public Route v2 ===
+
