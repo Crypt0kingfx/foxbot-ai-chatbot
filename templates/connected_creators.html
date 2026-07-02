@@ -1,0 +1,46 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FoxBot Connect — Connected Creators</title>
+  <link rel="stylesheet" href="/static/css/connected-creators.css">
+</head>
+<body>
+  <main class="fox-wrap">
+    <section class="hero">
+      <div>
+        <p class="kicker">FoxBot Studio</p>
+        <h1>Connected Creators</h1>
+        <p class="sub">Public Blaze connection hub for creators who follow FoxBot and connect their account.</p>
+      </div>
+      <div class="actions">
+        <button id="demoBtn">Add Demo Creator</button>
+        <button id="refreshBtn">Refresh</button>
+        <a href="/admin">Back to Admin</a>
+      </div>
+    </section>
+
+    <section class="connect-box">
+      <h2>Manual Connect</h2>
+      <p>Add a creator after they follow the FoxBot Blaze profile and type <strong>!connect</strong>.</p>
+      <div class="connect-row">
+        <input id="handleInput" placeholder="creator handle, example: brachial513" />
+        <button id="connectBtn">Connect Creator</button>
+      </div>
+      <p id="connectMsg" class="msg"></p>
+    </section>
+
+    <section class="stats">
+      <div><span id="totalCreators">0</span><small>Total Creators</small></div>
+      <div><span id="totalMessages">0</span><small>Total Messages</small></div>
+      <div><span id="totalFoxcoins">0</span><small>Total FoxCoins</small></div>
+      <div><span id="totalStars">0</span><small>Total Stars</small></div>
+    </section>
+
+    <section id="creatorGrid" class="creator-grid"></section>
+  </main>
+
+  <script src="/static/js/connected-creators.js"></script>
+</body>
+</html>

@@ -8068,3 +8068,250 @@ pre {{ background:#07100d; padding:18px; border-radius:14px; border:1px solid #3
 </body>
 </html>
     """)
+
+# ============================================================
+# FOXBOT CONNECTED CREATORS V1
+# Public Blaze profile follow + !connect account system
+# ============================================================
+
+from pathlib import Path as _FoxPath
+import json as _fox_json
+from datetime import datetime as _fox_datetime
+from typing import Dict as _FoxDict, Any as _FoxAny
+
+try:
+    from fastapi.responses import HTMLResponse as _FoxHTMLResponse, JSONResponse as _FoxJSONResponse
+except Exception:
+    _FoxHTMLResponse = None
+    _FoxJSONResponse = None
+
+_FOXBOT_ROOT = _FoxPath(__file__).resolve().parent
+_FOXBOT_DATA_DIR = _FOXBOT_ROOT / "data"
+_FOXBOT_CONNECTED_FILE = _FOXBOT_DATA_DIR / "connected_creators.json"
+_FOXBOT_CONNECTED_TEMPLATE = _FOXBOT_ROOT / "templates" / "connected_creators.html"
+
+def _foxbot_now_iso():
+    return _fox_datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+def _foxbot_clean_handle(handle: str) -> str:
+    handle = str(handle or "").strip().lower()
+    if handle.startswith("@"):
+        handle = handle[1:]
+    allowed = "abcdefghijklmnopqrstuvwxyz0123456789_-. "
+    handle = "".join(ch for ch in handle if ch in allowed).strip()
+    return handle.replace(" ", "_")
+
+def _foxbot_default_connected_data():
+    return {"creators": {}}
+
+def _foxbot_load_connected_creators():
+    _FOXBOT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not _FOXBOT_CONNECTED_FILE.exists():
+        _FOXBOT_CONNECTED_FILE.write_text(_fox_json.dumps(_foxbot_default_connected_data(), indent=2), encoding="utf-8")
+
+    try:
+        data = _fox_json.loads(_FOXBOT_CONNECTED_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        data = _foxbot_default_connected_data()
+
+    if not isinstance(data, dict):
+        data = _foxbot_default_connected_data()
+    if "creators" not in data or not isinstance(data["creators"], dict):
+        data["creators"] = {}
+
+    return data
+
+def _foxbot_save_connected_creators(data):
+    _FOXBOT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _FOXBOT_CONNECTED_FILE.write_text(_fox_json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+def _foxbot_creator_totals(creators):
+    values = list(creators.values())
+    return {
+        "creators": len(values),
+        "messages": sum(int(c.get("messages", 0) or 0) for c in values),
+        "stars": sum(int(c.get("stars", 0) or 0) for c in values),
+        "foxcoins": sum(int(c.get("foxcoins", 0) or 0) for c in values),
+    }
+
+def foxbot_connect_creator(handle: str, source: str = "manual", verified_follow: bool = False):
+    handle = _foxbot_clean_handle(handle)
+    if not handle:
+        return {"ok": False, "message": "Missing Blaze handle."}
+
+    data = _foxbot_load_connected_creators()
+    creators = data["creators"]
+
+    existing = creators.get(handle, {})
+    creator = {
+        "handle": handle,
+        "status": "connected",
+        "messages": int(existing.get("messages", 0) or 0),
+        "stars": int(existing.get("stars", 0) or 0),
+        "foxcoins": int(existing.get("foxcoins", 0) or 0),
+        "badges": existing.get("badges") or ["GB"],
+        "commands": existing.get("commands") or ["!giveaway", "!socials", "!discord", "!love", "!raider"],
+        "channel_url": existing.get("channel_url") or f"https://blaze.stream/{handle}",
+        "connected_at": existing.get("connected_at") or _foxbot_now_iso(),
+        "last_seen": _foxbot_now_iso(),
+        "source": source,
+        "verified_follow": bool(existing.get("verified_follow") or verified_follow),
+    }
+
+    creators[handle] = creator
+    _foxbot_save_connected_creators(data)
+
+    return {
+        "ok": True,
+        "creator": creator,
+        "message": f"{handle} is now connected to FoxBot."
+    }
+
+def foxbot_record_creator_message(handle: str, amount: int = 1):
+    handle = _foxbot_clean_handle(handle)
+    if not handle:
+        return {"ok": False, "message": "Missing Blaze handle."}
+
+    data = _foxbot_load_connected_creators()
+    creators = data["creators"]
+
+    if handle not in creators:
+        foxbot_connect_creator(handle, source="auto-message")
+        data = _foxbot_load_connected_creators()
+        creators = data["creators"]
+
+    creators[handle]["messages"] = int(creators[handle].get("messages", 0) or 0) + int(amount or 1)
+    creators[handle]["last_seen"] = _foxbot_now_iso()
+    _foxbot_save_connected_creators(data)
+
+    return {"ok": True, "creator": creators[handle]}
+
+def foxbot_award_creator_foxcoins(handle: str, amount: int = 25, reason: str = "reward"):
+    handle = _foxbot_clean_handle(handle)
+    if not handle:
+        return {"ok": False, "message": "Missing Blaze handle."}
+
+    data = _foxbot_load_connected_creators()
+    creators = data["creators"]
+
+    if handle not in creators:
+        foxbot_connect_creator(handle, source="auto-reward")
+        data = _foxbot_load_connected_creators()
+        creators = data["creators"]
+
+    creators[handle]["foxcoins"] = int(creators[handle].get("foxcoins", 0) or 0) + int(amount or 0)
+    creators[handle]["last_reward_reason"] = reason
+    creators[handle]["last_seen"] = _foxbot_now_iso()
+    _foxbot_save_connected_creators(data)
+
+    return {"ok": True, "creator": creators[handle]}
+
+def foxbot_connected_chat_reply(handle: str, message: str):
+    """
+    Optional helper for your Blaze listener.
+    Call this from your chat parser when a viewer sends a message.
+
+    Example:
+        reply = foxbot_connected_chat_reply(username, chat_text)
+        if reply:
+            send_blaze_chat(reply)
+    """
+    handle = _foxbot_clean_handle(handle)
+    text = str(message or "").strip().lower()
+
+    if not handle or not text:
+        return None
+
+    if text.startswith("!connect"):
+        result = foxbot_connect_creator(handle, source="blaze-chat", verified_follow=False)
+        if result.get("ok"):
+            foxbot_award_creator_foxcoins(handle, 25, "connect_bonus")
+            return f"🦊 @{handle} is now connected to FoxBot! +25 FoxCoins. Welcome to the Fox Spirit Network!"
+        return f"🦊 @{handle}, I could not connect your account yet."
+
+    if text.startswith("!profile"):
+        data = _foxbot_load_connected_creators()
+        creator = data.get("creators", {}).get(handle)
+        if not creator:
+            return f"🦊 @{handle}, type !connect to join FoxBot Connect."
+        return f"🦊 @{handle} | 💬 {creator.get('messages',0)} | ⭐ {creator.get('stars',0)} | 💼 {creator.get('foxcoins',0)} FoxCoins"
+
+    if text.startswith("!rank"):
+        data = _foxbot_load_connected_creators()
+        creators = list(data.get("creators", {}).values())
+        creators.sort(key=lambda c: int(c.get("foxcoins", 0) or 0), reverse=True)
+        for index, creator in enumerate(creators, start=1):
+            if creator.get("handle") == handle:
+                return f"🦊 @{handle}, your FoxBot rank is #{index} with {creator.get('foxcoins',0)} FoxCoins."
+        return f"🦊 @{handle}, type !connect to get ranked."
+
+    return None
+
+@app.get("/connected-creators")
+async def foxbot_connected_creators_page():
+    if not _FOXBOT_CONNECTED_TEMPLATE.exists():
+        html = "<h1>FoxBot Connected Creators</h1><p>Template missing: templates/connected_creators.html</p>"
+    else:
+        html = _FOXBOT_CONNECTED_TEMPLATE.read_text(encoding="utf-8")
+    return _FoxHTMLResponse(content=html)
+
+@app.get("/api/connected-creators")
+async def foxbot_connected_creators_api():
+    data = _foxbot_load_connected_creators()
+    creators = data.get("creators", {})
+    creator_list = list(creators.values())
+    creator_list.sort(key=lambda c: (str(c.get("status", "")) != "connected", str(c.get("handle", ""))))
+
+    return {
+        "ok": True,
+        "creators": creator_list,
+        "totals": _foxbot_creator_totals(creators)
+    }
+
+@app.post("/api/connected-creators/connect")
+async def foxbot_connected_creators_connect(payload: _FoxDict[str, _FoxAny]):
+    handle = payload.get("handle") or payload.get("username") or payload.get("creator")
+    verified_follow = bool(payload.get("verified_follow", False))
+    return foxbot_connect_creator(handle, source="studio", verified_follow=verified_follow)
+
+@app.post("/api/connected-creators/demo")
+async def foxbot_connected_creators_demo():
+    demo_names = ["brachial513", "der_bruder", "mistersupercool", "vroski55", "jt_squared2", "agent00zani", "hollowgames"]
+    data = _foxbot_load_connected_creators()
+
+    for i, handle in enumerate(demo_names):
+        result = foxbot_connect_creator(handle, source="demo", verified_follow=True)
+        handle = result.get("creator", {}).get("handle", handle)
+        data = _foxbot_load_connected_creators()
+        if handle in data["creators"]:
+            data["creators"][handle]["messages"] = [173, 4, 3, 35, 1, 187, 1][i]
+            data["creators"][handle]["stars"] = [3, 0, 0, 0, 1, 0, 0][i]
+            data["creators"][handle]["foxcoins"] = [263, 0, 0, 2500, 427, 552, 0][i]
+            if i != 0:
+                data["creators"][handle]["commands"] = []
+                data["creators"][handle]["status"] = "getting set up..."
+            _foxbot_save_connected_creators(data)
+
+    return {"ok": True, "message": "Demo Connected Creators added."}
+
+@app.post("/api/connected-creators/{handle}/foxcoins")
+async def foxbot_connected_creators_award(handle: str, payload: _FoxDict[str, _FoxAny]):
+    amount = int(payload.get("amount", 25) or 25)
+    reason = str(payload.get("reason", "studio_reward"))
+    return foxbot_award_creator_foxcoins(handle, amount, reason)
+
+@app.post("/api/connected-creators/{handle}/message")
+async def foxbot_connected_creators_message(handle: str, payload: _FoxDict[str, _FoxAny]):
+    amount = int(payload.get("amount", 1) or 1)
+    return foxbot_record_creator_message(handle, amount)
+
+@app.post("/api/connected-creators/chat-test")
+async def foxbot_connected_creators_chat_test(payload: _FoxDict[str, _FoxAny]):
+    handle = payload.get("handle") or payload.get("username")
+    message = payload.get("message") or ""
+    reply = foxbot_connected_chat_reply(handle, message)
+    return {"ok": True, "reply": reply}
+
+# ============================================================
+# END FOXBOT CONNECTED CREATORS V1
+# ============================================================

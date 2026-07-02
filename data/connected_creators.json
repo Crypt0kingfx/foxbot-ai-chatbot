@@ -1,0 +1,15 @@
+﻿{
+  "creators": {
+    "crypt0k1ng96": {
+      "handle": "crypt0k1ng96",
+      "status": "connected",
+      "messages": 72,
+      "stars": 0,
+      "foxcoins": 73,
+      "badges": ["GB"],
+      "commands": ["!giveaway", "!socials", "!discord", "!love", "!raider"],
+      "channel_url": "https://blaze.stream/crypt0k1ng96",
+      "connected_at": "seed"
+    }
+  }
+}
