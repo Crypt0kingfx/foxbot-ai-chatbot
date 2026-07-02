@@ -795,3 +795,111 @@ def subscribe_default_events():
     return results
 # === End FoxBot Safe Blaze Diagnostics Override v1 ===
 
+# === FoxBot Blaze Live Reply Safety v1 ===
+_LIVE_REPLY_LAST_SEEN = {}
+_LIVE_REPLY_LAST_SENT = {}
+
+def _foxbot_bool_env_v1(name, default=False):
+    value = str(env(name, "")).strip().lower()
+    if not value:
+        return default
+    return value in ("1", "true", "yes", "on")
+
+def _foxbot_extract_chat_v1(message):
+    if not isinstance(message, dict):
+        return None
+
+    metadata = message.get("metadata") or {}
+    payload = message.get("payload") or {}
+    sender = payload.get("sender") or {}
+
+    subscription_type = metadata.get("subscriptionType") or metadata.get("subscription_type")
+    message_type = metadata.get("messageType") or metadata.get("message_type")
+
+    is_chat = (
+        subscription_type == "channel.chat.message"
+        or payload.get("message") is not None
+        or message_type == "notification"
+    )
+
+    if not is_chat:
+        return None
+
+    username = str(sender.get("username") or sender.get("displayName") or "viewer").strip().lstrip("@")
+    display_name = str(sender.get("displayName") or username or "viewer").strip()
+    body = str(payload.get("message") or payload.get("text") or "").strip()
+    message_id = str(payload.get("messageId") or payload.get("id") or "").strip()
+
+    if not body:
+        return None
+
+    return {
+        "username": username,
+        "display_name": display_name,
+        "message": body,
+        "message_id": message_id,
+        "sender": sender,
+        "payload": payload,
+    }
+
+def _foxbot_should_ignore_chat_v1(chat):
+    import time
+
+    username = str((chat or {}).get("username") or "").strip().lower().lstrip("@")
+    bot_handle = str(env("FOXBOT_BLAZE_PROFILE_HANDLE", "@foxbotai")).strip().lower().lstrip("@")
+    body = str((chat or {}).get("message") or "").strip()
+    message_id = str((chat or {}).get("message_id") or "").strip()
+
+    if not body:
+        return True, "empty message"
+
+    if username == bot_handle:
+        return True, "ignored bot self-message"
+
+    allowed_prefixes = tuple(x.strip() for x in env("FOXBOT_LIVE_COMMAND_PREFIXES", "!,/").split(",") if x.strip())
+    if not body.startswith(allowed_prefixes):
+        return True, "not a command"
+
+    allowed_commands = set(
+        x.strip().lower()
+        for x in env("FOXBOT_LIVE_ALLOWED_COMMANDS", "!connect,!profile,!rank,!disconnect,!help").split(",")
+        if x.strip()
+    )
+
+    first_word = body.split()[0].lower()
+    if first_word not in allowed_commands:
+        return True, f"command not allowed: {first_word}"
+
+    if message_id:
+        if message_id in _LIVE_REPLY_LAST_SEEN:
+            return True, "duplicate message id"
+        _LIVE_REPLY_LAST_SEEN[message_id] = time.time()
+
+    now = time.time()
+    cooldown = float(env("FOXBOT_LIVE_REPLY_COOLDOWN_SECONDS", "8") or "8")
+    key = f"{username}:{first_word}"
+    last = _LIVE_REPLY_LAST_SENT.get(key, 0)
+
+    if now - last < cooldown:
+        return True, f"cooldown active for {key}"
+
+    _LIVE_REPLY_LAST_SENT[key] = now
+
+    return False, "ok"
+
+def _foxbot_safe_live_reply_preview_v1(message):
+    chat = _foxbot_extract_chat_v1(message)
+    if not chat:
+        return {"ok": False, "reason": "not chat"}
+
+    ignore, reason = _foxbot_should_ignore_chat_v1(chat)
+
+    return {
+        "ok": not ignore,
+        "reason": reason,
+        "username": chat.get("username"),
+        "message": chat.get("message"),
+        "auto_send_enabled": _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False),
+    }
+# === End FoxBot Blaze Live Reply Safety v1 ===
+
