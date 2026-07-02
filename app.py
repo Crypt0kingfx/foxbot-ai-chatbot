@@ -19807,3 +19807,261 @@ def foxbot_blaze_native_safety_test_route_v1(
     }
 # === End FoxBot Blaze Live Safety Test Route v1 ===
 
+# === FoxBot Blaze App Token Send Test v1 ===
+def _foxbot_blaze_http_json_v1(method, url, payload=None, headers=None, timeout=15):
+    import json
+    import urllib.error
+    import urllib.request
+
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers or {},
+        method=method
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            try:
+                body = json.loads(raw or "{}")
+            except Exception:
+                body = {"raw": raw}
+            return {"ok": True, "status": res.status, "body": body}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        try:
+            body = json.loads(raw or "{}")
+        except Exception:
+            body = {"raw": raw}
+        return {
+            "ok": False,
+            "status": e.code,
+            "reason": e.reason,
+            "body": body
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _foxbot_mask_token_v1(value):
+    value = str(value or "")
+    if len(value) <= 12:
+        return "***" if value else ""
+    return value[:6] + "..." + value[-6:]
+
+
+def _foxbot_blaze_app_token_v1():
+    import os
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+
+    if not client_id or not client_secret:
+        return {"ok": False, "error": "Missing BLAZE_CLIENT_ID or BLAZE_CLIENT_SECRET"}
+
+    res = _foxbot_blaze_http_json_v1(
+        "POST",
+        "https://blaze.stream/bapi/oauth2/token",
+        {
+            "clientId": client_id,
+            "clientSecret": client_secret,
+            "grantType": "client_credentials"
+        },
+        {
+            "content-type": "application/json",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    body = res.get("body") or {}
+    token = body.get("accessToken") or body.get("access_token") or ""
+
+    return {
+        "ok": bool(res.get("ok") and token),
+        "status": res.get("status"),
+        "reason": res.get("reason"),
+        "error": res.get("error"),
+        "body": body if not token else {"success": body.get("success"), "has_accessToken": True},
+        "access_token": token,
+        "access_token_masked": _foxbot_mask_token_v1(token)
+    }
+
+
+def _foxbot_blaze_profile_user_id_v1():
+    import os
+
+    env_user_id = (
+        os.getenv("BLAZE_BOT_USER_ID", "")
+        or os.getenv("FOXBOT_BLAZE_USER_ID", "")
+        or ""
+    ).strip()
+
+    if env_user_id:
+        return {"ok": True, "user_id": env_user_id, "source": "env"}
+
+    token = os.getenv("BLAZE_ACCESS_TOKEN", "").strip()
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+
+    if not token or not client_id:
+        return {"ok": False, "error": "Missing BLAZE_ACCESS_TOKEN or BLAZE_CLIENT_ID"}
+
+    res = _foxbot_blaze_http_json_v1(
+        "GET",
+        "https://api.blaze.stream/v1/users/profile",
+        None,
+        {
+            "authorization": f"Bearer {token}",
+            "client-id": client_id,
+            "accept": "application/json",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    try:
+        user_id = ((res.get("body") or {}).get("data") or {}).get("userId") or ""
+    except Exception:
+        user_id = ""
+
+    return {
+        "ok": bool(res.get("ok") and user_id),
+        "status": res.get("status"),
+        "reason": res.get("reason"),
+        "body": res.get("body"),
+        "user_id": user_id,
+        "source": "profile"
+    }
+
+
+def _foxbot_blaze_send_app_token_v1(message, channel_id=None):
+    import os
+
+    channel_id = (channel_id or os.getenv("BLAZE_CHANNEL_ID", "")).strip()
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+
+    if not channel_id:
+        return {"ok": False, "sent": False, "error": "Missing BLAZE_CHANNEL_ID"}
+
+    if not client_id:
+        return {"ok": False, "sent": False, "error": "Missing BLAZE_CLIENT_ID"}
+
+    message = str(message or "").strip()
+    if not message:
+        return {"ok": False, "sent": False, "error": "Empty message"}
+
+    app = _foxbot_blaze_app_token_v1()
+    profile = _foxbot_blaze_profile_user_id_v1()
+
+    results = []
+
+    if app.get("ok") and profile.get("ok"):
+        app_token = app.get("access_token")
+        sender_id = profile.get("user_id")
+
+        res = _foxbot_blaze_http_json_v1(
+            "POST",
+            "https://api.blaze.stream/v1/chats/messages",
+            {
+                "channelId": channel_id,
+                "message": message,
+                "senderId": sender_id
+            },
+            {
+                "authorization": f"Bearer {app_token}",
+                "client-id": client_id,
+                "content-type": "application/json",
+                "accept": "application/json",
+                "origin": "https://blaze.stream",
+                "user-agent": "FoxBotAI/1.0"
+            }
+        )
+
+        results.append({
+            "mode": "app_token_sender_id",
+            "ok": bool(res.get("ok")),
+            "status": res.get("status"),
+            "reason": res.get("reason"),
+            "body": res.get("body"),
+            "sender_id": sender_id,
+        })
+
+        if res.get("ok"):
+            return {
+                "ok": True,
+                "sent": True,
+                "channel_id": channel_id,
+                "mode": "app_token_sender_id",
+                "results": results
+            }
+    else:
+        results.append({
+            "mode": "app_token_sender_id",
+            "ok": False,
+            "app_token_ok": app.get("ok"),
+            "profile_ok": profile.get("ok"),
+            "app_status": app.get("status"),
+            "profile_status": profile.get("status"),
+            "app_body": app.get("body"),
+            "profile_body": profile.get("body"),
+        })
+
+    # Fallback: current user token mode, but with full response body.
+    user_token = os.getenv("BLAZE_ACCESS_TOKEN", "").strip()
+    if user_token:
+        res = _foxbot_blaze_http_json_v1(
+            "POST",
+            "https://api.blaze.stream/v1/chats/messages",
+            {
+                "channelId": channel_id,
+                "message": message
+            },
+            {
+                "authorization": f"Bearer {user_token}",
+                "client-id": client_id,
+                "content-type": "application/json",
+                "accept": "application/json",
+                "origin": "https://blaze.stream",
+                "user-agent": "FoxBotAI/1.0"
+            }
+        )
+
+        results.append({
+            "mode": "user_token",
+            "ok": bool(res.get("ok")),
+            "status": res.get("status"),
+            "reason": res.get("reason"),
+            "body": res.get("body"),
+        })
+
+        if res.get("ok"):
+            return {
+                "ok": True,
+                "sent": True,
+                "channel_id": channel_id,
+                "mode": "user_token",
+                "results": results
+            }
+
+    return {
+        "ok": False,
+        "sent": False,
+        "channel_id": channel_id,
+        "results": results
+    }
+
+
+@app.get("/api/blaze/native/send-app-test")
+def foxbot_blaze_native_send_app_test_v1(message: str = "FoxBot app-token send test - safe mode still OFF."):
+    return _foxbot_blaze_send_app_token_v1(message)
+# === End FoxBot Blaze App Token Send Test v1 ===
+
