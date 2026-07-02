@@ -1091,6 +1091,14 @@ def _foxbot_live_command_reply_v2(chat):
     message = str((chat or {}).get("message") or "").strip()
     command = message.split()[0].lower() if message else ""
 
+    # Channel owner bypass: the owner should not need to pass the follower gate.
+    try:
+        owner_reply = _foxbot_owner_direct_reply_v1(chat)
+        if owner_reply:
+            return owner_reply
+    except Exception as e:
+        add_log(f"owner bypass failed: {e}")
+
     # Try the real FoxBot Connect command engine first.
     try:
         import sys
@@ -1208,4 +1216,59 @@ def _foxbot_maybe_live_reply_v2(message):
         add_log(STATE["last_error"])
         return {"ok": False, "error": str(e)}
 # === End FoxBot Blaze Live Auto Reply v2 ===
+
+# === FoxBot Blaze Owner Bypass v1 ===
+def _foxbot_owner_handles_v1():
+    raw = ",".join([
+        env("BLAZE_CHANNEL_SLUG", ""),
+        env("CREATOR_NAME", ""),
+        env("FOXBOT_OWNER_HANDLES", ""),
+        env("ADMIN_USERNAMES", ""),
+        "crypt0k1ng96"
+    ])
+
+    handles = set()
+
+    for item in raw.replace(";", ",").split(","):
+        item = str(item or "").strip().lower().lstrip("@")
+        if item:
+            handles.add(item)
+
+    return handles
+
+
+def _foxbot_is_channel_owner_v1(chat):
+    try:
+        sender = (chat or {}).get("sender") or {}
+        if sender.get("isOwner") is True:
+            return True
+    except Exception:
+        pass
+
+    username = str((chat or {}).get("username") or "").strip().lower().lstrip("@")
+    return username in _foxbot_owner_handles_v1()
+
+
+def _foxbot_owner_direct_reply_v1(chat):
+    username = str((chat or {}).get("username") or "creator").strip().lstrip("@")
+    message = str((chat or {}).get("message") or "").strip()
+    command = message.split()[0].lower() if message else ""
+
+    if not _foxbot_is_channel_owner_v1(chat):
+        return ""
+
+    if command == "!connect":
+        return f"🦊 @{username} is connected as the FoxBot channel owner! Owner access unlocked. Use !profile next."
+
+    if command == "!profile":
+        return f"🦊 @{username} FoxBot Owner Profile | Status: connected | Role: Channel Owner | Commands: !connect, !profile, !rank, !help"
+
+    if command == "!rank":
+        return f"🏆 @{username} FoxBot Rank | Channel Owner | Top Fox unlocked."
+
+    if command == "!help":
+        return "🦊 FoxBot commands: !connect, !profile, !rank, !disconnect, !help"
+
+    return ""
+# === End FoxBot Blaze Owner Bypass v1 ===
 
