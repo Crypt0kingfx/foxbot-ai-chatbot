@@ -9475,3 +9475,143 @@ def foxbot_blaze_oauth_refresh_v1():
     }
 # === End FoxBot Blaze OAuth Routes v1 ===
 
+# === FoxBot Blaze OAuth Debug Routes v1 ===
+def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes):
+    import json
+    import os
+    import urllib.error
+    import urllib.request
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = os.getenv(
+        "BLAZE_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
+    ).strip()
+
+    payload = {
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "redirectUri": redirect_uri,
+        "scopes": scopes,
+    }
+
+    safe_payload = dict(payload)
+    if safe_payload.get("clientSecret"):
+        safe_payload["clientSecret"] = safe_payload["clientSecret"][:4] + "...MASKED"
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://blaze.stream/bapi/oauth2/generate-auth-url",
+        data=data,
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            try:
+                body = json.loads(raw or "{}")
+            except Exception:
+                body = {"raw": raw}
+
+            return {
+                "ok": True,
+                "status": res.status,
+                "body": body,
+                "safe_payload": safe_payload,
+            }
+    except urllib.error.HTTPError as e:
+        details = ""
+        try:
+            details = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+
+        return {
+            "ok": False,
+            "status": e.code,
+            "reason": e.reason,
+            "details": details,
+            "safe_payload": safe_payload,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "safe_payload": safe_payload,
+        }
+
+
+@app.get("/auth/blaze/login-basic")
+def foxbot_blaze_oauth_login_basic_v1():
+    from fastapi.responses import HTMLResponse, RedirectResponse
+
+    result = _foxbot_blaze_oauth_generate_auth_debug_v1([
+        "users.read",
+        "offline.access"
+    ])
+
+    if not result.get("ok"):
+        return HTMLResponse(
+            "<h1>FoxBot Blaze OAuth Basic Login Failed</h1>"
+            "<p>Blaze rejected the basic OAuth request. This usually means Client ID, Client Secret, or Redirect URI is wrong.</p>"
+            f"<pre>{result}</pre>",
+            status_code=500
+        )
+
+    body = result.get("body") or {}
+    state = body.get("state")
+    code_verifier = body.get("codeVerifier")
+    url = body.get("url")
+
+    if not state or not code_verifier or not url:
+        return HTMLResponse(
+            "<h1>FoxBot Blaze OAuth Basic Login Failed</h1>"
+            "<p>Blaze response did not include state/codeVerifier/url.</p>"
+            f"<pre>{result}</pre>",
+            status_code=500
+        )
+
+    _FOXBOT_BLAZE_OAUTH_PENDING[state] = {
+        "codeVerifier": code_verifier,
+        "redirectUri": result.get("safe_payload", {}).get("redirectUri"),
+        "created_at": __import__("time").time(),
+    }
+
+    return RedirectResponse(url)
+
+
+@app.get("/api/blaze/oauth/debug")
+def foxbot_blaze_oauth_debug_v1():
+    full = _foxbot_blaze_oauth_generate_auth_debug_v1([
+        "users.read",
+        "offline.access",
+        "channel.moderate",
+        "users.bot"
+    ])
+
+    basic = _foxbot_blaze_oauth_generate_auth_debug_v1([
+        "users.read",
+        "offline.access"
+    ])
+
+    return {
+        "ok": True,
+        "full_scope_test": full,
+        "basic_scope_test": basic,
+        "what_to_check": [
+            "BLAZE_CLIENT_ID must match the FoxBot AI app in Blaze Developers.",
+            "BLAZE_CLIENT_SECRET must match the same app.",
+            "BLAZE_REDIRECT_URI must exactly match https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback.",
+            "If basic works but full fails, Blaze is rejecting channel.moderate or users.bot scope."
+        ]
+    }
+# === End FoxBot Blaze OAuth Debug Routes v1 ===
+
