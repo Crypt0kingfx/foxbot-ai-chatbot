@@ -9339,17 +9339,14 @@ def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
     ).strip()
 
     try:
-        tokens = _foxbot_blaze_oauth_post_json_v1(
-            "https://blaze.stream/bapi/oauth2/token",
-            {
-                "clientId": client_id,
-                "clientSecret": client_secret,
-                "code": code,
-                "codeVerifier": pending.get("codeVerifier"),
-                "redirectUri": redirect_uri,
-                "grantType": "authorization_code"
-            }
+        tokens, exchange_style = _foxbot_blaze_exchange_code_v3(
+            client_id,
+            client_secret,
+            code,
+            pending.get("codeVerifier"),
+            redirect_uri
         )
+        tokens["exchange_style"] = exchange_style
     except Exception as e:
         return HTMLResponse(
             f"<h1>FoxBot Blaze OAuth Token Error</h1><p>Could not exchange code for token.</p><pre>{e}</pre>",
@@ -9747,4 +9744,93 @@ def foxbot_blaze_oauth_login_clean_v2():
 
     return foxbot_blaze_oauth_login_v1()
 # === End FoxBot OAuth Clean State v2 ===
+
+# === FoxBot OAuth Exchange Fix v3 ===
+def _foxbot_blaze_oauth_post_form_v3(url, payload, timeout=15):
+    import json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "accept": "application/json",
+            "origin": "https://blaze.stream",
+            "user-agent": "FoxBotAI/1.0"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            return json.loads(raw or "{}")
+    except urllib.error.HTTPError as e:
+        details = ""
+        try:
+            details = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        raise RuntimeError(f"FORM exchange HTTP {e.code} {e.reason}. Response body: {details}")
+
+
+def _foxbot_blaze_exchange_code_v3(client_id, client_secret, code, code_verifier, redirect_uri):
+    attempts = []
+
+    # Attempt 1: standard PKCE form style
+    try:
+        tokens = _foxbot_blaze_oauth_post_form_v3(
+            "https://blaze.stream/bapi/oauth2/token",
+            {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier
+            }
+        )
+        return tokens, "form_snake_pkce"
+    except Exception as e:
+        attempts.append({"style": "form_snake_pkce", "error": str(e)})
+
+    # Attempt 2: Blaze camelCase JSON, no extra grant fields
+    try:
+        tokens = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/token",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "code": code,
+                "codeVerifier": code_verifier,
+                "redirectUri": redirect_uri
+            }
+        )
+        return tokens, "json_camel_minimal"
+    except Exception as e:
+        attempts.append({"style": "json_camel_minimal", "error": str(e)})
+
+    # Attempt 3: original Blaze camelCase JSON
+    try:
+        tokens = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/token",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "code": code,
+                "codeVerifier": code_verifier,
+                "redirectUri": redirect_uri,
+                "grantType": "authorization_code"
+            }
+        )
+        return tokens, "json_camel_grant"
+    except Exception as e:
+        attempts.append({"style": "json_camel_grant", "error": str(e)})
+
+    raise RuntimeError("All token exchange styles failed: " + str(attempts))
+# === End FoxBot OAuth Exchange Fix v3 ===
 
