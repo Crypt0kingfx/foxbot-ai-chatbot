@@ -480,6 +480,11 @@ def start_listener(event_handler=None):
         if extra:
             add_log(f"eventsub extra args: {extra}")
         add_log(f"eventsub received: {parsed.get('kind')} / {parsed.get('raw_type')}")
+        if "_foxbot_maybe_event_thank_you_v1" in globals():
+            event_reply_result = _foxbot_maybe_event_thank_you_v1(message)
+            if event_reply_result.get("ok") or event_reply_result.get("sent"):
+                STATE["last_event_reply_attempt"] = event_reply_result
+                add_log(f"event thank-you hook result: {event_reply_result}")
 
         if parsed.get("kind") == "session_welcome":
             STATE["session_id"] = parsed.get("session_id")
@@ -1271,4 +1276,215 @@ def _foxbot_owner_direct_reply_v1(chat):
 
     return ""
 # === End FoxBot Blaze Owner Bypass v1 ===
+
+# === FoxBot Blaze Event Thank Yous v1 ===
+_EVENT_THANK_YOU_SEEN = {}
+_EVENT_THANK_YOU_COOLDOWNS = {}
+
+def _foxbot_event_actor_name_v1(payload):
+    if not isinstance(payload, dict):
+        return "viewer"
+
+    candidates = [
+        payload.get("sender"),
+        payload.get("user"),
+        payload.get("viewer"),
+        payload.get("follower"),
+        payload.get("subscriber"),
+        payload.get("gifter"),
+        payload.get("raider"),
+        payload.get("from"),
+    ]
+
+    for obj in candidates:
+        if isinstance(obj, dict):
+            name = (
+                obj.get("username")
+                or obj.get("displayName")
+                or obj.get("display_name")
+                or obj.get("name")
+            )
+            if name:
+                return str(name).strip().lstrip("@")
+
+    for key in (
+        "username",
+        "displayName",
+        "display_name",
+        "viewerUsername",
+        "followerUsername",
+        "subscriberUsername",
+        "gifterUsername",
+        "raiderUsername",
+    ):
+        value = payload.get(key)
+        if value:
+            return str(value).strip().lstrip("@")
+
+    return "viewer"
+
+
+def _foxbot_event_amount_v1(payload):
+    if not isinstance(payload, dict):
+        return ""
+
+    for key in ("amount", "count", "quantity", "giftCount", "viewerCount", "raidCount"):
+        value = payload.get(key)
+        if value not in (None, "", 0):
+            return str(value).strip()
+
+    return ""
+
+
+def _foxbot_event_id_v1(event_type, payload):
+    if not isinstance(payload, dict):
+        return ""
+
+    for key in (
+        "eventId",
+        "id",
+        "messageId",
+        "followId",
+        "subscriptionId",
+        "voteId",
+        "raidId",
+        "createdAt",
+    ):
+        value = payload.get(key)
+        if value:
+            return f"{event_type}:{value}"
+
+    actor = _foxbot_event_actor_name_v1(payload)
+    return f"{event_type}:{actor}:{payload.get('createdAt', '')}"
+
+
+def _foxbot_event_thank_you_reply_v1(event_type, payload):
+    username = _foxbot_event_actor_name_v1(payload)
+    amount = _foxbot_event_amount_v1(payload)
+
+    event_type = str(event_type or "").strip().lower()
+
+    if event_type == "channel.follow":
+        return f"🦊 Welcome @{username}! Thanks for following the FoxBot-powered stream!"
+
+    if event_type == "channel.vote":
+        return f"🔥 Thanks for the vote, @{username}! FoxBot sees you."
+
+    if event_type == "channel.subscribe":
+        return f"🚀 Massive thanks for subscribing, @{username}! You just powered up the Fox Den."
+
+    if event_type == "channel.subscription.gift":
+        if amount:
+            return f"🎁 @{username} just gifted {amount} sub(s)! Huge Fox Den energy!"
+        return f"🎁 @{username} just gifted a sub! Huge Fox Den energy!"
+
+    if event_type == "channel.raid":
+        if amount:
+            return f"⚔️ @{username} just raided with {amount} viewer(s)! Welcome raiders!"
+        return f"⚔️ @{username} just raided the stream! Welcome raiders!"
+
+    if event_type in ("channel.tip", "channel.tipping", "channel.donation"):
+        if amount:
+            return f"💰 Huge thanks @{username} for the {amount} tip! FoxBot appreciates you!"
+        return f"💰 Huge thanks for the tip, @{username}! FoxBot appreciates you!"
+
+    return ""
+
+
+def _foxbot_maybe_event_thank_you_v1(message):
+    import time
+
+    try:
+        if not isinstance(message, dict):
+            return {"ok": False, "reason": "message not dict"}
+
+        metadata = message.get("metadata") or {}
+        payload = message.get("payload") or {}
+
+        event_type = (
+            metadata.get("subscriptionType")
+            or metadata.get("subscription_type")
+            or payload.get("type")
+            or ""
+        )
+
+        event_type = str(event_type or "").strip().lower()
+
+        supported = {
+            "channel.follow",
+            "channel.vote",
+            "channel.subscribe",
+            "channel.subscription.gift",
+            "channel.raid",
+            "channel.tip",
+            "channel.tipping",
+            "channel.donation",
+        }
+
+        if event_type not in supported:
+            return {"ok": False, "reason": f"unsupported event: {event_type}"}
+
+        actor = _foxbot_event_actor_name_v1(payload).lower().lstrip("@")
+        bot_handle = str(env("FOXBOT_BLAZE_PROFILE_HANDLE", "@foxbotai")).strip().lower().lstrip("@")
+
+        if actor == bot_handle:
+            return {"ok": False, "reason": "ignored bot self-event"}
+
+        event_id = _foxbot_event_id_v1(event_type, payload)
+        now = time.time()
+
+        if event_id:
+            if event_id in _EVENT_THANK_YOU_SEEN:
+                return {"ok": False, "reason": "duplicate event"}
+            _EVENT_THANK_YOU_SEEN[event_id] = now
+
+        cooldown_seconds = float(env("FOXBOT_EVENT_REPLY_COOLDOWN_SECONDS", "20") or "20")
+        cooldown_key = f"{event_type}:{actor}"
+        last_sent = _EVENT_THANK_YOU_COOLDOWNS.get(cooldown_key, 0)
+
+        if now - last_sent < cooldown_seconds:
+            return {"ok": False, "reason": f"cooldown active: {cooldown_key}"}
+
+        reply = _foxbot_event_thank_you_reply_v1(event_type, payload)
+
+        if not reply:
+            return {"ok": False, "reason": "no reply generated"}
+
+        result = {
+            "ok": True,
+            "event_type": event_type,
+            "actor": actor,
+            "reply": reply,
+            "auto_send_enabled": _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False),
+        }
+
+        STATE["last_event_reply_preview"] = result
+
+        if not _foxbot_bool_env_v1("FOXBOT_BLAZE_AUTO_SEND", False):
+            result["sent"] = False
+            result["reason"] = "auto-send disabled dry run"
+            add_log(f"event thank-you dry run: {reply}")
+            return result
+
+        send_result = _foxbot_live_send_chat_v2(reply)
+        result["send_result"] = send_result
+        result["sent"] = bool(send_result.get("sent"))
+
+        STATE["last_event_reply_attempt"] = result
+
+        if send_result.get("sent"):
+            _EVENT_THANK_YOU_COOLDOWNS[cooldown_key] = now
+            STATE["replies_sent"] = int(STATE.get("replies_sent") or 0) + 1
+            add_log(f"event thank-you sent: {event_type} / {actor}")
+        else:
+            STATE["last_error"] = f"event thank-you send failed: {send_result}"
+            add_log(STATE["last_error"])
+
+        return result
+
+    except Exception as e:
+        STATE["last_error"] = f"event thank-you failed: {e}"
+        add_log(STATE["last_error"])
+        return {"ok": False, "error": str(e)}
+# === End FoxBot Blaze Event Thank Yous v1 ===
 
