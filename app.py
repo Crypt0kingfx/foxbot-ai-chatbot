@@ -8736,3 +8736,67 @@ async def foxbot_connect_command_engine_v1(request, call_next):
     return await call_next(request)
 # === End FoxBot Connect Command Engine v1 ===
 
+# === Blaze Chat Bridge v1 ===
+# Public bridge for Blaze chat/webhook/listener messages.
+# External listener can POST: { "username": "viewer", "message": "!connect" }
+@app.post("/api/blaze/chat")
+async def blaze_chat_bridge_v1(payload: dict):
+    username = (
+        payload.get("username")
+        or payload.get("handle")
+        or payload.get("user")
+        or payload.get("viewer")
+        or payload.get("display_name")
+        or "viewer"
+    )
+
+    message = (
+        payload.get("message")
+        or payload.get("text")
+        or payload.get("content")
+        or ""
+    )
+
+    username = str(username).replace("@", "").strip() or "viewer"
+    message = str(message).strip()
+
+    if not message:
+        return {
+            "ok": False,
+            "handled": False,
+            "error": "Missing message"
+        }
+
+    result = chat(message=message, username=username)
+
+    reply = ""
+    if isinstance(result, dict):
+        reply = result.get("response") or result.get("reply") or ""
+
+    return {
+        "ok": True,
+        "handled": bool(reply),
+        "username": username,
+        "message": message,
+        "reply": reply,
+        "chat_result": result
+    }
+
+
+@app.get("/api/blaze/chat/test")
+def blaze_chat_bridge_test_v1(message: str = "!connect", username: str = "testviewer"):
+    result = chat(message=message, username=username)
+
+    reply = ""
+    if isinstance(result, dict):
+        reply = result.get("response") or result.get("reply") or ""
+
+    return {
+        "ok": True,
+        "username": username,
+        "message": message,
+        "reply": reply,
+        "chat_result": result
+    }
+# === End Blaze Chat Bridge v1 ===
+
