@@ -20098,3 +20098,85 @@ def foxbot_blaze_native_live_reply_test_v2(
     }
 # === End FoxBot Blaze Live Reply Test Route v2 ===
 
+# === FoxBot Blaze Event Thanks Test Route v1 ===
+@app.get("/api/blaze/native/event-thanks-test")
+def foxbot_blaze_native_event_thanks_test_v1(
+    event_type: str = "channel.follow",
+    username: str = "crypt0k1ng96",
+    send: bool = False,
+    amount: str = ""
+):
+    import time
+    from services import blaze_native_connector as native
+
+    event_type = str(event_type or "channel.follow").strip()
+
+    payload = {
+        "eventId": f"event-thanks-test-{event_type}-{username}-{time.time()}",
+        "channelId": "test",
+        "sender": {
+            "username": username,
+            "displayName": username
+        },
+        "user": {
+            "username": username,
+            "displayName": username
+        },
+        "follower": {
+            "username": username,
+            "displayName": username
+        },
+        "subscriber": {
+            "username": username,
+            "displayName": username
+        },
+        "gifter": {
+            "username": username,
+            "displayName": username
+        },
+        "raider": {
+            "username": username,
+            "displayName": username
+        },
+        "amount": amount,
+        "count": amount,
+        "createdAt": str(time.time())
+    }
+
+    fake_event = {
+        "metadata": {
+            "messageType": "notification",
+            "subscriptionType": event_type
+        },
+        "payload": payload
+    }
+
+    if not hasattr(native, "_foxbot_event_thank_you_reply_v1"):
+        return {
+            "ok": False,
+            "error": "event thank-you helper not installed"
+        }
+
+    preview_reply = native._foxbot_event_thank_you_reply_v1(event_type, payload)
+
+    if not send:
+        return {
+            "ok": bool(preview_reply),
+            "dry_run": True,
+            "sent": False,
+            "event_type": event_type,
+            "username": username,
+            "amount": amount,
+            "reply": preview_reply,
+            "note": "Add &send=true to send this test message into live Blaze chat."
+        }
+
+    if hasattr(native, "_foxbot_maybe_event_thank_you_v1"):
+        return native._foxbot_maybe_event_thank_you_v1(fake_event)
+
+    return {
+        "ok": False,
+        "error": "event thank-you sender not installed"
+    }
+# === End FoxBot Blaze Event Thanks Test Route v1 ===
+
