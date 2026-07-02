@@ -1699,6 +1699,32 @@ def chat(message: str = "", username: str = "viewer"):
     username = username.strip() or "viewer"
     admin = is_admin(username)
 
+    # === FoxBot Connect Exact Chat Hook v1 ===
+    # Handles !connect, !profile, !rank, and !disconnect through the normal /chat route.
+    if lower_message.split(" ", 1)[0] in ["!connect", "!profile", "!rank", "!disconnect"]:
+        try:
+            foxbot_connect_result = _foxbot_connect_process_command_v1(
+                handle=username,
+                message=original_message,
+                display_name=username
+            )
+            foxbot_connect_reply = foxbot_connect_result.get("reply") or "🦊 FoxBot Connect command handled."
+            return {
+                "response": foxbot_connect_reply,
+                "reply": foxbot_connect_reply,
+                "handled": True,
+                "type": "foxbot_connect",
+                "foxbot_connect": foxbot_connect_result
+            }
+        except Exception as foxbot_connect_error:
+            return {
+                "response": f"🦊 FoxBot Connect error: {foxbot_connect_error}",
+                "reply": f"🦊 FoxBot Connect error: {foxbot_connect_error}",
+                "handled": True,
+                "type": "foxbot_connect_error"
+            }
+    # === End FoxBot Connect Exact Chat Hook v1 ===
+
     cooldown_message = check_command_cooldown(username, lower_message, admin)
     if cooldown_message:
         return {
