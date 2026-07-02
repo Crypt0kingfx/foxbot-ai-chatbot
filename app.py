@@ -8800,3 +8800,162 @@ def blaze_chat_bridge_test_v1(message: str = "!connect", username: str = "testvi
     }
 # === End Blaze Chat Bridge v1 ===
 
+# === FoxBot Connect Test Panel v1 ===
+@app.get("/foxbot-connect-test")
+@app.get("/connect-test")
+def foxbot_connect_test_panel_v1():
+    from fastapi.responses import HTMLResponse
+
+    html = """
+    <!doctype html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>FoxBot Connect Test Panel</title>
+        <style>
+            body {
+                margin: 0;
+                min-height: 100vh;
+                font-family: Arial, sans-serif;
+                background:
+                    radial-gradient(circle at top left, rgba(255,122,24,.24), transparent 35%),
+                    radial-gradient(circle at bottom right, rgba(57,255,136,.12), transparent 35%),
+                    #050807;
+                color: white;
+                padding: 32px;
+            }
+            .wrap { max-width: 980px; margin: 0 auto; }
+            .hero, .panel, .result {
+                border: 1px solid rgba(255,255,255,.14);
+                background: rgba(255,255,255,.055);
+                border-radius: 24px;
+                padding: 24px;
+                margin-bottom: 18px;
+                box-shadow: 0 22px 70px rgba(0,0,0,.28);
+            }
+            h1 { margin: 0 0 8px; font-size: 42px; }
+            .sub { opacity: .78; line-height: 1.6; }
+            label { display: block; margin: 14px 0 8px; font-weight: 700; }
+            input {
+                width: 100%;
+                box-sizing: border-box;
+                border: 1px solid rgba(255,255,255,.16);
+                background: rgba(0,0,0,.25);
+                color: white;
+                border-radius: 14px;
+                padding: 14px;
+                font-size: 16px;
+                outline: none;
+            }
+            .buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+            button, a.button {
+                border: 0;
+                border-radius: 999px;
+                padding: 12px 16px;
+                font-weight: 800;
+                cursor: pointer;
+                color: #07100b;
+                background: #ff9b3d;
+                text-decoration: none;
+                display: inline-block;
+            }
+            button.secondary, a.secondary { background: #39ff88; }
+            pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+                background: rgba(0,0,0,.28);
+                border-radius: 16px;
+                padding: 16px;
+                border: 1px solid rgba(255,255,255,.1);
+                min-height: 120px;
+            }
+            .reply {
+                font-size: 20px;
+                font-weight: 800;
+                color: #39ff88;
+                margin-top: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <div class="hero">
+                <h1>🦊 FoxBot Connect Test Panel</h1>
+                <div class="sub">
+                    Test Blaze chat commands through the live FoxBot bridge.
+                    This uses <b>POST /api/blaze/chat</b>, the same endpoint the real Blaze connector should call.
+                </div>
+                <div class="buttons">
+                    <a class="button secondary" href="/connected-creators">Connected Creators</a>
+                    <a class="button secondary" href="/admin">FoxBot Studio</a>
+                </div>
+            </div>
+
+            <div class="panel">
+                <label>Username / Blaze Handle</label>
+                <input id="username" value="testviewer">
+
+                <label>Message</label>
+                <input id="message" value="!connect">
+
+                <div class="buttons">
+                    <button onclick="sendCommand('!connect')">!connect</button>
+                    <button onclick="sendCommand('!profile')">!profile</button>
+                    <button onclick="sendCommand('!rank')">!rank</button>
+                    <button onclick="sendCommand('!disconnect')">!disconnect</button>
+                    <button class="secondary" onclick="sendCustom()">Send Custom</button>
+                </div>
+            </div>
+
+            <div class="result">
+                <h2>FoxBot Reply</h2>
+                <div id="reply" class="reply">Waiting for test...</div>
+                <h3>Raw Response</h3>
+                <pre id="raw">{}</pre>
+            </div>
+        </div>
+
+        <script>
+            async function callBridge(username, message) {
+                const replyEl = document.getElementById("reply");
+                const rawEl = document.getElementById("raw");
+
+                replyEl.textContent = "Sending...";
+                rawEl.textContent = "{}";
+
+                try {
+                    const res = await fetch("/api/blaze/chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username, message })
+                    });
+
+                    const data = await res.json();
+                    replyEl.textContent = data.reply || data.error || "No reply returned.";
+                    rawEl.textContent = JSON.stringify(data, null, 2);
+                } catch (err) {
+                    replyEl.textContent = "Error calling bridge.";
+                    rawEl.textContent = String(err);
+                }
+            }
+
+            function sendCommand(command) {
+                const username = document.getElementById("username").value || "testviewer";
+                document.getElementById("message").value = command;
+                callBridge(username, command);
+            }
+
+            function sendCustom() {
+                const username = document.getElementById("username").value || "testviewer";
+                const message = document.getElementById("message").value || "!connect";
+                callBridge(username, message);
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(html)
+# === End FoxBot Connect Test Panel v1 ===
+
