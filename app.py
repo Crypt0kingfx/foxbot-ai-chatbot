@@ -20223,7 +20223,8 @@ def foxbot_live_control_api_env_v1():
 
 @app.get("/foxbot-live-control")
 def foxbot_live_control_page_v1():
-    return """
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
 <!doctype html>
 <html>
 <head>
@@ -20377,6 +20378,6 @@ setInterval(loadStatus, 10000);
 </script>
 </body>
 </html>
-"""
+""")
 # === End FoxBot Live Control Routes v1 ===
 
