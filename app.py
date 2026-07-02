@@ -20381,3 +20381,295 @@ setInterval(loadStatus, 10000);
 """)
 # === End FoxBot Live Control Routes v1 ===
 
+# === FoxBot Control Dashboard v2 ===
+@app.get("/foxbot-control")
+def foxbot_control_dashboard_v2():
+    from fastapi.responses import HTMLResponse
+
+    return HTMLResponse(content="""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FoxBot Control Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #050805;
+      --panel: #0b110c;
+      --panel2: rgba(255,255,255,.045);
+      --border: rgba(255,255,255,.12);
+      --orange: #ff7a18;
+      --green: #39ff88;
+      --red: #ff3b3b;
+      --muted: #a9b9ae;
+      --text: #f5fff7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top right, rgba(255,122,24,.14), transparent 28%),
+        radial-gradient(circle at bottom left, rgba(57,255,136,.10), transparent 32%),
+        var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+    .wrap {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+    .hero {
+      border: 1px solid rgba(255,122,24,.35);
+      background: linear-gradient(135deg, rgba(255,122,24,.10), rgba(57,255,136,.05)), var(--panel);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.38);
+    }
+    h1 { margin: 0; font-size: 36px; letter-spacing: -.04em; }
+    h2 { margin: 24px 0 12px; }
+    .sub { color: var(--muted); margin-top: 8px; }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .pill {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      border-radius: 999px;
+      padding: 9px 13px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 22px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      border-radius: 18px;
+      padding: 16px;
+      min-height: 100px;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .value {
+      font-size: 25px;
+      font-weight: 900;
+      margin-top: 9px;
+    }
+    .good { color: var(--green); }
+    .bad { color: var(--red); }
+    .warn { color: var(--orange); }
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 22px 0 8px;
+    }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 17px;
+      font-size: 15px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: transform .08s ease, opacity .08s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(1px); opacity: .86; }
+    .on { background: var(--green); color: #031006; }
+    .off { background: var(--red); color: white; }
+    .env { background: var(--orange); color: #160b00; }
+    .white { background: white; color: #050505; }
+    .dark { background: #182019; color: #e9fff0; border: 1px solid var(--border); }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #020402;
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 16px;
+      padding: 16px;
+      color: #c7ffd9;
+      max-height: 430px;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .grid { grid-template-columns: 1fr; }
+      .wrap { padding: 16px; }
+      h1 { font-size: 30px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="topbar">
+        <div>
+          <h1>🦊 FoxBot Control Dashboard</h1>
+          <div class="sub">Live Blaze controls for @foxbotai and crypt0k1ng96.</div>
+        </div>
+        <div class="pill" id="updated">Loading...</div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="label">Live Replies</div>
+          <div class="value" id="auto">Loading...</div>
+          <div class="small" id="autoSource"></div>
+        </div>
+        <div class="card">
+          <div class="label">Listener</div>
+          <div class="value" id="listener">Loading...</div>
+          <div class="small" id="session"></div>
+        </div>
+        <div class="card">
+          <div class="label">Chat Events</div>
+          <div class="value" id="chatEvents">0</div>
+          <div class="small">Live chat messages received</div>
+        </div>
+        <div class="card">
+          <div class="label">Replies Sent</div>
+          <div class="value" id="replies">0</div>
+          <div class="small">Commands + events + shoutouts</div>
+        </div>
+      </div>
+
+      <h2>Controls</h2>
+      <div class="buttons">
+        <button class="on" onclick="post('/api/blaze/native/live-control/on')">Live Replies ON</button>
+        <button class="off" onclick="post('/api/blaze/native/live-control/off')">Emergency OFF</button>
+        <button class="env" onclick="post('/api/blaze/native/live-control/env')">Use Render Env</button>
+        <button class="white" onclick="post('/api/blaze/native/start')">Start Listener</button>
+        <button class="dark" onclick="post('/api/blaze/native/stop')">Stop Listener</button>
+        <button class="white" onclick="restartListener()">Restart Listener</button>
+        <button class="dark" onclick="loadAll()">Refresh</button>
+      </div>
+
+      <div class="small">
+        Emergency OFF overrides Render immediately until the app restarts or you press Live Replies ON / Use Render Env.
+      </div>
+
+      <div class="split">
+        <div>
+          <h2>Last Reply / Event</h2>
+          <pre id="replyBox">Loading...</pre>
+        </div>
+        <div>
+          <h2>Full Live Control Status</h2>
+          <pre id="statusBox">Loading...</pre>
+        </div>
+      </div>
+
+      <h2>Native Listener Status</h2>
+      <pre id="nativeBox">Loading...</pre>
+    </div>
+  </div>
+
+<script>
+function pretty(obj) {
+  return JSON.stringify(obj, null, 2);
+}
+
+function setHtml(id, value) {
+  document.getElementById(id).innerHTML = value;
+}
+
+function setText(id, value) {
+  document.getElementById(id).textContent = value;
+}
+
+async function getJson(url) {
+  const res = await fetch(url);
+  return await res.json();
+}
+
+async function post(url) {
+  setText('updated', 'Working...');
+  const res = await fetch(url, { method: 'POST' });
+  const data = await res.json();
+  setText('statusBox', pretty(data));
+  await new Promise(r => setTimeout(r, 700));
+  await loadAll();
+}
+
+async function restartListener() {
+  setText('updated', 'Restarting listener...');
+  await fetch('/api/blaze/native/stop', { method: 'POST' });
+  await new Promise(r => setTimeout(r, 3000));
+  await fetch('/api/blaze/native/start', { method: 'POST' });
+  await new Promise(r => setTimeout(r, 1200));
+  await loadAll();
+}
+
+async function loadAll() {
+  try {
+    const live = await getJson('/api/blaze/native/live-control');
+    const native = await getJson('/api/blaze/native/status');
+
+    const auto = live.auto_send_effective;
+    setHtml('auto', auto ? '<span class="good">ON</span>' : '<span class="bad">OFF</span>');
+    setText('autoSource', 'source: ' + (live.source || 'unknown'));
+
+    const running = native?.state?.running;
+    const connected = native?.state?.connected;
+
+    setHtml('listener', running && connected ? '<span class="good">CONNECTED</span>' : '<span class="bad">CHECK</span>');
+    setText('session', native?.state?.session_id ? ('session: ' + native.state.session_id) : 'no session');
+
+    setText('chatEvents', native?.state?.chat_messages_received ?? live.chat_messages_received ?? 0);
+    setText('replies', native?.state?.replies_sent ?? live.replies_sent ?? 0);
+
+    const replySummary = {
+      last_reply_attempt: live.last_reply_attempt || native?.state?.last_reply_attempt || null,
+      last_event_reply_attempt: live.last_event_reply_attempt || native?.state?.last_event_reply_attempt || null,
+      last_role_shoutout_attempt: live.last_role_shoutout_attempt || native?.state?.last_role_shoutout_attempt || null,
+      last_error: live.last_error || native?.state?.last_error || null
+    };
+
+    setText('replyBox', pretty(replySummary));
+    setText('statusBox', pretty(live));
+    setText('nativeBox', pretty(native));
+    setText('updated', 'Updated: ' + new Date().toLocaleTimeString());
+  } catch (err) {
+    setHtml('listener', '<span class="bad">ERROR</span>');
+    setText('statusBox', String(err));
+    setText('updated', 'Error loading status');
+  }
+}
+
+loadAll();
+setInterval(loadAll, 10000);
+</script>
+</body>
+</html>
+""")
+# === End FoxBot Control Dashboard v2 ===
+
