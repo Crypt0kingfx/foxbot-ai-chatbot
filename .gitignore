@@ -6,3 +6,30 @@ __pycache__/
 .DS_Store
 foxbot_data.json
 foxbot_data.json.tmp
+
+# FoxBot local clutter
+logs/
+backups/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# FoxBot temporary inspection/test files
+foxbot_listener_inspection.txt
+foxbot_live_hook_targets.txt
+blaze_listener_response_check.txt
+inspect_*.py
+patch_*.py
+test_*.py
+
+# FoxBot backup files
+app_backup_*.py
+foxbot-studio_backup_*.js
+foxbot_studio_backup_*.html
+
+# Virtual environments
+.venv/
+venv/
+env/
