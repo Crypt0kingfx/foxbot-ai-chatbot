@@ -472,11 +472,13 @@ def start_listener(event_handler=None):
         add_log(STATE["last_error"])
 
     @sio.on("eventsub")
-    def on_eventsub(message):
+    def on_eventsub(message, *extra):
         STATE["events_received"] += 1
         STATE["last_event"] = message
 
         parsed = parse_blaze_event(message)
+        if extra:
+            add_log(f"eventsub extra args: {extra}")
         add_log(f"eventsub received: {parsed.get('kind')} / {parsed.get('raw_type')}")
 
         if parsed.get("kind") == "session_welcome":
