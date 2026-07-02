@@ -33,8 +33,29 @@ EVENT_TYPES = [
     "stream.offline",
 ]
 
+def _saved_oauth_tokens():
+    try:
+        path = Path("data") / "blaze_oauth_tokens.json"
+        if not path.exists():
+            return {}
+        return json.loads(path.read_text(encoding="utf-8") or "{}")
+    except Exception:
+        return {}
+
 def env(name, default=""):
-    return os.getenv(name, default)
+    value = os.getenv(name)
+    if value:
+        return value
+
+    tokens = _saved_oauth_tokens()
+
+    if name == "BLAZE_ACCESS_TOKEN":
+        return tokens.get("accessToken") or tokens.get("access_token") or default
+
+    if name == "BLAZE_REFRESH_TOKEN":
+        return tokens.get("refreshToken") or tokens.get("refresh_token") or default
+
+    return default
 
 def bot_profile_handle():
     handle = env("FOXBOT_BLAZE_PROFILE_HANDLE", "@FoxBotStudio").strip()

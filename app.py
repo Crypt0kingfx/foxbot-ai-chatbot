@@ -9188,3 +9188,290 @@ def foxbot_connect_start_page_v1():
     return HTMLResponse(html)
 # === End FoxBot Native Blaze Compatibility Routes v1 ===
 
+# === FoxBot Blaze OAuth Routes v1 ===
+# FoxBot-only Blaze OAuth setup for @foxbotai.
+_FOXBOT_BLAZE_OAUTH_PENDING = {}
+
+def _foxbot_blaze_oauth_post_json_v1(url, payload, timeout=15):
+    import json
+    import urllib.request
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"content-type": "application/json"},
+        method="POST"
+    )
+
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        raw = res.read().decode("utf-8", errors="replace")
+        return json.loads(raw or "{}")
+
+
+def _foxbot_blaze_oauth_mask_v1(value):
+    value = str(value or "")
+    if len(value) <= 12:
+        return "***" if value else ""
+    return value[:6] + "..." + value[-6:]
+
+
+def _foxbot_blaze_oauth_save_tokens_v1(tokens):
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    path = Path("data") / "blaze_oauth_tokens.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            existing = {}
+
+    merged = dict(existing)
+    merged.update(tokens or {})
+    merged["saved_at"] = datetime.now(timezone.utc).isoformat()
+
+    path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    return merged
+
+
+@app.get("/auth/blaze/login")
+def foxbot_blaze_oauth_login_v1():
+    import os
+    import time
+    from fastapi.responses import HTMLResponse, RedirectResponse
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = os.getenv(
+        "BLAZE_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
+    ).strip()
+
+    if not client_id or not client_secret:
+        return HTMLResponse(
+            "<h1>FoxBot Blaze OAuth Missing Config</h1>"
+            "<p>Add BLAZE_CLIENT_ID, BLAZE_CLIENT_SECRET, and BLAZE_REDIRECT_URI in Render first.</p>",
+            status_code=500
+        )
+
+    scopes = ["users.read", "offline.access", "channel.moderate", "users.bot"]
+
+    try:
+        data = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/generate-auth-url",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "redirectUri": redirect_uri,
+                "scopes": scopes
+            }
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f"<h1>FoxBot Blaze OAuth Error</h1><p>Could not generate auth URL.</p><pre>{e}</pre>",
+            status_code=500
+        )
+
+    state = data.get("state")
+    code_verifier = data.get("codeVerifier")
+    url = data.get("url")
+
+    if not state or not code_verifier or not url:
+        return HTMLResponse(
+            f"<h1>FoxBot Blaze OAuth Error</h1><p>Blaze did not return state/codeVerifier/url.</p><pre>{data}</pre>",
+            status_code=500
+        )
+
+    _FOXBOT_BLAZE_OAUTH_PENDING[state] = {
+        "codeVerifier": code_verifier,
+        "redirectUri": redirect_uri,
+        "created_at": time.time()
+    }
+
+    return RedirectResponse(url)
+
+
+@app.get("/auth/blaze/callback")
+def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
+    import json
+    import os
+    from fastapi.responses import HTMLResponse
+
+    if not code:
+        return HTMLResponse("<h1>FoxBot Blaze OAuth Error</h1><p>No code received.</p>", status_code=400)
+
+    pending = _FOXBOT_BLAZE_OAUTH_PENDING.get(state)
+
+    if not pending:
+        return HTMLResponse(
+            "<h1>FoxBot Blaze OAuth Error</h1>"
+            "<p>OAuth state was not found. Open /auth/blaze/login again and complete login in the same browser session.</p>",
+            status_code=400
+        )
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = pending.get("redirectUri") or os.getenv(
+        "BLAZE_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
+    ).strip()
+
+    try:
+        tokens = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/token",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "code": code,
+                "codeVerifier": pending.get("codeVerifier"),
+                "redirectUri": redirect_uri,
+                "grantType": "authorization_code"
+            }
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f"<h1>FoxBot Blaze OAuth Token Error</h1><p>Could not exchange code for token.</p><pre>{e}</pre>",
+            status_code=500
+        )
+
+    _FOXBOT_BLAZE_OAUTH_PENDING.pop(state, None)
+    saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+
+    access_token = saved.get("accessToken") or saved.get("access_token") or ""
+    refresh_token = saved.get("refreshToken") or saved.get("refresh_token") or ""
+
+    env_text = (
+        "BLAZE_ACCESS_TOKEN=" + access_token + "\n"
+        "BLAZE_REFRESH_TOKEN=" + refresh_token
+    )
+
+    html = f"""
+    <!doctype html>
+    <html>
+    <head>
+        <title>FoxBot Blaze OAuth Complete</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; background: #050807; color: white; padding: 32px; }}
+            .card {{ max-width: 980px; margin: 0 auto; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); border-radius: 24px; padding: 28px; }}
+            h1 {{ color: #39ff88; }}
+            textarea {{ width: 100%; min-height: 160px; background: #111; color: #39ff88; border: 1px solid #333; border-radius: 12px; padding: 14px; }}
+            code, pre {{ color: #ff9b3d; }}
+            a {{ color: #39ff88; }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🦊 FoxBot Blaze OAuth Complete</h1>
+            <p>FoxBot received and saved the Blaze OAuth tokens on this Render instance.</p>
+
+            <h2>Token Check</h2>
+            <p><b>Access token:</b> {_foxbot_blaze_oauth_mask_v1(access_token)}</p>
+            <p><b>Refresh token:</b> {_foxbot_blaze_oauth_mask_v1(refresh_token)}</p>
+
+            <h2>Copy these into Render Environment</h2>
+            <p>Do not share these publicly. Add them to <b>Render → foxbot-ai-chatbot → Environment</b>.</p>
+            <textarea readonly>{env_text}</textarea>
+
+            <h2>Next</h2>
+            <ol>
+                <li>Add the two variables above to Render.</li>
+                <li>Keep <code>FOXBOT_BLAZE_AUTO_SEND=false</code> for now.</li>
+                <li>Redeploy.</li>
+                <li>Open <a href="/api/blaze/native/status">/api/blaze/native/status</a>.</li>
+            </ol>
+        </div>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(html)
+
+
+@app.get("/api/blaze/oauth/status")
+def foxbot_blaze_oauth_status_v1():
+    import os
+    import json
+    from pathlib import Path
+
+    token_path = Path("data") / "blaze_oauth_tokens.json"
+    saved = {}
+
+    if token_path.exists():
+        try:
+            saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            saved = {}
+
+    access = os.getenv("BLAZE_ACCESS_TOKEN") or saved.get("accessToken") or saved.get("access_token") or ""
+    refresh = os.getenv("BLAZE_REFRESH_TOKEN") or saved.get("refreshToken") or saved.get("refresh_token") or ""
+
+    return {
+        "ok": True,
+        "has_client_id": bool(os.getenv("BLAZE_CLIENT_ID")),
+        "has_client_secret": bool(os.getenv("BLAZE_CLIENT_SECRET")),
+        "redirect_uri": os.getenv("BLAZE_REDIRECT_URI", "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"),
+        "has_access_token": bool(access),
+        "has_refresh_token": bool(refresh),
+        "access_token_masked": _foxbot_blaze_oauth_mask_v1(access),
+        "refresh_token_masked": _foxbot_blaze_oauth_mask_v1(refresh),
+        "saved_token_file_exists": token_path.exists(),
+    }
+
+
+@app.post("/api/blaze/oauth/refresh")
+def foxbot_blaze_oauth_refresh_v1():
+    import os
+    import json
+    from pathlib import Path
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+
+    token_path = Path("data") / "blaze_oauth_tokens.json"
+    saved = {}
+
+    if token_path.exists():
+        try:
+            saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            saved = {}
+
+    refresh_token = os.getenv("BLAZE_REFRESH_TOKEN") or saved.get("refreshToken") or saved.get("refresh_token") or ""
+
+    if not client_id or not client_secret or not refresh_token:
+        return {
+            "ok": False,
+            "error": "Missing BLAZE_CLIENT_ID, BLAZE_CLIENT_SECRET, or BLAZE_REFRESH_TOKEN."
+        }
+
+    try:
+        tokens = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/refresh",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "refreshToken": refresh_token
+            }
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e)
+        }
+
+    saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+
+    return {
+        "ok": True,
+        "has_access_token": bool(saved.get("accessToken") or saved.get("access_token")),
+        "has_refresh_token": bool(saved.get("refreshToken") or saved.get("refresh_token")),
+        "access_token_masked": _foxbot_blaze_oauth_mask_v1(saved.get("accessToken") or saved.get("access_token")),
+        "refresh_token_masked": _foxbot_blaze_oauth_mask_v1(saved.get("refreshToken") or saved.get("refresh_token")),
+    }
+# === End FoxBot Blaze OAuth Routes v1 ===
+
