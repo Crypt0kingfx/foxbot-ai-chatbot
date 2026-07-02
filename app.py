@@ -1,3 +1,4 @@
+from fastapi import Request
 ﻿
 from services import blaze_listener
 from services.recognition_engine import studio_recognition_response as service_studio_recognition_response
@@ -9310,11 +9311,43 @@ def foxbot_blaze_oauth_login_v1():
         "created_at": time.time()
     })
 
-    return RedirectResponse(url)
+    response = RedirectResponse(url)
+
+    # FoxBot OAuth cookie state v4
+    # Keeps the exact state/codeVerifier paired through the browser redirect.
+    try:
+        response.set_cookie(
+            "foxbot_oauth_state",
+            state,
+            max_age=900,
+            httponly=True,
+            secure=True,
+            samesite="lax"
+        )
+        response.set_cookie(
+            "foxbot_oauth_verifier",
+            code_verifier,
+            max_age=900,
+            httponly=True,
+            secure=True,
+            samesite="lax"
+        )
+        response.set_cookie(
+            "foxbot_oauth_redirect",
+            redirect_uri,
+            max_age=900,
+            httponly=True,
+            secure=True,
+            samesite="lax"
+        )
+    except Exception:
+        pass
+
+    return response
 
 
 @app.get("/auth/blaze/callback")
-def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
+def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str = ""):
     import json
     import os
     from fastapi.responses import HTMLResponse
@@ -9322,7 +9355,21 @@ def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
     if not code:
         return HTMLResponse("<h1>FoxBot Blaze OAuth Error</h1><p>No code received.</p>", status_code=400)
 
-    pending = _foxbot_oauth_get_pending_v2(state)
+    pending = _foxbot_oauth_get_pending_v2(state) if "_foxbot_oauth_get_pending_v2" in globals() else _FOXBOT_BLAZE_OAUTH_PENDING.get(state)
+
+    if not pending:
+        try:
+            cookie_state = request.cookies.get("foxbot_oauth_state")
+            cookie_verifier = request.cookies.get("foxbot_oauth_verifier")
+            cookie_redirect = request.cookies.get("foxbot_oauth_redirect")
+
+            if cookie_state == state and cookie_verifier:
+                pending = {
+                    "codeVerifier": cookie_verifier,
+                    "redirectUri": cookie_redirect
+                }
+        except Exception:
+            pass
 
     if not pending:
         return HTMLResponse(
@@ -9339,14 +9386,20 @@ def foxbot_blaze_oauth_callback_v1(code: str = "", state: str = ""):
     ).strip()
 
     try:
-        tokens, exchange_style = _foxbot_blaze_exchange_code_v3(
-            client_id,
-            client_secret,
-            code,
-            pending.get("codeVerifier"),
-            redirect_uri
+        # Exact Blaze/BLAZEIAN-style token exchange.
+        # Do not try multiple formats here because the authorization code is one-time use.
+        tokens = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/token",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "code": code,
+                "codeVerifier": pending.get("codeVerifier"),
+                "redirectUri": redirect_uri,
+                "grantType": "authorization_code"
+            }
         )
-        tokens["exchange_style"] = exchange_style
+        tokens["exchange_style"] = "json_camel_grant_cookie_state"
     except Exception as e:
         return HTMLResponse(
             f"<h1>FoxBot Blaze OAuth Token Error</h1><p>Could not exchange code for token.</p><pre>{e}</pre>",
