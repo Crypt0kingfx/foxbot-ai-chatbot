@@ -2659,12 +2659,29 @@
   }
 
   async function runChat(username, message) {
-    const params = new URLSearchParams({
-      username,
-      message
+    const res = await fetch("/api/foxbot/admin-command", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        username,
+        message,
+        send_to_blaze: true
+      })
     });
 
-    return await getText("/chat?" + params.toString());
+    const text = await res.text();
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return {
+        ok: res.ok,
+        status: res.status,
+        text
+      };
+    }
   }
 
   async function refreshEconomy() {
