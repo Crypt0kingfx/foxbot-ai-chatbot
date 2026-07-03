@@ -1,3 +1,18 @@
+
+
+# === FoxBot Force Shop Emoji Response v1 ===
+def foxbot_clean_shop_response_v1():
+    return (
+        "FoxBot Reward Shop: "
+        "hug \U0001F917 10 FoxCoins | "
+        "hype \U0001F525 25 FoxCoins | "
+        "flex \U0001F4AA 50 FoxCoins | "
+        "mysterybox \U0001F381 75 FoxCoins | "
+        "sponsor \U0001F48E 150 FoxCoins | "
+        "Use !redeem rewardname"
+    )
+# === End FoxBot Force Shop Emoji Response v1 ===
+
 from fastapi import Request
 
 
@@ -20684,7 +20699,10 @@ async def foxbot_admin_command_send_v1(payload: dict):
         return {"ok": False, "error": "Missing message"}
 
     try:
-        result = chat(message=message, username=username)
+        if message.lower().strip() in {"!shop", "!rewards", "!rewardshop"}:
+            result = {"response": foxbot_clean_shop_response_v1()}
+        else:
+            result = chat(message=message, username=username)
     except Exception as e:
         return {
             "ok": False,
