@@ -20937,7 +20937,7 @@ def foxbot_rewards_v2_redeem_text(username, reward_name):
     foxbot_rewards_v2_write_json(path, redemptions)
 
     return (
-        f"{icon} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']} FoxCoins! "
+        f"{icon} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']}! "
         f"\u2728 Status: pending streamer approval \U0001F9E1 | {reward['description']}"
     )
 
@@ -21084,7 +21084,7 @@ def foxbot_safe_rewards21_redeem_text_v1(username, reward_name):
     path.write_text(_foxbot_safe_rewards_json.dumps(redemptions, indent=2, ensure_ascii=False), encoding="utf-8")
 
     return (
-        f"{reward['emoji']} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']} FoxCoins! "
+        f"{reward['emoji']} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']}! "
         f"\u2728 Pending streamer approval \U0001F9E1 | {reward['description']}"
     )
 
