@@ -2170,6 +2170,206 @@ function foxbotLiveCardBotControlOnlyGuard() {
 </script>
 <!-- End FoxBot Studio Live Blaze Card v1 -->
 
+
+<!-- FoxBot Studio Real Bot Control Wiring v1 -->
+<script>
+(function () {
+  const MARKER = "FoxBot Studio Real Bot Control Wiring v1";
+  console.log(MARKER + " loaded");
+
+  function getOutputBox() {
+    return (
+      document.getElementById("controlOut") ||
+      document.getElementById("diagnosticsOutput") ||
+      document.querySelector(".out") ||
+      null
+    );
+  }
+
+  function writeOut(title, data) {
+    const box = getOutputBox();
+    const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+
+    if (box) {
+      box.textContent = title + "\n\n" + payload;
+    }
+
+    console.log(title, data);
+  }
+
+  async function readResponse(res) {
+    const text = await res.text();
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return {
+        ok: res.ok,
+        status: res.status,
+        text: text
+      };
+    }
+  }
+
+  async function api(method, url) {
+    const res = await fetch(url, { method });
+    const data = await readResponse(res);
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      url,
+      data
+    };
+  }
+
+  async function refreshNativeStatus() {
+    try {
+      const status = await api("GET", "/api/blaze/native/status");
+      writeOut("FoxBot Native Status", status.data);
+
+      if (typeof window.loadStatus === "function") {
+        try { window.loadStatus(); } catch (e) {}
+      }
+
+      return status;
+    } catch (err) {
+      writeOut("Status refresh failed", String(err));
+    }
+  }
+
+  async function restartNativeListener() {
+    writeOut("Restarting FoxBot listener...", "Stopping listener...");
+    const stop = await api("POST", "/api/blaze/native/stop");
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    writeOut("Restarting FoxBot listener...", {
+      stop,
+      next: "Starting listener..."
+    });
+
+    const start = await api("POST", "/api/blaze/native/start");
+
+    await new Promise(resolve => setTimeout(resolve, 1200));
+
+    const status = await api("GET", "/api/blaze/native/status");
+
+    writeOut("FoxBot listener restarted", {
+      stop,
+      start,
+      status
+    });
+
+    return status;
+  }
+
+  async function realBotControlAction(action) {
+    const name = String(action || "").trim();
+
+    if (!name) {
+      writeOut("Missing action", { ok: false });
+      return;
+    }
+
+    try {
+      if (name === "start_bot") {
+        writeOut("Starting FoxBot native listener...", "Please wait...");
+        const result = await api("POST", "/api/blaze/native/start");
+        writeOut("Start Bot Result", result.data);
+        await refreshNativeStatus();
+        return result;
+      }
+
+      if (name === "stop_bot") {
+        writeOut("Stopping FoxBot native listener...", "Please wait...");
+        const result = await api("POST", "/api/blaze/native/stop");
+        writeOut("Stop Bot Result", result.data);
+        await refreshNativeStatus();
+        return result;
+      }
+
+      if (name === "restart_bot" || name === "restart_polling") {
+        return await restartNativeListener();
+      }
+
+      if (name === "smoke_test") {
+        const nativeStatus = await api("GET", "/api/blaze/native/status");
+        const liveControl = await api("GET", "/api/blaze/native/live-control");
+        const studioStats = await api("GET", "/api/studio/stats/live");
+
+        writeOut("FoxBot Smoke Test", {
+          nativeStatus,
+          liveControl,
+          studioStats
+        });
+
+        return { nativeStatus, liveControl, studioStats };
+      }
+
+      if (name === "clear_cache") {
+        const clearActivity = await api("POST", "/api/studio/activity/clear");
+        writeOut("Clear Cache / Activity Result", clearActivity.data);
+        return clearActivity;
+      }
+
+      if (name === "backup" || name === "save_data") {
+        const saved = await api("GET", "/save-data");
+        writeOut("Save Data / Backup Result", saved.data);
+        return saved;
+      }
+
+      // Fallback to existing Studio backend for actions we have not rewired yet.
+      const fallback = await api("POST", "/api/studio/action/" + encodeURIComponent(name));
+      writeOut("Studio Action Result: " + name, fallback.data);
+      return fallback;
+
+    } catch (err) {
+      writeOut("Action failed: " + name, String(err));
+      return {
+        ok: false,
+        action: name,
+        error: String(err)
+      };
+    }
+  }
+
+  const originalStudioAction = window.studioAction;
+
+  window.studioAction = async function(action) {
+    const actionName = String(action || "").trim();
+
+    const botControlActions = new Set([
+      "start_bot",
+      "stop_bot",
+      "restart_bot",
+      "restart_polling",
+      "clear_cache",
+      "backup",
+      "save_data",
+      "smoke_test"
+    ]);
+
+    if (botControlActions.has(actionName)) {
+      return await realBotControlAction(actionName);
+    }
+
+    if (typeof originalStudioAction === "function") {
+      try {
+        return await originalStudioAction.apply(this, arguments);
+      } catch (err) {
+        console.warn("Original studioAction failed; trying fallback API", err);
+      }
+    }
+
+    return await realBotControlAction(actionName);
+  };
+
+  window.foxbotRealBotControlAction = realBotControlAction;
+})();
+</script>
+<!-- End FoxBot Studio Real Bot Control Wiring v1 -->
+
 </body>
 </html>
 
