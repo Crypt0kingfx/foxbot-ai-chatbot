@@ -4,11 +4,11 @@
 def foxbot_shop_emoji_response_v2():
     return (
         "FoxBot Reward Shop: "
-        "hug \U0001F917 10 | "
-        "hype \U0001F525 25 | "
-        "flex \U0001F4AA 50 | "
-        "mysterybox \U0001F381 75 | "
-        "sponsor \U0001F48E 150 | "
+        "hug \U0001F917 10 FoxCoins | "
+        "hype \U0001F525 25 FoxCoins | "
+        "flex \U0001F4AA 50 FoxCoins | "
+        "mysterybox \U0001F381 75 FoxCoins | "
+        "sponsor \U0001F48E 150 FoxCoins | "
         "Use !redeem rewardname"
     )
 
@@ -31,11 +31,11 @@ def foxbot_fix_shop_reply_v2(message, reply):
 def foxbot_clean_shop_response_v1():
     return (
         "FoxBot Reward Shop: "
-        "hug \U0001F917 10 | "
-        "hype \U0001F525 25 | "
-        "flex \U0001F4AA 50 | "
-        "mysterybox \U0001F381 75 | "
-        "sponsor \U0001F48E 150 | "
+        "hug \U0001F917 10 FoxCoins | "
+        "hype \U0001F525 25 FoxCoins | "
+        "flex \U0001F4AA 50 FoxCoins | "
+        "mysterybox \U0001F381 75 FoxCoins | "
+        "sponsor \U0001F48E 150 FoxCoins | "
         "Use !redeem rewardname"
     )
 # === End FoxBot Force Shop Emoji Response v1 ===
@@ -14288,7 +14288,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(50)
 
-        studio_log("? Test follow detected — +50 reward triggered.")
+        studio_log("? Test follow detected — +50 FoxCoins reward triggered.")
 
 
 
@@ -14298,7 +14298,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(25)
 
-        studio_log("??? Test vote detected — +25 reward triggered.")
+        studio_log("??? Test vote detected — +25 FoxCoins reward triggered.")
 
 
 
@@ -14308,7 +14308,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(250)
 
-        studio_log("?? Test sub detected — +250 reward triggered.")
+        studio_log("?? Test sub detected — +250 FoxCoins reward triggered.")
 
 
 
@@ -15152,7 +15152,7 @@ async def foxbot_demo_activity():
 
     samples = [
 
-        ("follow", "Ryan followed", "+50", "⭐"),
+        ("follow", "Ryan followed", "+50 FoxCoins", "⭐"),
 
         ("sub", "Mike subscribed", "Recognition sent", "🔥"),
 
@@ -16550,7 +16550,7 @@ def foxbot_connected_chat_reply(handle: str, message: str):
 
             foxbot_award_creator_foxcoins(handle, 25, "connect_bonus")
 
-            return f"🦊 @{handle} is now connected to FoxBot! +25. Welcome to the Fox Spirit Network!"
+            return f"🦊 @{handle} is now connected to FoxBot! +25 FoxCoins. Welcome to the Fox Spirit Network!"
 
         return f"🦊 @{handle}, I could not connect your account yet."
 
@@ -17270,7 +17270,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
             "creator": creator,
 
-            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25. Use !profile to view your FoxBot profile."
+            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
 
         }
 
@@ -20891,7 +20891,7 @@ def foxbot_rewards_v2_shop_text(page="main"):
     parts = []
     for reward in items:
         icon = foxbot_rewards_v21_fun_icon_v1(reward)
-        parts.append(f"{icon} {reward['id']} {reward['cost']}")
+        parts.append(f"{icon} {reward['id']} {reward['cost']}FC")
 
     label = labels.get(page, page.title())
 
@@ -21037,7 +21037,7 @@ def foxbot_safe_rewards21_shop_text_v1(page="main"):
     if not items:
         return "\U0001F98A\u2753 Page not found. Try !shop cheap, social, control, premium, elite, or all."
 
-    parts = [f"{r['emoji']} {r['id']} {r['cost']}" for r in items]
+    parts = [f"{r['emoji']} {r['id']} {r['cost']}FC" for r in items]
     return f"{labels.get(page, page.title())}: " + " | ".join(parts) + " | \U0001F381 Redeem: !redeem name"
 
 def foxbot_safe_rewards21_find_v1(name):
