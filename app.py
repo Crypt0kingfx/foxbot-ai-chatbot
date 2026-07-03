@@ -20726,8 +20726,9 @@ async def foxbot_admin_command_send_v1(payload: dict):
         return {"ok": False, "error": "Missing message"}
 
     try:
-        if message.lower().strip() in {"!shop", "!rewards", "!rewardshop"}:
-            result = {"response": foxbot_clean_shop_response_v1()}
+        safe_rewards_reply = foxbot_safe_rewards21_reply_v1(username, message)
+        if safe_rewards_reply is not None:
+            result = {"response": safe_rewards_reply, "source": "safe_rewards_2_1"}
         else:
             result = chat(message=message, username=username)
     except Exception as e:
@@ -20958,4 +20959,148 @@ def foxbot_rewards_v2_queue_text():
 
     return "\U0001F381\u2728 Pending Reward Queue: " + " | ".join(parts)
 # === End FoxBot Rewards Fun Emoji Skin v1 ===
+
+# === FoxBot Safe Rewards 2.1 Admin Command Hook v1 ===
+import time as _foxbot_safe_rewards_time
+import json as _foxbot_safe_rewards_json
+from pathlib import Path as _foxbot_safe_rewards_Path
+
+FOXBOT_SAFE_REWARDS_21 = [
+    {"id":"hug","emoji":"\U0001F917\U0001F49B","cost":10,"category":"cheap","name":"Fox Hug","description":"FoxBot sends a wholesome hug in chat.","aliases":["hug","foxhug"]},
+    {"id":"hype","emoji":"\U0001F525\u26A1","cost":25,"category":"cheap","name":"Hype Blast","description":"FoxBot fires up chat.","aliases":["hype","fire"]},
+    {"id":"flex","emoji":"\U0001F4AA\U0001F624","cost":50,"category":"cheap","name":"Flex Moment","description":"Viewer gets a flex shoutout.","aliases":["flex"]},
+    {"id":"hydrate","emoji":"\U0001F4A7\U0001F9CA","cost":50,"category":"cheap","name":"Hydration Check","description":"Chat reminds streamer to drink water.","aliases":["hydrate","water"]},
+    {"id":"stretch","emoji":"\U0001F9D8\u2728","cost":75,"category":"cheap","name":"Stretch Break","description":"Quick stretch break.","aliases":["stretch","break"]},
+    {"id":"foxfact","emoji":"\U0001F98A\U0001F4DC","cost":75,"category":"cheap","name":"Fox Fact","description":"Fox Spirit fact or lore line.","aliases":["foxfact","fact","lore"]},
+    {"id":"clipit","emoji":"\U0001F3AC\u2702\uFE0F","cost":100,"category":"cheap","name":"Clip This Moment","description":"Marks a clip-worthy moment.","aliases":["clipit","clip"]},
+    {"id":"lurklove","emoji":"\U0001F440\U0001F49C","cost":100,"category":"cheap","name":"Lurker Love","description":"Love for quiet viewers.","aliases":["lurk","lurklove"]},
+
+    {"id":"shoutout","emoji":"\U0001F4E3\U0001F31F","cost":500,"category":"social","name":"Stream Shoutout","description":"Full viewer shoutout.","aliases":["shoutout","so"]},
+    {"id":"socialsplug","emoji":"\U0001F517\U0001F680","cost":650,"category":"social","name":"Socials Plug","description":"Viewer gets a short socials plug.","aliases":["plug","socials"]},
+    {"id":"nickname","emoji":"\U0001F3F7\uFE0F\U0001F602","cost":800,"category":"social","name":"Temporary Nickname","description":"Temporary stream nickname.","aliases":["nickname","nick"]},
+    {"id":"poll","emoji":"\U0001F5F3\uFE0F\U0001F9E0","cost":900,"category":"social","name":"Community Poll","description":"Viewer starts a poll idea.","aliases":["poll","vote"]},
+    {"id":"mvp","emoji":"\U0001F451\U0001F525","cost":1000,"category":"social","name":"MVP Spotlight","description":"MVP spotlight message.","aliases":["mvp","spotlight"]},
+    {"id":"og","emoji":"\U0001F6E1\uFE0F\U0001F98A","cost":1000,"category":"social","name":"OG Spirit Shoutout","description":"OG recognition message.","aliases":["og","ogspirit"]},
+    {"id":"raidcaptain","emoji":"\U0001F6A9\u2694\uFE0F","cost":1200,"category":"social","name":"Raid Captain","description":"Raid Captain callout.","aliases":["raid","raidcaptain"]},
+    {"id":"vipwall","emoji":"\u2B50\U0001F3C6","cost":1500,"category":"social","name":"VIP Wall Mention","description":"VIP wall style mention.","aliases":["vip","vipwall"]},
+
+    {"id":"loadout","emoji":"\U0001F3AF\U0001F52B","cost":750,"category":"control","name":"Choose My Loadout","description":"Viewer suggests a loadout/build.","aliases":["loadout","weapon","build"]},
+    {"id":"dropzone","emoji":"\U0001FA82\U0001F4CD","cost":850,"category":"control","name":"Choose Drop Zone","description":"Viewer chooses the next drop/start spot.","aliases":["dropzone","drop"]},
+    {"id":"challenge","emoji":"\u26A1\U0001F3B2","cost":1000,"category":"control","name":"Streamer Challenge","description":"Viewer gives a safe challenge.","aliases":["challenge","mission"]},
+    {"id":"gamemode","emoji":"\U0001F579\uFE0F\U0001F3AE","cost":1250,"category":"control","name":"Choose Game Mode","description":"Viewer votes for next mode.","aliases":["gamemode","mode"]},
+    {"id":"soundalert","emoji":"\U0001F50A\U0001F923","cost":1250,"category":"control","name":"Sound Alert Moment","description":"Streamer-approved sound moment.","aliases":["sound","soundalert"]},
+    {"id":"choosegame","emoji":"\U0001F3AE\U0001F440","cost":3000,"category":"control","name":"Choose The Game","description":"Viewer suggests next game/segment.","aliases":["choosegame","game"]},
+
+    {"id":"goldenfox","emoji":"\U0001F98A\U0001F3C6\u2728","cost":2500,"category":"premium","name":"Golden Fox Callout","description":"Premium Fox Spirit shoutout.","aliases":["goldenfox","fox"]},
+    {"id":"treasurecall","emoji":"\U0001F4B0\U0001F5FA\uFE0F","cost":3000,"category":"premium","name":"Treasure Drop Call","description":"Treasure Drop style moment.","aliases":["treasure","treasurecall"]},
+    {"id":"bossboost","emoji":"\u2694\uFE0F\U0001F479","cost":3500,"category":"premium","name":"Boss Battle Boost","description":"Special boss battle boost moment.","aliases":["boss","bossboost"]},
+    {"id":"doublepoints","emoji":"\u2716\uFE0F\u0032\uFE0F\u20E3\u2728","cost":4000,"category":"premium","name":"Double Points Minute","description":"Streamer-approved double points moment.","aliases":["double","doublepoints","2x"]},
+    {"id":"giveawayboost","emoji":"\U0001F39F\uFE0F\U0001F381","cost":4500,"category":"premium","name":"Giveaway Entry Boost","description":"Bonus giveaway entry request.","aliases":["ticket","giveawayboost"]},
+    {"id":"mysterybox","emoji":"\U0001F381\u2753","cost":5000,"category":"premium","name":"Mystery Box","description":"Random fun reward chosen by streamer.","aliases":["box","mysterybox"]},
+
+    {"id":"sponsor","emoji":"\U0001F48E\U0001F4E2","cost":10000,"category":"elite","name":"Sponsor Spotlight","description":"Premium sponsor-style spotlight.","aliases":["sponsor","gem"]},
+    {"id":"producer","emoji":"\U0001F3A5\U0001F451","cost":15000,"category":"elite","name":"Stream Producer Credit","description":"Viewer gets producer/supporter credit.","aliases":["producer","credit"]},
+    {"id":"streamsegment","emoji":"\U0001F3A4\U0001F3AC","cost":20000,"category":"elite","name":"Viewer Stream Segment","description":"Viewer helps create/name a segment.","aliases":["segment","streamsegment"]},
+    {"id":"vipnight","emoji":"\U0001F319\U0001F31F","cost":25000,"category":"elite","name":"VIP Community Night Vote","description":"Major vote toward future community night.","aliases":["vipnight","night"]},
+    {"id":"foxlegend","emoji":"\U0001F3C6\U0001F98A\U0001F525","cost":50000,"category":"elite","name":"Fox Legend Status","description":"Ultimate long-term flex reward.","aliases":["legend","foxlegend","goat"]}
+]
+
+def foxbot_safe_rewards21_shop_text_v1(page="main"):
+    page = str(page or "main").strip().lower()
+    aliases = {
+        "low":"cheap", "starter":"cheap", "basic":"cheap",
+        "recognition":"social", "status":"social",
+        "stream":"control", "influence":"control",
+        "high":"premium", "legend":"elite", "full":"all"
+    }
+    page = aliases.get(page, page)
+
+    labels = {
+        "cheap":"\U0001FA99 Starter Fun Rewards",
+        "social":"\U0001F31F Recognition Rewards",
+        "control":"\U0001F3AE Control The Stream",
+        "premium":"\U0001F48E Premium Chaos Rewards",
+        "elite":"\U0001F3C6 Elite Fox Legend Rewards",
+        "all":"\U0001F308 All FoxBot Rewards"
+    }
+
+    if page in {"main", "menu"}:
+        return (
+            "\U0001F98A\u2728 FoxBot Rewards 2.1 \u2728\U0001F98A | "
+            "\U0001FA99 !shop cheap | \U0001F31F !shop social | \U0001F3AE !shop control | "
+            "\U0001F48E !shop premium | \U0001F3C6 !shop elite | \U0001F308 !shop all | "
+            "\U0001F381 Redeem: !redeem rewardname"
+        )
+
+    items = FOXBOT_SAFE_REWARDS_21 if page == "all" else [r for r in FOXBOT_SAFE_REWARDS_21 if r.get("category") == page]
+
+    if not items:
+        return "\U0001F98A\u2753 Page not found. Try !shop cheap, social, control, premium, elite, or all."
+
+    parts = [f"{r['emoji']} {r['id']} {r['cost']}FC" for r in items]
+    return f"{labels.get(page, page.title())}: " + " | ".join(parts) + " | \U0001F381 Redeem: !redeem name"
+
+def foxbot_safe_rewards21_find_v1(name):
+    key = str(name or "").strip().lower().replace(" ", "")
+    for r in FOXBOT_SAFE_REWARDS_21:
+        if key == r["id"]:
+            return r
+        if key == r["name"].lower().replace(" ", ""):
+            return r
+        if key in [str(a).lower().replace(" ", "") for a in r.get("aliases", [])]:
+            return r
+    return None
+
+def foxbot_safe_rewards21_redeem_text_v1(username, reward_name):
+    username = str(username or "viewer").strip().lstrip("@")
+    reward = foxbot_safe_rewards21_find_v1(reward_name)
+
+    if not reward:
+        examples = ", ".join([r["id"] for r in FOXBOT_SAFE_REWARDS_21[:10]])
+        return f"\U0001F98A\u2753 @{username}, reward not found. Try: {examples}. Use !shop for categories."
+
+    data_dir = _foxbot_safe_rewards_Path("data")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / "foxbot_safe_rewards21_redemptions.json"
+
+    try:
+        redemptions = _foxbot_safe_rewards_json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except Exception:
+        redemptions = []
+
+    redemptions.append({
+        "id": f"redemption-{int(_foxbot_safe_rewards_time.time())}-{len(redemptions)+1}",
+        "username": username,
+        "reward_id": reward["id"],
+        "reward_name": reward["name"],
+        "emoji": reward["emoji"],
+        "cost": reward["cost"],
+        "category": reward["category"],
+        "description": reward["description"],
+        "status": "pending",
+        "created_at": int(_foxbot_safe_rewards_time.time())
+    })
+
+    path.write_text(_foxbot_safe_rewards_json.dumps(redemptions, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return (
+        f"{reward['emoji']} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']} FoxCoins! "
+        f"\u2728 Pending streamer approval \U0001F9E1 | {reward['description']}"
+    )
+
+def foxbot_safe_rewards21_reply_v1(username, message):
+    msg = str(message or "").strip()
+    lower = msg.lower()
+
+    if lower in {"!shop", "!rewards", "!rewardshop"} or lower.startswith("!shop ") or lower.startswith("!rewards "):
+        parts = msg.split()
+        page = parts[1] if len(parts) > 1 else "main"
+        return foxbot_safe_rewards21_shop_text_v1(page)
+
+    if lower.startswith("!redeem"):
+        reward_name = msg.split(" ", 1)[1].strip() if " " in msg else ""
+        return foxbot_safe_rewards21_redeem_text_v1(username, reward_name)
+
+    return None
+# === End FoxBot Safe Rewards 2.1 Admin Command Hook v1 ===
 
