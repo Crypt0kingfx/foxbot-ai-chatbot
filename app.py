@@ -20673,3 +20673,64 @@ setInterval(loadAll, 10000);
 """)
 # === End FoxBot Control Dashboard v2 ===
 
+# === FoxBot Admin Command Send v1 ===
+@app.post("/api/foxbot/admin-command")
+async def foxbot_admin_command_send_v1(payload: dict):
+    username = str(payload.get("username") or "crypt0k1ng96").strip()
+    message = str(payload.get("message") or "").strip()
+    send_to_blaze = bool(payload.get("send_to_blaze", True))
+
+    if not message:
+        return {"ok": False, "error": "Missing message"}
+
+    try:
+        result = chat(message=message, username=username)
+    except Exception as e:
+        return {
+            "ok": False,
+            "username": username,
+            "message": message,
+            "error": f"Command engine failed: {e}"
+        }
+
+    reply = ""
+
+    if isinstance(result, dict):
+        reply = result.get("response") or result.get("reply") or result.get("message") or ""
+    elif isinstance(result, str):
+        reply = result
+
+    reply = str(reply or "").strip()
+
+    send_result = None
+
+    if send_to_blaze and reply:
+        try:
+            from services import blaze_native_connector as native
+
+            if hasattr(native, "_foxbot_live_send_chat_v2"):
+                send_result = native._foxbot_live_send_chat_v2(reply)
+            else:
+                send_result = {
+                    "ok": False,
+                    "sent": False,
+                    "error": "native._foxbot_live_send_chat_v2 missing"
+                }
+        except Exception as e:
+            send_result = {
+                "ok": False,
+                "sent": False,
+                "error": str(e)
+            }
+
+    return {
+        "ok": True,
+        "username": username,
+        "message": message,
+        "command_result": result,
+        "reply": reply,
+        "send_to_blaze": send_to_blaze,
+        "send_result": send_result
+    }
+# === End FoxBot Admin Command Send v1 ===
+
