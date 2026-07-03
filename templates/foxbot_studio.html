@@ -2350,6 +2350,264 @@
 </script>
 <!-- End FoxBot Replace Broken Bot Control Tab v1 -->
 
+
+<!-- FoxBot Replace Broken Recognition Tab v1 -->
+<script>
+(function () {
+  console.log("FoxBot Replace Broken Recognition Tab v1 loaded");
+
+  function findRecognitionSection() {
+    return (
+      document.querySelector("section#recognition") ||
+      document.querySelector("#recognition") ||
+      document.querySelector("[data-section='recognition']") ||
+      document.querySelector("[data-page='recognition']")
+    );
+  }
+
+  async function getJson(url) {
+    const res = await fetch(url);
+    return await res.json();
+  }
+
+  async function postJson(url) {
+    const res = await fetch(url, { method: "POST" });
+    try {
+      return await res.json();
+    } catch (e) {
+      return { ok: res.ok, status: res.status, text: await res.text() };
+    }
+  }
+
+  function setHtml(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = value;
+  }
+
+  function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  function out(title, data) {
+    const box = document.getElementById("realRecognitionOutput");
+    if (!box) return;
+    box.textContent = title + "\n\n" + JSON.stringify(data, null, 2);
+  }
+
+  async function refreshRecognition() {
+    try {
+      const native = await getJson("/api/blaze/native/status");
+      const live = await getJson("/api/blaze/native/live-control");
+
+      let automation = null;
+      try {
+        automation = await getJson("/api/automation/status");
+      } catch (e) {
+        automation = { ok: false, error: String(e) };
+      }
+
+      const running = !!native?.state?.running;
+      const connected = !!native?.state?.connected;
+      const auto = !!live?.auto_send_effective;
+
+      setHtml("realRecListener", running && connected ? '<span style="color:#39ff88;">CONNECTED</span>' : '<span style="color:#ff5b5b;">OFFLINE</span>');
+      setHtml("realRecAuto", auto ? '<span style="color:#39ff88;">ON</span>' : '<span style="color:#ff5b5b;">OFF</span>');
+      setText("realRecEvents", native?.state?.events_received ?? 0);
+      setText("realRecReplies", native?.state?.replies_sent ?? 0);
+
+      out("Recognition Status", {
+        live_replies: live,
+        native_status: {
+          running: native?.state?.running,
+          connected: native?.state?.connected,
+          session_id: native?.state?.session_id,
+          events_received: native?.state?.events_received,
+          chat_messages_received: native?.state?.chat_messages_received,
+          replies_sent: native?.state?.replies_sent,
+          last_event: native?.state?.last_event,
+          last_event_reply_attempt: native?.state?.last_event_reply_attempt,
+          last_error: native?.state?.last_error
+        },
+        automation
+      });
+    } catch (err) {
+      setHtml("realRecListener", '<span style="color:#ff5b5b;">ERROR</span>');
+      out("Recognition refresh failed", String(err));
+    }
+  }
+
+  async function dryEvent(eventType, username, amount) {
+    const params = new URLSearchParams({
+      event_type: eventType,
+      username: username || "testviewer"
+    });
+
+    if (amount) params.set("amount", amount);
+
+    const result = await getJson("/api/blaze/native/event-thanks-test?" + params.toString());
+    out("Dry Recognition Test: " + eventType, result);
+    await refreshRecognition();
+  }
+
+  async function sendEvent(eventType, username, amount) {
+    const params = new URLSearchParams({
+      event_type: eventType,
+      username: username || "testviewer",
+      send: "true"
+    });
+
+    if (amount) params.set("amount", amount);
+
+    const result = await getJson("/api/blaze/native/event-thanks-test?" + params.toString());
+    out("LIVE Recognition Send Test: " + eventType, result);
+    await refreshRecognition();
+  }
+
+  async function automation(state) {
+    try {
+      const result = await postJson("/api/automation/recognition/" + encodeURIComponent(state));
+      out("Recognition Automation: " + state, result);
+      await refreshRecognition();
+    } catch (err) {
+      out("Recognition automation failed", String(err));
+    }
+  }
+
+  function replaceRecognitionSection() {
+    const section = findRecognitionSection();
+    if (!section) return false;
+
+    if (section.dataset.realFoxbotRecognition === "true") return true;
+    section.dataset.realFoxbotRecognition = "true";
+
+    section.innerHTML = `
+      <div style="
+        border:1px solid rgba(255,122,24,.35);
+        background:
+          radial-gradient(circle at top right, rgba(255,122,24,.16), transparent 30%),
+          radial-gradient(circle at bottom left, rgba(57,255,136,.10), transparent 32%),
+          #07100a;
+        color:#f5fff7;
+        border-radius:22px;
+        padding:22px;
+        margin:12px 0;
+        box-shadow:0 18px 50px rgba(0,0,0,.28);
+        font-family:Arial,sans-serif;
+      ">
+        <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+          <div>
+            <h1 style="margin:0 0 6px;font-size:30px;">🦊 Real Recognition Center</h1>
+            <p style="margin:0;color:#a9b9ae;">Working controls for follows, votes, subs, gifts, raids, and FoxBot thank-you replies.</p>
+          </div>
+          <a href="/foxbot-control" target="_blank" style="
+            background:#fff;
+            color:#050505;
+            text-decoration:none;
+            font-weight:900;
+            border-radius:12px;
+            padding:11px 14px;
+          ">Open Full Control</a>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:12px;margin-top:18px;">
+          <div style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);border-radius:14px;padding:13px;">
+            <div style="color:#a9b9ae;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Listener</div>
+            <div id="realRecListener" style="font-size:24px;font-weight:900;margin-top:6px;">Loading...</div>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);border-radius:14px;padding:13px;">
+            <div style="color:#a9b9ae;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Auto Replies</div>
+            <div id="realRecAuto" style="font-size:24px;font-weight:900;margin-top:6px;">Loading...</div>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);border-radius:14px;padding:13px;">
+            <div style="color:#a9b9ae;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Events Received</div>
+            <div id="realRecEvents" style="font-size:24px;font-weight:900;margin-top:6px;">0</div>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);border-radius:14px;padding:13px;">
+            <div style="color:#a9b9ae;font-size:12px;text-transform:uppercase;letter-spacing:.08em;">Replies Sent</div>
+            <div id="realRecReplies" style="font-size:24px;font-weight:900;margin-top:6px;">0</div>
+          </div>
+        </div>
+
+        <h2 style="margin:22px 0 10px;">Dry Tests — safe, does not post to chat</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <button data-rec-dry="channel.follow" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Follow</button>
+          <button data-rec-dry="channel.vote" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Vote</button>
+          <button data-rec-dry="channel.subscribe" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Sub</button>
+          <button data-rec-dry="channel.subscription.gift" data-amount="3" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Gift x3</button>
+          <button data-rec-dry="channel.raid" data-amount="12" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Raid x12</button>
+          <button data-rec-dry="channel.tip" data-amount="$10" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Tip</button>
+        </div>
+
+        <h2 style="margin:22px 0 10px;">Live Send Tests — posts to Blaze chat</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <button data-rec-send="channel.follow" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#39ff88;color:#031006;cursor:pointer;">Send Follow Thanks</button>
+          <button data-rec-send="channel.vote" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#39ff88;color:#031006;cursor:pointer;">Send Vote Thanks</button>
+          <button data-rec-send="channel.subscribe" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#39ff88;color:#031006;cursor:pointer;">Send Sub Thanks</button>
+        </div>
+
+        <h2 style="margin:22px 0 10px;">Automation</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <button id="recAutomationOn" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#39ff88;color:#031006;cursor:pointer;">Recognition ON</button>
+          <button id="recAutomationOff" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#ff3b3b;color:#fff;cursor:pointer;">Recognition OFF</button>
+          <button id="recRefresh" style="border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 15px;font-weight:900;background:#151d16;color:#f5fff7;cursor:pointer;">Refresh</button>
+        </div>
+
+        <pre id="realRecognitionOutput" style="
+          white-space:pre-wrap;
+          word-break:break-word;
+          background:#020402;
+          border:1px solid rgba(255,255,255,.10);
+          color:#c7ffd9;
+          border-radius:16px;
+          padding:14px;
+          margin-top:18px;
+          max-height:420px;
+          overflow:auto;
+          font-size:13px;
+        ">Loading recognition controls...</pre>
+      </div>
+    `;
+
+    section.querySelectorAll("[data-rec-dry]").forEach(btn => {
+      btn.addEventListener("click", () => dryEvent(btn.getAttribute("data-rec-dry"), "testviewer", btn.getAttribute("data-amount") || ""));
+    });
+
+    section.querySelectorAll("[data-rec-send]").forEach(btn => {
+      btn.addEventListener("click", () => sendEvent(btn.getAttribute("data-rec-send"), "testviewer", btn.getAttribute("data-amount") || ""));
+    });
+
+    document.getElementById("recAutomationOn")?.addEventListener("click", () => automation("on"));
+    document.getElementById("recAutomationOff")?.addEventListener("click", () => automation("off"));
+    document.getElementById("recRefresh")?.addEventListener("click", refreshRecognition);
+
+    refreshRecognition();
+    setInterval(refreshRecognition, 12000);
+
+    return true;
+  }
+
+  function tryReplace() {
+    replaceRecognitionSection();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", tryReplace);
+  } else {
+    tryReplace();
+  }
+
+  document.addEventListener("click", () => {
+    setTimeout(tryReplace, 100);
+    setTimeout(tryReplace, 400);
+  }, true);
+
+  const observer = new MutationObserver(() => tryReplace());
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+})();
+</script>
+<!-- End FoxBot Replace Broken Recognition Tab v1 -->
+
 </body>
 </html>
 
