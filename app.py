@@ -20785,3 +20785,177 @@ async def foxbot_admin_command_send_v1(payload: dict):
     }
 # === End FoxBot Admin Command Send v1 ===
 
+# === FoxBot Rewards Fun Emoji Skin v1 ===
+def foxbot_rewards_v21_fun_icon_v1(reward):
+    reward_id = str((reward or {}).get("id") or "").lower()
+
+    icons = {
+        "hug": "\U0001F917\U0001F49B",
+        "hype": "\U0001F525\u26A1",
+        "flex": "\U0001F4AA\U0001F624",
+        "hydrate": "\U0001F4A7\U0001F9CA",
+        "stretch": "\U0001F9D8\u2728",
+        "foxfact": "\U0001F98A\U0001F4DC",
+        "clipit": "\U0001F3AC\u2702\uFE0F",
+        "lurklove": "\U0001F440\U0001F49C",
+
+        "shoutout": "\U0001F4E3\U0001F31F",
+        "socialsplug": "\U0001F517\U0001F680",
+        "nickname": "\U0001F3F7\uFE0F\U0001F602",
+        "poll": "\U0001F5F3\uFE0F\U0001F9E0",
+        "mvp": "\U0001F451\U0001F525",
+        "og": "\U0001F6E1\uFE0F\U0001F98A",
+        "raidcaptain": "\U0001F6A9\u2694\uFE0F",
+        "vipwall": "\u2B50\U0001F3C6",
+
+        "loadout": "\U0001F3AF\U0001F52B",
+        "dropzone": "\U0001FA82\U0001F4CD",
+        "challenge": "\u26A1\U0001F3B2",
+        "gamemode": "\U0001F579\uFE0F\U0001F3AE",
+        "soundalert": "\U0001F50A\U0001F923",
+        "nextmatchvote": "\U0001F9ED\u2705",
+        "choosegame": "\U0001F3AE\U0001F440",
+        "streamtitle": "\u270D\uFE0F\U0001F9E0",
+
+        "goldenfox": "\U0001F98A\U0001F3C6\u2728",
+        "treasurecall": "\U0001F4B0\U0001F5FA\uFE0F",
+        "bossboost": "\u2694\uFE0F\U0001F479",
+        "doublepoints": "\u2716\uFE0F\U00000032\uFE0F\u20E3\u2728",
+        "giveawayboost": "\U0001F39F\uFE0F\U0001F381",
+        "mysterybox": "\U0001F381\u2753",
+        "customcommand": "\U0001F916\U0001F6E0\uFE0F",
+        "squadpriority": "\U0001F465\u2B50",
+
+        "sponsor": "\U0001F48E\U0001F4E2",
+        "producer": "\U0001F3A5\U0001F451",
+        "streamsegment": "\U0001F3A4\U0001F3AC",
+        "vipnight": "\U0001F319\U0001F31F",
+        "foxlegend": "\U0001F3C6\U0001F98A\U0001F525",
+    }
+
+    return icons.get(reward_id, str((reward or {}).get("emoji") or "\U0001F381") + "\u2728")
+
+
+def foxbot_rewards_v2_shop_text(page="main"):
+    page = str(page or "main").strip().lower()
+
+    aliases = {
+        "low": "cheap",
+        "starter": "cheap",
+        "basic": "cheap",
+        "recognition": "social",
+        "status": "social",
+        "stream": "control",
+        "influence": "control",
+        "high": "premium",
+        "expensive": "elite",
+        "legend": "elite",
+        "full": "all"
+    }
+
+    page = aliases.get(page, page)
+
+    labels = {
+        "cheap": "\U0001FA99 Starter Fun Rewards",
+        "social": "\U0001F31F Recognition Rewards",
+        "control": "\U0001F3AE Control The Stream",
+        "premium": "\U0001F48E Premium Chaos Rewards",
+        "elite": "\U0001F3C6 Elite Fox Legend Rewards",
+        "all": "\U0001F308 All FoxBot Rewards"
+    }
+
+    if page in {"main", "menu"}:
+        return (
+            "\U0001F98A\u2728 FoxBot Rewards 2.1 \u2728\U0001F98A | "
+            "\U0001FA99 !shop cheap | "
+            "\U0001F31F !shop social | "
+            "\U0001F3AE !shop control | "
+            "\U0001F48E !shop premium | "
+            "\U0001F3C6 !shop elite | "
+            "\U0001F308 !shop all | "
+            "\U0001F381 Redeem: !redeem rewardname"
+        )
+
+    if page == "all":
+        items = FOXBOT_REWARDS_V2
+    else:
+        items = [r for r in FOXBOT_REWARDS_V2 if r.get("category") == page]
+
+    if not items:
+        return (
+            "\U0001F98A\u2753 Reward page not found. Try: "
+            "!shop cheap, !shop social, !shop control, !shop premium, !shop elite, or !shop all."
+        )
+
+    parts = []
+    for reward in items:
+        icon = foxbot_rewards_v21_fun_icon_v1(reward)
+        parts.append(f"{icon} {reward['id']} {reward['cost']}FC")
+
+    label = labels.get(page, page.title())
+
+    return (
+        f"{label}: "
+        + " | ".join(parts)
+        + " | \U0001F381 Redeem: !redeem name"
+    )
+
+
+def foxbot_rewards_v2_redeem_text(username, reward_name):
+    username = str(username or "viewer").strip().lstrip("@")
+    reward = foxbot_rewards_v2_find(reward_name)
+
+    if not reward:
+        options = ", ".join([r["id"] for r in FOXBOT_REWARDS_V2[:10]])
+        return (
+            f"\U0001F98A\u2753 @{username}, I could not find that reward. "
+            f"Try: {options}. Use !shop to see categories."
+        )
+
+    path = foxbot_rewards_v2_redemptions_path()
+    redemptions = foxbot_rewards_v2_read_json(path, [])
+
+    icon = foxbot_rewards_v21_fun_icon_v1(reward)
+
+    record = {
+        "id": f"redemption-{int(_foxbot_rewards_time.time())}-{len(redemptions) + 1}",
+        "username": username,
+        "reward_id": reward["id"],
+        "reward_name": reward["name"],
+        "emoji": reward.get("emoji", ""),
+        "fun_icon": icon,
+        "cost": reward["cost"],
+        "category": reward.get("category", "uncategorized"),
+        "description": reward["description"],
+        "fulfillment": reward.get("fulfillment", "streamer_review"),
+        "status": "pending",
+        "created_at": int(_foxbot_rewards_time.time())
+    }
+
+    redemptions.append(record)
+    foxbot_rewards_v2_write_json(path, redemptions)
+
+    return (
+        f"{icon} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']} FoxCoins! "
+        f"\u2728 Status: pending streamer approval \U0001F9E1 | {reward['description']}"
+    )
+
+
+def foxbot_rewards_v2_queue_text():
+    path = foxbot_rewards_v2_redemptions_path()
+    redemptions = foxbot_rewards_v2_read_json(path, [])
+    pending = [r for r in redemptions if r.get("status") == "pending"]
+
+    if not pending:
+        return "\U0001F98A\u2728 Reward queue is empty. Chat can redeem with !redeem rewardname."
+
+    latest = pending[-5:]
+    parts = []
+
+    for item in latest:
+        icon = item.get("fun_icon") or item.get("emoji") or "\U0001F381"
+        parts.append(f"{icon} @{item.get('username')} - {item.get('reward_name')}")
+
+    return "\U0001F381\u2728 Pending Reward Queue: " + " | ".join(parts)
+# === End FoxBot Rewards Fun Emoji Skin v1 ===
+
