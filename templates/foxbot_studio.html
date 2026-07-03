@@ -1902,6 +1902,104 @@
     );
   }
 
+  
+// FoxBot Studio Live Card Bot Control Only Guard v1
+function foxbotLiveCardBotControlOnlyGuard() {
+  const card = document.getElementById("foxbot-studio-live-blaze-card");
+  if (!card) return;
+
+  function isVisible(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  }
+
+  function isBotControlActive() {
+    const activeItems = Array.from(document.querySelectorAll(".active, .selected, [aria-selected='true']"));
+    const activeText = activeItems.map(el => (el.textContent || "").toLowerCase()).join(" ");
+
+    if (activeText.includes("bot control")) return true;
+
+    const hash = (window.location.hash || "").toLowerCase();
+    if (hash.includes("control") || hash.includes("bot-control")) return true;
+
+    const likelySections = Array.from(document.querySelectorAll(
+      "section#control, #control, [data-page='control'], [data-section='control'], [data-tab='control'], [id='bot-control'], [id='botControl'], [id*='bot-control'], [data-page*='bot-control'], [data-section*='bot-control']"
+    ));
+
+    const visibleControlSection = likelySections.find(el => {
+      if (!isVisible(el)) return false;
+
+      const text = (el.textContent || "").toLowerCase();
+
+      // This prevents the card itself from making every page count as Bot Control.
+      if (el.id === "foxbot-studio-live-blaze-card") return false;
+
+      return (
+        text.includes("bot control") ||
+        text.includes("listener") ||
+        text.includes("live command") ||
+        text.includes("blaze login") ||
+        text.includes("polling listener") ||
+        text.includes("control panel")
+      );
+    });
+
+    if (visibleControlSection) return true;
+
+    return false;
+  }
+
+  function moveCardIntoBotControlIfPossible() {
+    const card = document.getElementById("foxbot-studio-live-blaze-card");
+    if (!card) return;
+
+    const targets = Array.from(document.querySelectorAll(
+      "section#control, #control, [data-page='control'], [data-section='control'], [data-tab='control'], [id='bot-control'], [id='botControl'], [id*='bot-control']"
+    ));
+
+    const target = targets.find(el => el && el !== card && isVisible(el));
+
+    if (target && !target.contains(card)) {
+      target.prepend(card);
+    }
+  }
+
+  function updateCardVisibility() {
+    moveCardIntoBotControlIfPossible();
+    card.style.display = isBotControlActive() ? "" : "none";
+  }
+
+  updateCardVisibility();
+
+  document.addEventListener("click", () => {
+    setTimeout(updateCardVisibility, 80);
+    setTimeout(updateCardVisibility, 300);
+  }, true);
+
+  window.addEventListener("hashchange", updateCardVisibility);
+
+  if (typeof window.show === "function" && !window.show.__foxbotLiveBotControlWrapped) {
+    const originalShow = window.show;
+    window.show = function(...args) {
+      const result = originalShow.apply(this, args);
+      setTimeout(updateCardVisibility, 50);
+      setTimeout(updateCardVisibility, 250);
+      return result;
+    };
+    window.show.__foxbotLiveBotControlWrapped = true;
+  }
+
+  const observer = new MutationObserver(() => updateCardVisibility());
+  observer.observe(document.body, {
+    attributes: true,
+    childList: true,
+    subtree: true,
+    attributeFilter: ["class", "style", "aria-selected"]
+  });
+}
+
   function makeCard() {
     if (document.getElementById(CARD_ID)) return;
 
@@ -1988,6 +2086,7 @@
 
     loadStatus();
     setInterval(loadStatus, 10000);
+    foxbotLiveCardBotControlOnlyGuard();
   }
 
   async function getJson(url) {
