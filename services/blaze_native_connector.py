@@ -1047,7 +1047,27 @@ def _foxbot_live_profile_user_id_v2():
     }
 
 
+
+# === FoxBot Native Outgoing Shop Emoji Fix v1 ===
+def _foxbot_fix_outgoing_shop_text_v1(text):
+    s = str(text or "")
+
+    if "FoxBot Reward Shop" in s:
+        return (
+            "FoxBot Reward Shop: "
+            "hug \U0001F917 10 FoxCoins | "
+            "hype \U0001F525 25 FoxCoins | "
+            "flex \U0001F4AA 50 FoxCoins | "
+            "mysterybox \U0001F381 75 FoxCoins | "
+            "sponsor \U0001F48E 150 FoxCoins | "
+            "Use !redeem rewardname"
+        )
+
+    return s
+# === End FoxBot Native Outgoing Shop Emoji Fix v1 ===
+
 def _foxbot_live_send_chat_v2(message):
+    message = _foxbot_fix_outgoing_shop_text_v1(message)
     channel_id = env("BLAZE_CHANNEL_ID", "").strip()
     client_id = env("BLAZE_CLIENT_ID", "").strip()
 

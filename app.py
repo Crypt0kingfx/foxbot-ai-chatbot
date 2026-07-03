@@ -1,5 +1,32 @@
 
 
+# === FoxBot Shop Emoji Normalizer v2 ===
+def foxbot_shop_emoji_response_v2():
+    return (
+        "FoxBot Reward Shop: "
+        "hug \U0001F917 10 FoxCoins | "
+        "hype \U0001F525 25 FoxCoins | "
+        "flex \U0001F4AA 50 FoxCoins | "
+        "mysterybox \U0001F381 75 FoxCoins | "
+        "sponsor \U0001F48E 150 FoxCoins | "
+        "Use !redeem rewardname"
+    )
+
+def foxbot_fix_shop_reply_v2(message, reply):
+    msg = str(message or "").strip().lower()
+    rep = str(reply or "")
+
+    if msg in {"!shop", "!rewards", "!rewardshop"}:
+        return foxbot_shop_emoji_response_v2()
+
+    if "FoxBot Reward Shop" in rep:
+        return foxbot_shop_emoji_response_v2()
+
+    return rep
+# === End FoxBot Shop Emoji Normalizer v2 ===
+
+
+
 # === FoxBot Force Shop Emoji Response v1 ===
 def foxbot_clean_shop_response_v1():
     return (
@@ -20719,6 +20746,12 @@ async def foxbot_admin_command_send_v1(payload: dict):
         reply = result
 
     reply = str(reply or "").strip()
+
+    fixed_reply = foxbot_fix_shop_reply_v2(message, reply)
+    if fixed_reply != reply:
+        reply = fixed_reply
+        if isinstance(result, dict):
+            result["response"] = reply
 
     send_result = None
 
