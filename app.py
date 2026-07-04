@@ -13462,6 +13462,27 @@ button.secondary:hover {
 
 
     <section id="overview" class="section active">
+        <!-- FoxBot HARD Embedded Control Dashboard v1 -->
+        <div class="card" style="padding:0; overflow:hidden; margin-bottom:22px; border:1px solid rgba(255,255,255,.14);">
+            <div style="padding:18px 20px; border-bottom:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:rgba(15,23,42,.75);">
+                <div>
+                    <h2 style="margin:0; font-size:26px;">FoxBot Control Dashboard</h2>
+                    <p style="margin:6px 0 0; color:var(--muted);">Live Blaze connection, listener, command testing, and chat controls inside the Dashboard tab.</p>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="secondary" onclick="window.open('/foxbot-control','_blank')">Open Full Control</button>
+                    <button class="secondary" onclick="document.getElementById('foxbotControlFrame').contentWindow.location.reload()">Refresh</button>
+                </div>
+            </div>
+            <iframe
+                id="foxbotControlFrame"
+                src="/foxbot-control"
+                style="width:100%; height:820px; border:0; background:#0b1020; display:block;"
+                title="FoxBot Control Dashboard">
+            </iframe>
+        </div>
+        <!-- End FoxBot HARD Embedded Control Dashboard v1 -->
+
         <!-- FoxBot Embedded Control Dashboard v1 -->
         <div class="card" style="padding:0; overflow:hidden;">
             <div style="padding:18px 20px; border-bottom:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
