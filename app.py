@@ -4,11 +4,11 @@
 def foxbot_shop_emoji_response_v2():
     return (
         "FoxBot Reward Shop: "
-        "hug \U0001F917 10 FoxCoins | "
-        "hype \U0001F525 25 FoxCoins | "
-        "flex \U0001F4AA 50 FoxCoins | "
-        "mysterybox \U0001F381 75 FoxCoins | "
-        "sponsor \U0001F48E 150 FoxCoins | "
+        "hug 10 | "
+        "hype 25 | "
+        "flex 50 | "
+        "mysterybox 75 | "
+        "sponsor 150 | "
         "Use !redeem rewardname"
     )
 
@@ -31,11 +31,11 @@ def foxbot_fix_shop_reply_v2(message, reply):
 def foxbot_clean_shop_response_v1():
     return (
         "FoxBot Reward Shop: "
-        "hug \U0001F917 10 FoxCoins | "
-        "hype \U0001F525 25 FoxCoins | "
-        "flex \U0001F4AA 50 FoxCoins | "
-        "mysterybox \U0001F381 75 FoxCoins | "
-        "sponsor \U0001F48E 150 FoxCoins | "
+        "hug 10 | "
+        "hype 25 | "
+        "flex 50 | "
+        "mysterybox 75 | "
+        "sponsor 150 | "
         "Use !redeem rewardname"
     )
 # === End FoxBot Force Shop Emoji Response v1 ===
