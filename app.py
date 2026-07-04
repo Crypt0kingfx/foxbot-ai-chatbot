@@ -3440,6 +3440,33 @@ def chat(message: str = "", username: str = "viewer"):
 
     username = username.strip() or "viewer"
 
+    # === FoxBot Early Shop Category Router v1 ===
+    # Fixes !shop premium / !shop elite falling through to Unknown command.
+    if lower_message.startswith("!shop ") or lower_message.startswith("!rewards "):
+        parts = lower_message.split()
+        page = parts[1].strip().lower() if len(parts) > 1 else "main"
+
+        allowed_pages = {"main", "cheap", "social", "control", "premium", "elite", "all"}
+
+        if page not in allowed_pages:
+            return {
+                "response": "🦊❓ Page not found. Try !shop cheap, social, control, premium, elite, or all."
+            }
+
+        try:
+            return {
+                "response": foxbot_safe_rewards21_shop_text_v1(page)
+            }
+        except Exception as e1:
+            try:
+                return {
+                    "response": foxbot_rewards_v2_shop_text(page)
+                }
+            except Exception as e2:
+                return {
+                    "response": f"🦊 Shop category command loaded, but reward menu failed: {type(e2).__name__}"
+                }
+
     admin = is_admin(username)
 
 
