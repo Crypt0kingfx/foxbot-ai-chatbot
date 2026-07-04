@@ -3440,6 +3440,13 @@ def chat(message: str = "", username: str = "viewer"):
 
     username = username.strip() or "viewer"
 
+    # === FoxBot Clean Base Shop Override v1 ===
+    # Keeps base !shop clean in Blaze chat: no broken emoji, no FoxCoins/FC labels.
+    if lower_message in ["!shop", "!rewards", "!rewardshop"]:
+        return {
+            "response": "FoxBot Reward Shop: hug 10 | hype 25 | flex 50 | mysterybox 75 | sponsor 150 | More: !shop premium or !shop elite | Redeem: !redeem name"
+        }
+
     # === FoxBot Early Shop Category Router v1 ===
     # Fixes !shop premium / !shop elite falling through to Unknown command.
     if lower_message.startswith("!shop ") or lower_message.startswith("!rewards "):
