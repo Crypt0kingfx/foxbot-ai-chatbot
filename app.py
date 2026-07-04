@@ -20925,7 +20925,7 @@ def foxbot_rewards_v2_shop_text(page="main"):
     parts = []
     for reward in items:
         icon = foxbot_rewards_v21_fun_icon_v1(reward)
-        parts.append(f"{icon} {reward['id']} {reward['cost']}FC")
+        parts.append(f"{icon} {reward['id']} {reward['cost']}")
 
     label = labels.get(page, page.title())
 
@@ -21071,7 +21071,7 @@ def foxbot_safe_rewards21_shop_text_v1(page="main"):
     if not items:
         return "\U0001F98A\u2753 Page not found. Try !shop cheap, social, control, premium, elite, or all."
 
-    parts = [f"{r['emoji']} {r['id']} {r['cost']}FC" for r in items]
+    parts = [f"{r['emoji']} {r['id']} {r['cost']}" for r in items]
     return f"{labels.get(page, page.title())}: " + " | ".join(parts) + " | \U0001F381 Redeem: !redeem name"
 
 def foxbot_safe_rewards21_find_v1(name):
