@@ -44,6 +44,23 @@
           <span class="mini-badge">FoxBot Studio 2.0</span>
         </div>
 
+        <!-- FoxBot Dashboard Control Embed v1 -->
+        <div class="card" style="padding:0; overflow:hidden; margin:18px 0; border:1px solid rgba(255,255,255,.14);">
+          <div style="padding:16px 20px; border-bottom:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div>
+              <h2 style="margin:0; font-size:22px;">FoxBot Live Control</h2>
+              <p style="margin:6px 0 0; color:#a9b9ae;">Live Blaze connection, listener status, and command testing.</p>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <a href="/foxbot-control" target="_blank" style="background:#fff; color:#050505; text-decoration:none; font-weight:900; border-radius:10px; padding:9px 14px; font-size:13px;">Open Full Control</a>
+              <button class="small-btn" onclick="document.getElementById('foxbotDashboardControlFrame').contentWindow.location.reload()">Refresh</button>
+            </div>
+          </div>
+          <iframe id="foxbotDashboardControlFrame" src="/foxbot-control" style="width:100%; height:820px; border:0; background:#0b1020; display:block;" title="FoxBot Control Dashboard"></iframe>
+        </div>
+        <!-- End FoxBot Dashboard Control Embed v1 -->
+
+
         <div class="grid">
           <div class="card"><div class="card-title">Followers Today</div><div id="followersToday" class="card-value">0</div></div>
           <div class="card"><div class="card-title">Votes Today</div><div id="votesToday" class="card-value">0</div></div>
