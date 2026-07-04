@@ -8196,6 +8196,298 @@ features_html = """
 
     </div>
 
+
+
+<script>
+(function(){
+  const BRIDGE_NAME = "FoxBot Studio Dashboard Control Bridge v1";
+
+  function isAdminHub(){
+    const bodyText = document.body ? document.body.innerText || "" : "";
+    return bodyText.includes("FoxBot Studio") && bodyText.includes("Advanced Blaze AI Control Center");
+  }
+
+  function shouldMount(){
+    if (!isAdminHub()) return false;
+    if (document.getElementById("foxStudioControlDashboard")) return false;
+    return true;
+  }
+
+  async function getJSON(path, options = {}) {
+    const res = await fetch(path, options);
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return {ok:false, raw:text, status:res.status};
+    }
+  }
+
+  function setText(id, value){
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  function setOutput(data){
+    const out = document.getElementById("foxDashOutput");
+    if (out) out.textContent = JSON.stringify(data, null, 2);
+  }
+
+  async function refreshProof(){
+    const data = await getJSON("/proof");
+    const proof = data.proof || {};
+    const polling = data.polling_status || {};
+
+    setText("foxDashBlaze", proof.blaze_connected ? "Yes" : "No");
+    setText("foxDashListener", proof.listener_running ? "Running" : "Stopped");
+    setText("foxDashChecks", proof.messages_checked ?? polling.checks ?? 0);
+    setText("foxDashCommands", proof.commands_processed ?? polling.commands_processed ?? 0);
+    setText("foxDashLastCommand", proof.last_command || "None");
+    setText("foxDashLastUser", proof.last_username || "None");
+    setText("foxDashLastReply", proof.last_reply || "None");
+
+    const badge = document.getElementById("foxDashBadge");
+    if (badge) {
+      badge.textContent = proof.blaze_connected && proof.listener_running ? "ONLINE" : "NEEDS ATTENTION";
+      badge.style.background = proof.blaze_connected && proof.listener_running ? "rgba(34,197,94,.18)" : "rgba(239,68,68,.20)";
+      badge.style.color = proof.blaze_connected && proof.listener_running ? "#86efac" : "#fecaca";
+      badge.style.borderColor = proof.blaze_connected && proof.listener_running ? "rgba(34,197,94,.45)" : "rgba(239,68,68,.45)";
+    }
+
+    return data;
+  }
+
+  async function startListener(){
+    const data = await getJSON("/blaze/start-polling-listener");
+    setOutput(data);
+    setTimeout(refreshProof, 800);
+  }
+
+  async function stopListener(){
+    const data = await getJSON("/blaze/stop-polling-listener");
+    setOutput(data);
+    setTimeout(refreshProof, 800);
+  }
+
+  async function checkRecent(){
+    const data = await getJSON("/blaze/check-recent-messages");
+    setOutput(data);
+    setTimeout(refreshProof, 800);
+  }
+
+  async function sendTest(){
+    const data = await getJSON("/blaze/send-test-message");
+    setOutput(data);
+    setTimeout(refreshProof, 800);
+  }
+
+  async function runCommand(cmd){
+    const encoded = encodeURIComponent(cmd || "!help");
+    const data = await getJSON("/blaze/run-command?message=" + encoded + "&username=crypt0k1ng96");
+    setOutput(data);
+    setTimeout(refreshProof, 800);
+  }
+
+  async function nativeStart(){
+    const data = await getJSON("/api/blaze/native/start", {method:"POST"});
+    setOutput(data);
+    setTimeout(refreshProof, 800);
+  }
+
+  function openLogin(){
+    window.open("/auth/blaze/login-clean", "_blank");
+  }
+
+  function openDemo(){
+    window.open("/api/blaze/chat/test?message=" + encodeURIComponent("!help") + "&username=crypt0k1ng96", "_blank");
+  }
+
+  function openJudge(){
+    window.open("/blaze/judge-demo", "_blank");
+  }
+
+  function findDashboardMount(){
+    const all = Array.from(document.querySelectorAll("section, main, div"));
+    let best = all.find(el => {
+      const t = (el.innerText || "").trim();
+      return t.includes("FoxBot Studio") && t.includes("Control your Blaze bot") && !t.includes("FoxBot Control Dashboard");
+    });
+
+    if (best && best.parentElement) return best.parentElement;
+
+    const main = document.querySelector("main");
+    if (main) return main;
+
+    const content = document.querySelector(".content") || document.querySelector("#content") || document.body;
+    return content;
+  }
+
+  function mount(){
+    if (!shouldMount()) return;
+
+    const wrap = document.createElement("section");
+    wrap.id = "foxStudioControlDashboard";
+    wrap.setAttribute("data-bridge", BRIDGE_NAME);
+    wrap.style.cssText = `
+      margin: 22px 0;
+      padding: 22px;
+      border-radius: 24px;
+      border: 1px solid rgba(255,255,255,.12);
+      background:
+        radial-gradient(circle at top left, rgba(249,115,22,.18), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(37,99,235,.12), transparent 34%),
+        rgba(15,23,42,.92);
+      box-shadow: 0 22px 60px rgba(0,0,0,.35);
+      color: #fff;
+    `;
+
+    wrap.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:16px;">
+          <div style="width:72px;height:72px;border-radius:18px;overflow:hidden;background:#020617;border:1px solid rgba(255,255,255,.14);display:grid;place-items:center;font-size:34px;">🦊</div>
+          <div>
+            <div style="font-size:32px;font-weight:1000;line-height:1.05;">FoxBot Control Dashboard</div>
+            <div style="color:#cbd5e1;margin-top:8px;">Manage your Blaze-connected AI chatbot from the main Studio dashboard.</div>
+          </div>
+        </div>
+        <div id="foxDashBadge" style="padding:12px 18px;border-radius:999px;border:1px solid rgba(34,197,94,.45);background:rgba(34,197,94,.18);color:#86efac;font-weight:1000;letter-spacing:.04em;">LOADING</div>
+      </div>
+
+      <div style="color:#e5e7eb;margin: 6px 0 18px;">
+        Connect FoxBot to Blaze, start/stop the chat listener, check live status, send a test message, and run real chat commands.
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:12px;margin:16px 0;">
+        <div class="foxDashStat"><small>BLAZE CONNECTED</small><strong id="foxDashBlaze">-</strong></div>
+        <div class="foxDashStat"><small>LISTENER</small><strong id="foxDashListener">-</strong></div>
+        <div class="foxDashStat"><small>MESSAGES CHECKED</small><strong id="foxDashChecks">0</strong></div>
+        <div class="foxDashStat"><small>COMMANDS PROCESSED</small><strong id="foxDashCommands">0</strong></div>
+        <div class="foxDashStat"><small>LAST COMMAND</small><strong id="foxDashLastCommand">None</strong></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(160px,1fr));gap:12px;margin:16px 0;">
+        <div class="foxDashStat"><small>LAST USER</small><strong id="foxDashLastUser">None</strong></div>
+        <div class="foxDashStat"><small>LAST REPLY</small><strong id="foxDashLastReply" style="font-size:16px;line-height:1.35;color:#e5e7eb;">None</strong></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:12px;margin-top:18px;">
+        <button class="foxDashBtn" id="foxDashLogin">Login with Blaze</button>
+        <button class="foxDashBtn" id="foxDashStart">Start Listener</button>
+        <button class="foxDashBtn danger" id="foxDashStop">Stop Listener</button>
+        <button class="foxDashBtn blue" id="foxDashStatus">Check Status</button>
+
+        <button class="foxDashBtn blue" id="foxDashRecent">Check Recent Chat</button>
+        <button class="foxDashBtn" id="foxDashSend">Send Test Message</button>
+        <button class="foxDashBtn" id="foxDashHelp">Run !help</button>
+        <button class="foxDashBtn" id="foxDashShop">Run !shop</button>
+
+        <button class="foxDashBtn" id="foxDashPremium">Run !shop premium</button>
+        <button class="foxDashBtn" id="foxDashNative">Start Native Listener</button>
+        <button class="foxDashBtn" id="foxDashDemo">Open Demo Chat</button>
+        <button class="foxDashBtn" id="foxDashJudge">Judges Page</button>
+      </div>
+
+      <pre id="foxDashOutput" style="white-space:pre-wrap;margin-top:18px;padding:14px;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:#020617;color:#dbeafe;min-height:120px;max-height:300px;overflow:auto;">Ready.</pre>
+
+      <style>
+        #foxStudioControlDashboard .foxDashStat{
+          background: rgba(15,23,42,.95);
+          border: 1px solid rgba(255,255,255,.10);
+          border-radius: 16px;
+          padding: 14px 16px;
+          min-height: 72px;
+        }
+        #foxStudioControlDashboard .foxDashStat small{
+          display:block;
+          color:#93c5fd;
+          font-size:12px;
+          font-weight:900;
+          letter-spacing:.08em;
+          margin-bottom:8px;
+        }
+        #foxStudioControlDashboard .foxDashStat strong{
+          display:block;
+          color:#fb923c;
+          font-size:20px;
+          font-weight:1000;
+          word-break:break-word;
+        }
+        #foxStudioControlDashboard .foxDashBtn{
+          border:0;
+          border-radius:14px;
+          padding:14px 16px;
+          font-weight:1000;
+          cursor:pointer;
+          background:#f97316;
+          color:#111827;
+          box-shadow:0 10px 24px rgba(0,0,0,.18);
+        }
+        #foxStudioControlDashboard .foxDashBtn.blue{
+          background:#2563eb;
+          color:#fff;
+        }
+        #foxStudioControlDashboard .foxDashBtn.danger{
+          background:#dc2626;
+          color:#fff;
+        }
+        @media(max-width:1000px){
+          #foxStudioControlDashboard div[style*="grid-template-columns:repeat(5"]{grid-template-columns:repeat(2,1fr)!important;}
+          #foxStudioControlDashboard div[style*="grid-template-columns:repeat(4"]{grid-template-columns:repeat(2,1fr)!important;}
+        }
+        @media(max-width:640px){
+          #foxStudioControlDashboard div[style*="grid-template-columns"]{grid-template-columns:1fr!important;}
+        }
+      </style>
+    `;
+
+    const mountTarget = findDashboardMount();
+
+    const hero = Array.from(document.querySelectorAll("section,div")).find(el => {
+      const t = (el.innerText || "");
+      return t.includes("FoxBot Studio") && t.includes("Control your Blaze bot");
+    });
+
+    if (hero && hero.parentElement) {
+      hero.insertAdjacentElement("afterend", wrap);
+    } else {
+      mountTarget.prepend(wrap);
+    }
+
+    document.getElementById("foxDashLogin").onclick = openLogin;
+    document.getElementById("foxDashStart").onclick = startListener;
+    document.getElementById("foxDashStop").onclick = stopListener;
+    document.getElementById("foxDashStatus").onclick = async () => setOutput(await refreshProof());
+    document.getElementById("foxDashRecent").onclick = checkRecent;
+    document.getElementById("foxDashSend").onclick = sendTest;
+    document.getElementById("foxDashHelp").onclick = () => runCommand("!help");
+    document.getElementById("foxDashShop").onclick = () => runCommand("!shop");
+    document.getElementById("foxDashPremium").onclick = () => runCommand("!shop premium");
+    document.getElementById("foxDashNative").onclick = nativeStart;
+    document.getElementById("foxDashDemo").onclick = openDemo;
+    document.getElementById("foxDashJudge").onclick = openJudge;
+
+    refreshProof().then(setOutput).catch(err => setOutput({ok:false,error:String(err)}));
+    setInterval(refreshProof, 5000);
+  }
+
+  function mountSoon(){
+    setTimeout(mount, 250);
+    setTimeout(mount, 1000);
+    setTimeout(mount, 2500);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mountSoon);
+  } else {
+    mountSoon();
+  }
+
+  document.addEventListener("click", function(){
+    setTimeout(mount, 300);
+  });
+})();
+</script>
+
 </body>
 
 </html>
