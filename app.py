@@ -3440,6 +3440,74 @@ def chat(message: str = "", username: str = "viewer"):
 
     username = username.strip() or "viewer"
 
+    # === FoxBot Studio Giveaway Viewer Entry v3 ===
+    # Real stream entry command for the Admin Hub Giveaway Center.
+    if lower_message == "!enter":
+        state = globals().setdefault("FOXBOT_STUDIO_GIVEAWAY_STATE_V3", {
+            "active": False,
+            "prize": "Weekly Giveaway",
+            "rules": "Type !enter to join.",
+            "last_winner": None,
+            "last_entry": None,
+            "last_action": "Waiting"
+        })
+
+        entries = globals().setdefault("giveaway_entries", [])
+
+        if not state.get("active", False):
+            return {
+                "response": "No giveaway is open right now. Watch for the next giveaway!"
+            }
+
+        clean_user = username.strip() or "viewer"
+        existing = [str(x).lower() for x in entries]
+
+        if clean_user.lower() in existing:
+            return {
+                "response": f"@{clean_user} you are already entered for {state.get('prize', 'the giveaway')}!"
+            }
+
+        entries.append(clean_user)
+        state["last_entry"] = clean_user
+        state["last_action"] = f"{clean_user} entered"
+
+        return {
+            "response": f"@{clean_user} entered {state.get('prize', 'the giveaway')}! Entries: {len(entries)}"
+        }
+
+    if lower_message == "!giveaway":
+        state = globals().setdefault("FOXBOT_STUDIO_GIVEAWAY_STATE_V3", {
+            "active": False,
+            "prize": "Weekly Giveaway",
+            "rules": "Type !enter to join.",
+            "last_winner": None,
+            "last_entry": None,
+            "last_action": "Waiting"
+        })
+        entries = globals().setdefault("giveaway_entries", [])
+
+        if state.get("active", False):
+            return {
+                "response": f"Giveaway live: {state.get('prize', 'Weekly Giveaway')} | Type !enter to join | Entries: {len(entries)}"
+            }
+
+        return {
+            "response": "No giveaway is open right now."
+        }
+
+    if lower_message == "!entries":
+        entries = globals().setdefault("giveaway_entries", [])
+        if not entries:
+            return {
+                "response": "No giveaway entries yet."
+            }
+
+        preview = ", ".join([str(x) for x in entries[-10:]])
+        return {
+            "response": f"Giveaway entries: {len(entries)} total | Latest: {preview}"
+        }
+
+
     # === FoxBot Clean Base Shop Override v1 ===
     # Keeps base !shop clean in Blaze chat: no broken emoji, no FoxCoins/FC labels.
     if lower_message in ["!shop", "!rewards", "!rewardshop"]:
@@ -21424,3 +21492,266 @@ async def foxbot_giveaways_clear_v1():
     }
 
 # === End FoxBot Giveaway Admin Control v1 ===
+
+
+# === FoxBot Studio Giveaway Live API v3 ===
+def foxbot_studio_giveaway_state_v3():
+    return globals().setdefault("FOXBOT_STUDIO_GIVEAWAY_STATE_V3", {
+        "active": False,
+        "prize": "Weekly Giveaway",
+        "rules": "Type !enter to join.",
+        "last_winner": None,
+        "last_entry": None,
+        "last_action": "Waiting"
+    })
+
+
+def foxbot_studio_giveaway_entries_v3():
+    entries = globals().setdefault("giveaway_entries", [])
+    if entries is None:
+        globals()["giveaway_entries"] = []
+        entries = globals()["giveaway_entries"]
+    return entries
+
+
+def foxbot_studio_giveaway_send_v3(message: str):
+    message = str(message or "").strip()
+    if not message:
+        return {"ok": False, "success": False, "message": "No message provided."}
+
+    errors = []
+
+    try:
+        result = send_blaze_chat_message(message)
+        if isinstance(result, dict):
+            if result.get("success") or result.get("ok"):
+                return result
+            errors.append({"send_blaze_chat_message": result})
+        elif result:
+            return {"ok": True, "success": True, "message": "Sent through send_blaze_chat_message.", "result": str(result)}
+    except Exception as e:
+        errors.append({"send_blaze_chat_message_error": str(e)})
+
+    try:
+        sender = globals().get("_foxbot_blaze_send_app_token_v1")
+        if sender:
+            result = sender(message)
+            if isinstance(result, dict):
+                if result.get("success") or result.get("ok"):
+                    return result
+                errors.append({"app_token_sender": result})
+            elif result:
+                return {"ok": True, "success": True, "message": "Sent through app token sender.", "result": str(result)}
+    except Exception as e:
+        errors.append({"app_token_sender_error": str(e)})
+
+    try:
+        from services.blaze_native_connector import send_blaze_chat
+        result = send_blaze_chat(message)
+        if isinstance(result, dict):
+            if result.get("success") or result.get("ok"):
+                return result
+            errors.append({"native_send": result})
+        elif result:
+            return {"ok": True, "success": True, "message": "Sent through native connector.", "result": str(result)}
+    except Exception as e:
+        errors.append({"native_send_error": str(e)})
+
+    return {
+        "ok": False,
+        "success": False,
+        "message": "Could not send to Blaze chat.",
+        "errors": errors[-6:]
+    }
+
+
+@app.get("/api/studio/giveaways/status")
+def foxbot_studio_giveaway_status_v3():
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    return {
+        "ok": True,
+        "state": state,
+        "count": len(entries),
+        "entries": list(entries)[-500:]
+    }
+
+
+@app.post("/api/studio/giveaways/start")
+async def foxbot_studio_giveaway_start_v3(payload: dict):
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    prize = str(payload.get("prize", "Weekly Giveaway")).strip() or "Weekly Giveaway"
+    rules = str(payload.get("rules", "Type !enter to join. One entry per viewer.")).strip()
+    clear_old = bool(payload.get("clear_old", True))
+
+    if clear_old:
+        entries.clear()
+
+    state["active"] = True
+    state["prize"] = prize
+    state["rules"] = rules
+    state["last_winner"] = None
+    state["last_entry"] = None
+    state["last_action"] = "Started"
+
+    msg = f"GIVEAWAY LIVE: {prize} | Type !enter to join! {rules}"
+    sent = foxbot_studio_giveaway_send_v3(msg)
+
+    return {"ok": True, "message": "Giveaway started.", "state": state, "count": len(entries), "sent_to_blaze": sent}
+
+
+@app.post("/api/studio/giveaways/announce")
+async def foxbot_studio_giveaway_announce_v3(payload: dict = None):
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    msg = f"GIVEAWAY LIVE: {state.get('prize','Weekly Giveaway')} | Type !enter to join! {state.get('rules','')} | Entries: {len(entries)}"
+    sent = foxbot_studio_giveaway_send_v3(msg)
+    state["last_action"] = "Announced"
+
+    return {"ok": True, "message": msg, "sent_to_blaze": sent}
+
+
+@app.post("/api/studio/giveaways/close")
+async def foxbot_studio_giveaway_close_v3(payload: dict = None):
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    state["active"] = False
+    state["last_action"] = "Closed"
+
+    msg = f"Giveaway entries closed. Total entries: {len(entries)}"
+    sent = foxbot_studio_giveaway_send_v3(msg)
+
+    return {"ok": True, "message": "Giveaway closed.", "state": state, "count": len(entries), "sent_to_blaze": sent}
+
+
+@app.post("/api/studio/giveaways/add")
+async def foxbot_studio_giveaway_add_v3(payload: dict):
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    username = str(payload.get("username", "")).strip().lstrip("@")
+    if not username:
+        return {"ok": False, "error": "Username is required."}
+
+    existing = [str(x).lower() for x in entries]
+    if username.lower() in existing:
+        return {"ok": False, "message": f"{username} is already entered.", "count": len(entries), "entries": entries}
+
+    entries.append(username)
+    state["last_entry"] = username
+    state["last_action"] = f"Added {username}"
+
+    return {"ok": True, "message": f"{username} added.", "count": len(entries), "entries": entries}
+
+
+@app.post("/api/studio/giveaways/remove")
+async def foxbot_studio_giveaway_remove_v3(payload: dict):
+    entries = foxbot_studio_giveaway_entries_v3()
+    username = str(payload.get("username", "")).strip().lstrip("@")
+
+    before = len(entries)
+    entries[:] = [x for x in entries if str(x).lower() != username.lower()]
+
+    return {"ok": True, "message": f"Removed {before - len(entries)} entries for {username}.", "count": len(entries), "entries": entries}
+
+
+@app.post("/api/studio/giveaways/pick")
+async def foxbot_studio_giveaway_pick_v3(payload: dict):
+    import random
+
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    if not entries:
+        return {"ok": False, "error": "No entries yet."}
+
+    winner = random.choice(entries)
+    state["last_winner"] = winner
+    state["last_action"] = "Picked winner"
+
+    announce = bool(payload.get("announce", True))
+    sent = None
+
+    if announce:
+        msg = f"WINNER: @{winner} won {state.get('prize', 'the giveaway')}! Congratulations!"
+        sent = foxbot_studio_giveaway_send_v3(msg)
+
+    return {"ok": True, "winner": winner, "state": state, "sent_to_blaze": sent}
+
+
+@app.post("/api/studio/giveaways/clear")
+async def foxbot_studio_giveaway_clear_v3(payload: dict = None):
+    state = foxbot_studio_giveaway_state_v3()
+    entries = foxbot_studio_giveaway_entries_v3()
+
+    entries.clear()
+    state["last_winner"] = None
+    state["last_entry"] = None
+    state["last_action"] = "Cleared"
+
+    return {"ok": True, "message": "Entries cleared.", "state": state, "count": len(entries)}
+
+
+@app.post("/api/studio/giveaways/send")
+async def foxbot_studio_giveaway_send_route_v3(payload: dict):
+    message = str(payload.get("message", "")).strip()
+    sent = foxbot_studio_giveaway_send_v3(message)
+    return {"ok": bool(sent.get("ok") or sent.get("success")), "message": message, "sent_to_blaze": sent}
+
+
+@app.get("/overlay/studio-giveaway")
+def foxbot_studio_giveaway_overlay_v3():
+    from fastapi.responses import HTMLResponse
+
+    html = """
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{margin:0;background:transparent;color:white;font-family:Arial,sans-serif;overflow:hidden}
+.box{width:760px;padding:28px;border-radius:28px;background:linear-gradient(135deg,rgba(249,115,22,.92),rgba(10,16,12,.92));border:2px solid rgba(255,255,255,.18);box-shadow:0 22px 60px rgba(0,0,0,.45)}
+.kicker{font-size:20px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#fff7ed}
+.title{font-size:46px;font-weight:1000;line-height:1.05;margin:10px 0}
+.row{display:flex;gap:18px;margin-top:18px}
+.stat{flex:1;padding:14px;border-radius:18px;background:rgba(0,0,0,.28)}
+.label{font-size:15px;color:#fed7aa}
+.value{font-size:30px;font-weight:1000}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="kicker">FoxBot Giveaway</div>
+  <div id="prize" class="title">Waiting for giveaway...</div>
+  <div id="rules">Type !enter to join.</div>
+  <div class="row">
+    <div class="stat"><div class="label">Status</div><div id="status" class="value">Waiting</div></div>
+    <div class="stat"><div class="label">Entries</div><div id="entries" class="value">0</div></div>
+    <div class="stat"><div class="label">Winner</div><div id="winner" class="value">None</div></div>
+  </div>
+</div>
+<script>
+async function refresh(){
+  const res = await fetch('/api/studio/giveaways/status');
+  const data = await res.json();
+  const s = data.state || {};
+  document.getElementById('prize').textContent = s.prize || 'Weekly Giveaway';
+  document.getElementById('rules').textContent = s.rules || 'Type !enter to join.';
+  document.getElementById('status').textContent = s.active ? 'LIVE' : 'Closed';
+  document.getElementById('entries').textContent = data.count || 0;
+  document.getElementById('winner').textContent = s.last_winner || 'None';
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
+"""
+    return HTMLResponse(html)
+
+# === End FoxBot Studio Giveaway Live API v3 ===
