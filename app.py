@@ -21380,3 +21380,13 @@ setInterval(refresh, 3000);
 
 
 
+
+
+# === FoxBot Creator Onboarding v1 ===
+@app.get("/get-started", response_class=HTMLResponse)
+def foxbot_creator_onboarding_v1():
+    return FileResponse(
+        "templates/foxbot_onboarding.html",
+        media_type="text/html",
+    )
+# === End FoxBot Creator Onboarding v1 ===
