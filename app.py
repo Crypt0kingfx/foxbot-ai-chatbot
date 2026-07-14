@@ -88,7 +88,7 @@ from dotenv import load_dotenv
 
 from fastapi import FastAPI
 
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 
 from fastapi.staticfiles import StaticFiles
 
@@ -2201,6 +2201,14 @@ judges_html = """
 
 
 @app.get("/", response_class=HTMLResponse)
+def public_home():
+    return FileResponse(
+        "templates/foxbot_landing.html",
+        media_type="text/html"
+    )
+
+
+@app.get("/demo-chat", response_class=HTMLResponse)
 
 def home():
 
@@ -18276,7 +18284,7 @@ def foxbot_blaze_oauth_login_v1():
 
     import time
 
-    from fastapi.responses import HTMLResponse, RedirectResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 
 
 
@@ -18990,7 +18998,7 @@ def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes):
 
 def foxbot_blaze_oauth_login_basic_v1():
 
-    from fastapi.responses import HTMLResponse, RedirectResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 
 
 
@@ -21363,4 +21371,12 @@ setInterval(refresh, 3000);
     return HTMLResponse(html)
 
 # === End FoxBot Studio Giveaway Live API v3 ===
+
+
+
+
+
+
+
+
 
