@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get Started | FoxBot AI</title>
+  <meta name="description" content="Connect Blaze and prepare FoxBot AI for your stream.">
+  <link rel="stylesheet" href="/static/css/foxbot-landing.css">
+  <style>
+    body { min-height: 100vh; }
+    .onboarding-main { padding: 80px 0 110px; }
+    .onboarding-hero {
+      max-width: 820px;
+      margin: 0 auto 55px;
+      text-align: center;
+    }
+    .onboarding-hero h1 {
+      margin: 12px 0 20px;
+      font-size: clamp(46px, 7vw, 76px);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+    .onboarding-hero h1 span {
+      color: transparent;
+      background: linear-gradient(100deg, var(--orange-light), var(--orange));
+      background-clip: text;
+      -webkit-background-clip: text;
+    }
+    .onboarding-hero p {
+      max-width: 670px;
+      margin: 0 auto;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    .onboarding-actions {
+      margin-top: 28px;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 11px;
+    }
+    .progress-track {
+      margin-bottom: 28px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .progress-step {
+      padding: 15px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--muted);
+      background: rgba(255,255,255,.025);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .progress-step b {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .progress-step.complete {
+      border-color: rgba(57,255,136,.3);
+      background: rgba(57,255,136,.055);
+    }
+    .progress-step.current {
+      border-color: rgba(255,122,24,.42);
+      background: rgba(255,122,24,.075);
+    }
+    .onboarding-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+      align-items: start;
+      gap: 18px;
+    }
+    .setup-list { display: grid; gap: 15px; }
+    .setup-card, .readiness-card {
+      padding: 25px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--panel);
+      box-shadow: 0 20px 55px rgba(0,0,0,.18);
+    }
+    .setup-card {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr);
+      gap: 17px;
+    }
+    .step-number {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,122,24,.35);
+      border-radius: 12px;
+      color: var(--orange);
+      background: rgba(255,122,24,.08);
+      font-weight: 900;
+    }
+    .setup-card h2 {
+      margin: 0 0 7px;
+      font-size: 21px;
+      letter-spacing: -.025em;
+    }
+    .setup-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .setup-card .actions {
+      margin-top: 18px;
+    }
+    .facts {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 9px;
+    }
+    .fact {
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: rgba(255,255,255,.025);
+    }
+    .fact span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .fact strong { font-size: 13px; }
+    .creator-form {
+      margin-top: 16px;
+      display: flex;
+      gap: 9px;
+    }
+    .creator-form input {
+      min-width: 0;
+      flex: 1;
+      padding: 0 13px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      color: var(--text);
+      background: rgba(0,0,0,.28);
+      font: inherit;
+    }
+    .form-message {
+      min-height: 20px;
+      margin-top: 9px !important;
+      font-size: 12px !important;
+    }
+    .readiness-card {
+      position: sticky;
+      top: 100px;
+    }
+    .readiness-card h2 {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+    .readiness-card > p {
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+    .status-row {
+      padding: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255,255,255,.025);
+    }
+    .status-row span:first-child {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .status {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .status.ready { color: var(--green); }
+    .status.warning { color: var(--orange-light); }
+    .status.error { color: #ff5a64; }
+    .readiness-summary {
+      margin: 18px 0;
+      padding: 15px;
+      border-radius: 13px;
+      color: var(--muted);
+      background: rgba(255,122,24,.065);
+      font-size: 13px;
+    }
+    .readiness-card .button { width: 100%; }
+    .onboarding-footer {
+      padding: 30px 0;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      text-align: center;
+      font-size: 12px;
+    }
+    @media (max-width: 900px) {
+      .onboarding-layout { grid-template-columns: 1fr; }
+      .readiness-card { position: static; }
+    }
+    @media (max-width: 680px) {
+      .onboarding-main { padding-top: 55px; }
+      .progress-track { grid-template-columns: repeat(2, 1fr); }
+      .setup-card { grid-template-columns: 1fr; }
+      .facts { grid-template-columns: 1fr; }
+      .creator-form { flex-direction: column; }
+      .creator-form input { min-height: 48px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="brand">
+      <img src="/static/foxbot-logo.png" alt="FoxBot AI">
+      <span><strong>FoxBot</strong> AI</span>
+    </a>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/connected-creators">Creators</a>
+      <a href="/project-status">Status</a>
+    </nav>
+    <a href="/admin" class="button small secondary">Open Studio</a>
+  </header>
+
+  <main class="onboarding-main shell">
+    <section class="onboarding-hero">
+      <div class="eyebrow">CREATOR ONBOARDING</div>
+      <h1>Connect Blaze.<br><span>Command your stream.</span></h1>
+      <p>Follow the real connection status below and prepare FoxBot for your next live stream.</p>
+      <div class="onboarding-actions">
+        <button id="refreshStatus" class="button">Refresh Status</button>
+        <a href="/demo-chat" class="button secondary">View Demo</a>
+      </div>
+    </section>
+
+    <div class="progress-track">
+      <div id="progress1" class="progress-step current"><b>01 · Connect</b>Authorize Blaze</div>
+      <div id="progress2" class="progress-step"><b>02 · Profile</b>Add creator handle</div>
+      <div id="progress3" class="progress-step"><b>03 · Bot Status</b>Verify listener</div>
+      <div id="progress4" class="progress-step"><b>04 · Go Live</b>Open Studio</div>
+    </div>
+
+    <div class="onboarding-layout">
+      <div class="setup-list">
+        <article class="setup-card">
+          <div class="step-number">01</div>
+          <div>
+            <h2>Connect your Blaze account</h2>
+            <p>Authorize FoxBot through the existing Blaze OAuth connection.</p>
+            <div class="facts">
+              <div class="fact"><span>OAuth configuration</span><strong id="oauthConfig">Checking</strong></div>
+              <div class="fact"><span>Saved authorization</span><strong id="oauthToken">Checking</strong></div>
+            </div>
+            <div class="actions">
+              <a href="/login/blaze" class="button">Connect Blaze</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="setup-card">
+          <div class="step-number">02</div>
+          <div>
+            <h2>Add your creator profile</h2>
+            <p>Save the Blaze handle that FoxBot should recognize and manage.</p>
+            <form id="creatorForm" class="creator-form">
+              <input id="creatorHandle" type="text" placeholder="Your Blaze handle" autocomplete="off" required>
+              <button class="button" type="submit">Save Handle</button>
+            </form>
+            <p id="creatorMessage" class="form-message"></p>
+          </div>
+        </article>
+
+        <article class="setup-card">
+          <div class="step-number">03</div>
+          <div>
+            <h2>Verify FoxBot status</h2>
+            <p>Check the real listener state before controlling your live stream.</p>
+            <div class="facts">
+              <div class="fact"><span>Listener connection</span><strong id="listenerConnection">Checking</strong></div>
+              <div class="fact"><span>Listener activity</span><strong id="listenerActivity">Checking</strong></div>
+            </div>
+            <div class="actions">
+              <a href="/admin" class="button secondary">Open Bot Controls</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="setup-card">
+          <div class="step-number">04</div>
+          <div>
+            <h2>Open Studio and go live</h2>
+            <p>Manage recognition, FoxCoins, rewards, giveaways, quests, events, overlays, and analytics.</p>
+            <div class="actions">
+              <a href="/admin" class="button">Enter FoxBot Studio</a>
+              <a href="/connected-creators" class="button secondary">Connected Creators</a>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <aside class="readiness-card">
+        <h2>Readiness Check</h2>
+        <p>Live backend status—no simulated platform metrics.</p>
+
+        <div class="status-list">
+          <div class="status-row"><span>Blaze OAuth</span><strong id="summaryOauth" class="status">Checking</strong></div>
+          <div class="status-row"><span>Creator Profile</span><strong id="summaryCreator" class="status">Checking</strong></div>
+          <div class="status-row"><span>Blaze Listener</span><strong id="summaryListener" class="status">Checking</strong></div>
+          <div class="status-row"><span>FoxBot Studio</span><strong class="status ready">Available</strong></div>
+        </div>
+
+        <div id="readinessSummary" class="readiness-summary">Checking FoxBot readiness…</div>
+        <a href="/admin" class="button">Open Creator Command Center</a>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="onboarding-footer">
+    FoxBot AI · Creator tools built for Blaze
+  </footer>
+
+  <script>
+    const byId = (id) => document.getElementById(id);
+
+    function setStatus(id, text, state) {
+      const element = byId(id);
+      if (!element) return;
+      element.textContent = text;
+      element.className = "status " + (state || "");
+    }
+
+    function setProgress(completed) {
+      for (let step = 1; step <= 4; step += 1) {
+        const element = byId("progress" + step);
+        element.classList.remove("complete", "current");
+        if (step <= completed) element.classList.add("complete");
+        else if (step === completed + 1) element.classList.add("current");
+      }
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) throw new Error("Request failed: " + response.status);
+      return response.json();
+    }
+
+    async function refreshOnboardingStatus() {
+      byId("readinessSummary").textContent = "Checking FoxBot readiness…";
+
+      const results = await Promise.allSettled([
+        fetchJson("/api/blaze/oauth/status"),
+        fetchJson("/api/connected-creators"),
+        fetchJson("/api/blaze/listener/status")
+      ]);
+
+      let oauthReady = false;
+      let creatorReady = false;
+      let listenerReady = false;
+
+      if (results[0].status === "fulfilled") {
+        const oauth = results[0].value;
+        const configured = Boolean(oauth.has_client_id && oauth.has_client_secret);
+        oauthReady = Boolean(oauth.has_access_token);
+
+        byId("oauthConfig").textContent = configured ? "Configured" : "Needs configuration";
+        byId("oauthToken").textContent = oauthReady ? "Connected" : "Not connected";
+        setStatus("summaryOauth", oauthReady ? "Connected" : "Action needed", oauthReady ? "ready" : "warning");
+      } else {
+        byId("oauthConfig").textContent = "Unavailable";
+        byId("oauthToken").textContent = "Unavailable";
+        setStatus("summaryOauth", "Unavailable", "error");
+      }
+
+      if (results[1].status === "fulfilled") {
+        const data = results[1].value;
+        const creators = Array.isArray(data.creators) ? data.creators : [];
+        const count = Number.isFinite(Number(data.count)) ? Number(data.count) : creators.length;
+        creatorReady = count > 0;
+        setStatus(
+          "summaryCreator",
+          creatorReady ? count + " connected" : "Not added",
+          creatorReady ? "ready" : "warning"
+        );
+      } else {
+        setStatus("summaryCreator", "Unavailable", "error");
+      }
+
+      if (results[2].status === "fulfilled") {
+        const listener = results[2].value.listener || {};
+        listenerReady = Boolean(listener.connected || listener.running);
+        const connectedText = listener.connected ? "Connected" : "Not connected";
+        const activityText = listener.running ? "Running" : (listener.status || "Idle");
+
+        byId("listenerConnection").textContent = connectedText;
+        byId("listenerActivity").textContent = String(activityText);
+        setStatus(
+          "summaryListener",
+          listenerReady ? "Ready" : "Check status",
+          listenerReady ? "ready" : "warning"
+        );
+      } else {
+        byId("listenerConnection").textContent = "Unavailable";
+        byId("listenerActivity").textContent = "Unavailable";
+        setStatus("summaryListener", "Unavailable", "error");
+      }
+
+      const completed = oauthReady + creatorReady + listenerReady;
+      setProgress(Number(completed));
+
+      if (oauthReady && creatorReady && listenerReady) {
+        byId("readinessSummary").textContent = "FoxBot is connected and ready for Studio control.";
+      } else {
+        byId("readinessSummary").textContent =
+          "Complete the highlighted connection steps, then refresh status.";
+      }
+    }
+
+    byId("refreshStatus").addEventListener("click", refreshOnboardingStatus);
+
+    byId("creatorForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const handle = byId("creatorHandle").value.trim();
+      if (!handle) return;
+
+      const message = byId("creatorMessage");
+      message.textContent = "Saving creator profile…";
+
+      try {
+        const result = await fetchJson("/api/connected-creators/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handle: handle, verified_follow: false })
+        });
+
+        message.textContent = result.message || "Creator profile saved.";
+        byId("creatorHandle").value = "";
+        await refreshOnboardingStatus();
+      } catch (error) {
+        message.textContent = "Could not save the creator profile.";
+      }
+    });
+
+    refreshOnboardingStatus();
+  </script>
+</body>
+</html>
