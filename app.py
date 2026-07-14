@@ -1,4 +1,4 @@
-﻿
+
 
 # === FoxBot Shop Emoji Normalizer v2 ===
 def foxbot_shop_emoji_response_v2():
@@ -3558,7 +3558,7 @@ def chat(message: str = "", username: str = "viewer"):
 
     # Handles !connect, !profile, !rank, and !disconnect through the normal /chat route.
 
-    if lower_message.split(" ", 1)[0] in ["!connect", "!profile", "!rank", "!disconnect"]:
+    if lower_message.split(" ", 1)[0] in ["!join", "!connect", "!profile", "!rank", "!access", "!verify", "!disconnect"]:
 
         try:
 
@@ -21390,3 +21390,114 @@ def foxbot_creator_onboarding_v1():
         media_type="text/html",
     )
 # === End FoxBot Creator Onboarding v1 ===
+
+# === FoxBot Blaze Creator Access v1 ===
+from services import creator_access as _foxbot_creator_access_v1
+
+_foxbot_connect_process_command_without_access_v1 = _foxbot_connect_process_command_v1
+
+
+def _foxbot_connect_process_command_v1(handle, message, display_name=None):
+    """Extend FoxBot Connect with trial and subscription access commands."""
+    clean_handle = _foxbot_creator_access_v1.clean_handle(handle)
+    clean_message = str(message or "").strip()
+    command = clean_message.split()[0].lower() if clean_message.startswith("!") else ""
+
+    if command == "!join":
+        existing = _foxbot_connect_get_creator_v1(clean_handle)
+        if not existing:
+            _foxbot_connect_process_command_without_access_v1(
+                clean_handle,
+                "!connect",
+                display_name=display_name,
+            )
+
+        access = _foxbot_creator_access_v1.start_trial(clean_handle, display_name)
+        if access.get("started"):
+            reply = (
+                f"@{clean_handle}, your FoxBot 7-day trial is active. "
+                "Use !access anytime to check your status."
+            )
+        else:
+            reply = (
+                f"@{clean_handle}, FoxBot access is {access.get('status')}. "
+                f"Days remaining: {access.get('remaining_days', 0)}."
+            )
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!join",
+            "access": access,
+            "reply": reply,
+        }
+
+    if command == "!access":
+        access = _foxbot_creator_access_v1.get_access(clean_handle)
+        if access.get("status") == "not_started":
+            reply = f"@{clean_handle}, type !join to start your free 7-day FoxBot trial."
+        else:
+            reply = (
+                f"@{clean_handle} FoxBot Access | Status: {access.get('status')} | "
+                f"Days remaining: {access.get('remaining_days', 0)} | "
+                f"Verification: {access.get('verification_status')}"
+            )
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!access",
+            "access": access,
+            "reply": reply,
+        }
+
+    if command == "!verify":
+        access = _foxbot_creator_access_v1.request_verification(clean_handle)
+        if access.get("ok"):
+            reply = (
+                f"@{clean_handle}, your FoxBot subscription verification request is pending. "
+                "Use !access to check its status."
+            )
+        else:
+            reply = f"@{clean_handle}, type !join before requesting verification."
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!verify",
+            "access": access,
+            "reply": reply,
+        }
+
+    result = _foxbot_connect_process_command_without_access_v1(
+        clean_handle,
+        clean_message,
+        display_name=display_name,
+    )
+
+    if command in {"!profile", "!rank"} and result.get("handled"):
+        access = _foxbot_creator_access_v1.get_access(clean_handle)
+        if access.get("status") != "not_started":
+            result["access"] = access
+            result["reply"] = (
+                str(result.get("reply") or "")
+                + f" | Access: {access.get('status')} ({access.get('remaining_days', 0)} days)"
+            )
+
+    return result
+
+
+@app.get("/api/foxbot/access")
+def foxbot_creator_access_list_v1():
+    return {
+        "ok": True,
+        "trial_days": _foxbot_creator_access_v1.TRIAL_DAYS,
+        "creators": _foxbot_creator_access_v1.list_access(),
+    }
+
+
+@app.get("/api/foxbot/access/{handle}")
+def foxbot_creator_access_status_v1(handle: str):
+    return {
+        "ok": True,
+        "access": _foxbot_creator_access_v1.get_access(handle),
+    }
+# === End FoxBot Blaze Creator Access v1 ===
