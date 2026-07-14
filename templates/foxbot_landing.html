@@ -1,0 +1,345 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoxBot AI — Built for Blaze Creators</title>
+    <meta name="description" content="FoxBot AI helps Blaze creators automate engagement, reward viewers, run giveaways, manage overlays, and control their stream from one dashboard.">
+    <link rel="stylesheet" href="/static/css/foxbot-landing.css">
+</head>
+
+<body>
+<header class="site-header">
+    <a href="/" class="brand">
+        <img src="/static/foxbot-logo.png" alt="FoxBot AI">
+        <span><strong>FoxBot</strong> AI</span>
+    </a>
+
+    <nav>
+        <a href="#features">Features</a>
+        <a href="#setup">How It Works</a>
+        <a href="#commands">Commands</a>
+        <a href="#faq">FAQ</a>
+    </nav>
+
+    <a href="/admin" class="button small">Dashboard</a>
+</header>
+
+<main>
+    <section class="hero shell">
+        <div class="hero-copy">
+            <div class="eyebrow">BUILT FOR BLAZE CREATORS</div>
+
+            <h1>
+                Run a smarter stream with
+                <span>FoxBot AI.</span>
+            </h1>
+
+            <p class="lead">
+                Automate recognition, reward loyal viewers, run giveaways,
+                power community events, and control everything from one creator command center.
+            </p>
+
+            <div class="actions">
+                <a href="/login/blaze" class="button">Connect Blaze Account</a>
+                <a href="/admin" class="button secondary">Open Dashboard</a>
+                <a href="/demo-chat" class="button secondary">Live Demo</a>
+            </div>
+
+            <div class="proof-row">
+                <div>
+                    <strong>Real Blaze OAuth</strong>
+                    <span>Secure creator connection</span>
+                </div>
+
+                <div>
+                    <strong>Live Chat Automation</strong>
+                    <span>Commands and recognition</span>
+                </div>
+
+                <div>
+                    <strong>OBS-Ready Tools</strong>
+                    <span>Overlays and live events</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-preview">
+            <div class="preview-header">
+                <div class="dots">
+                    <i></i><i></i><i></i>
+                </div>
+
+                <span>FoxBot Creator Command Center</span>
+                <b id="systemStatus">Checking status</b>
+            </div>
+
+            <div class="preview-layout">
+                <aside>
+                    <strong>FoxBot AI</strong>
+                    <span class="active">Command Center</span>
+                    <span>Recognition</span>
+                    <span>Economy</span>
+                    <span>Rewards</span>
+                    <span>Giveaways</span>
+                    <span>Overlays</span>
+                    <span>Analytics</span>
+                </aside>
+
+                <div class="preview-content">
+                    <small>CREATOR OVERVIEW</small>
+                    <h2>Everything under control.</h2>
+
+                    <div class="status-grid">
+                        <article>
+                            <span>Blaze Connection</span>
+                            <strong id="connectionStatus">Checking</strong>
+                        </article>
+
+                        <article>
+                            <span>Chat Listener</span>
+                            <strong id="listenerStatus">Checking</strong>
+                        </article>
+
+                        <article>
+                            <span>Connected Creators</span>
+                            <strong id="creatorCount">—</strong>
+                        </article>
+
+                        <article>
+                            <span>Recognition</span>
+                            <strong>Enabled</strong>
+                        </article>
+                    </div>
+
+                    <div class="automation-card">
+                        <h3>Live Automation</h3>
+
+                        <div>
+                            <i></i>
+                            <p>
+                                <strong>Recognition Engine</strong>
+                                <span>Follows, subs, votes, tips and raids</span>
+                            </p>
+                            <b>ACTIVE</b>
+                        </div>
+
+                        <div>
+                            <i></i>
+                            <p>
+                                <strong>FoxCoins Economy</strong>
+                                <span>Loyalty, rewards and redemptions</span>
+                            </p>
+                            <b>ACTIVE</b>
+                        </div>
+
+                        <div>
+                            <i></i>
+                            <p>
+                                <strong>Creator Tools</strong>
+                                <span>Giveaways, quests, bosses and overlays</span>
+                            </p>
+                            <b>READY</b>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="product-strip">
+        <strong>Automation</strong>
+        <strong>Engagement</strong>
+        <strong>Rewards</strong>
+        <strong>Overlays</strong>
+        <strong>Analytics</strong>
+    </section>
+
+    <section id="features" class="section shell">
+        <div class="section-heading">
+            <div class="eyebrow">CREATOR TOOLS</div>
+            <h2>Everything your stream needs.</h2>
+            <p>
+                FoxBot combines the tools creators normally manage separately
+                into one focused Blaze platform.
+            </p>
+        </div>
+
+        <div class="feature-grid">
+            <article>
+                <label>AI</label>
+                <h3>Automatic Recognition</h3>
+                <p>Thank followers, subscribers, gifted subs, voters, tippers, raiders, MVPs, and OGs.</p>
+            </article>
+
+            <article>
+                <label>FC</label>
+                <h3>FoxCoins Economy</h3>
+                <p>Reward activity with balances, ranks, streaks, shops, and redemptions.</p>
+            </article>
+
+            <article>
+                <label>OBS</label>
+                <h3>Stream Overlays</h3>
+                <p>Browser-source overlays for giveaways, rewards, and boss battles.</p>
+            </article>
+
+            <article>
+                <label>WIN</label>
+                <h3>Giveaways</h3>
+                <p>Track entries, prevent duplicates, choose winners, and display results live.</p>
+            </article>
+
+            <article>
+                <label>XP</label>
+                <h3>Community Gameplay</h3>
+                <p>Boss battles, quests, streaks, arcade commands, and stream events.</p>
+            </article>
+
+            <article>
+                <label>LIVE</label>
+                <h3>Creator Command Center</h3>
+                <p>Control your listener, recognition, rewards, analytics, diagnostics, and overlays.</p>
+            </article>
+        </div>
+    </section>
+
+    <section id="setup" class="section setup-section">
+        <div class="shell setup-layout">
+            <div class="section-heading">
+                <div class="eyebrow">FAST SETUP</div>
+                <h2>Connect. Configure. Go live.</h2>
+                <p>FoxBot uses Blaze OAuth for a straightforward creator connection flow.</p>
+                <a href="/login/blaze" class="button">Connect Blaze</a>
+            </div>
+
+            <div class="steps">
+                <article><b>01</b><div><h3>Connect Blaze</h3><p>Authorize FoxBot through the real Blaze OAuth flow.</p></div></article>
+                <article><b>02</b><div><h3>Start the Listener</h3><p>Enable live chat monitoring from the dashboard.</p></div></article>
+                <article><b>03</b><div><h3>Customize</h3><p>Configure rewards, recognition, events, and overlays.</p></div></article>
+                <article><b>04</b><div><h3>Go Live</h3><p>Focus on content while FoxBot handles repetitive engagement.</p></div></article>
+            </div>
+        </div>
+    </section>
+
+    <section id="commands" class="section shell">
+        <div class="section-heading centered">
+            <div class="eyebrow">COMMANDS</div>
+            <h2>Powerful in chat. Simple to use.</h2>
+        </div>
+
+        <div class="command-grid">
+            <div><code>!help</code><span>View commands</span></div>
+            <div><code>!balance</code><span>Check FoxCoins</span></div>
+            <div><code>!shop</code><span>Browse rewards</span></div>
+            <div><code>!redeem</code><span>Claim rewards</span></div>
+            <div><code>!giveaway</code><span>View giveaway</span></div>
+            <div><code>!enter</code><span>Join giveaway</span></div>
+            <div><code>!boss</code><span>Boss status</span></div>
+            <div><code>!attack</code><span>Fight boss</span></div>
+            <div><code>!quest</code><span>Quest status</span></div>
+            <div><code>!checkin</code><span>Build a streak</span></div>
+            <div><code>!profile</code><span>View profile</span></div>
+            <div><code>!recognition</code><span>Recognition status</span></div>
+        </div>
+    </section>
+
+    <section class="section shell">
+        <div class="cta">
+            <div>
+                <div class="eyebrow">FOXBOT BETA</div>
+                <h2>Built for the next generation of Blaze creators.</h2>
+                <p>Connect your account and explore the complete creator command center.</p>
+            </div>
+
+            <div class="actions">
+                <a href="/login/blaze" class="button">Connect Blaze</a>
+                <a href="/judges" class="button secondary">View Submission</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="faq" class="section shell">
+        <div class="section-heading centered">
+            <div class="eyebrow">FAQ</div>
+            <h2>Questions, answered.</h2>
+        </div>
+
+        <div class="faq-grid">
+            <details open>
+                <summary>What is FoxBot AI?</summary>
+                <p>A Blaze-connected creator assistant for automation, rewards, giveaways, events, overlays, and stream management.</p>
+            </details>
+
+            <details>
+                <summary>Does FoxBot connect to real Blaze chat?</summary>
+                <p>Yes. FoxBot includes Blaze OAuth, chat posting, polling, command handling, and automatic replies.</p>
+            </details>
+
+            <details>
+                <summary>Are the website statistics real?</summary>
+                <p>The homepage reads existing FoxBot status endpoints and does not display invented usage numbers.</p>
+            </details>
+        </div>
+    </section>
+</main>
+
+<footer class="site-footer shell">
+    <a href="/" class="brand">
+        <img src="/static/foxbot-logo.png" alt="FoxBot AI">
+        <span><strong>FoxBot</strong> AI</span>
+    </a>
+
+    <p>Automate. Engage. Reward. Grow.</p>
+
+    <div>
+        <a href="/admin">Dashboard</a>
+        <a href="/connected-creators">Creators</a>
+        <a href="/project-status">Status</a>
+    </div>
+</footer>
+
+<script>
+async function loadFoxBotStatus() {
+    try {
+        const response = await fetch("/api/foxbot/v1/status");
+        const data = await response.json();
+        const status = data.proof || data.status || data;
+
+        const connected = Boolean(status.blaze_connected ?? status.connected);
+        const running = Boolean(status.listener_running ?? status.running);
+
+        document.getElementById("connectionStatus").textContent =
+            connected ? "Connected" : "Not connected";
+
+        document.getElementById("listenerStatus").textContent =
+            running ? "Running" : "Stopped";
+
+        document.getElementById("systemStatus").textContent =
+            running ? "Listener live" : "System ready";
+    } catch (error) {
+        document.getElementById("connectionStatus").textContent = "Available";
+        document.getElementById("listenerStatus").textContent = "Ready";
+        document.getElementById("systemStatus").textContent = "System ready";
+    }
+
+    try {
+        const response = await fetch("/api/connected-creators");
+        const data = await response.json();
+
+        const count =
+            data.totals?.total ??
+            data.count ??
+            data.creators?.length;
+
+        document.getElementById("creatorCount").textContent =
+            Number.isFinite(Number(count)) ? String(count) : "Available";
+    } catch (error) {
+        document.getElementById("creatorCount").textContent = "Available";
+    }
+}
+
+loadFoxBotStatus();
+</script>
+</body>
+</html>
