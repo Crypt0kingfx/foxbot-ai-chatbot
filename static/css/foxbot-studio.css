@@ -2106,3 +2106,466 @@ body {
     grid-column: 1 / -1;
   }
 }
+
+
+/* =========================================================
+   FoxBot Dashboard Shell 3.0
+   Unified navigation, typography, spacing and responsiveness
+   ========================================================= */
+
+:root {
+  --bg: #050806;
+  --panel: #0c120e;
+  --panel2: #111a14;
+  --orange: #ff7a18;
+  --orange-soft: #ffad5c;
+  --green: #39ff88;
+  --text: #f6faf7;
+  --muted: #9baba1;
+  --border: rgba(255,255,255,.09);
+  --border-strong: rgba(255,255,255,.14);
+  --shell-shadow: 0 24px 70px rgba(0,0,0,.26);
+}
+
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255,122,24,.12), transparent 30rem),
+    radial-gradient(circle at 100% 100%, rgba(57,255,136,.07), transparent 34rem),
+    var(--bg);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea,
+a {
+  font: inherit;
+}
+
+button {
+  letter-spacing: 0;
+}
+
+.studio {
+  grid-template-columns: 248px minmax(0, 1fr);
+  transition: grid-template-columns .25s ease;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 100vh;
+  min-width: 0;
+  padding: 22px 15px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background:
+    linear-gradient(180deg, rgba(12,18,14,.98), rgba(6,10,8,.97));
+  border-right: 1px solid var(--border);
+  box-shadow: 16px 0 50px rgba(0,0,0,.16);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,122,24,.35) transparent;
+}
+
+.logo {
+  margin: 0 5px 2px;
+  font-size: 21px;
+  line-height: 1.2;
+  letter-spacing: -.025em;
+}
+
+.sublogo {
+  margin: 0 5px 22px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sidebar-toggle {
+  width: 100%;
+  min-height: 42px;
+  margin: 0 0 18px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,122,24,.32);
+  border-radius: 12px;
+  color: var(--orange);
+  background: rgba(255,122,24,.07);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    color .2s ease,
+    background .2s ease,
+    border-color .2s ease;
+}
+
+.sidebar-toggle:hover {
+  color: #fff;
+  border-color: rgba(255,122,24,.55);
+  background: rgba(255,122,24,.14);
+}
+
+.nav {
+  display: grid;
+  gap: 5px;
+}
+
+.nav button {
+  position: relative;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 8px 11px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border-radius: 11px;
+  color: #c4d0c8;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  transition:
+    color .18s ease,
+    background .18s ease,
+    border-color .18s ease,
+    transform .18s ease;
+}
+
+.nav button:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,.08);
+  background: rgba(255,255,255,.045);
+  transform: translateX(2px);
+}
+
+.nav button.active {
+  color: #fff;
+  border-color: rgba(255,122,24,.25);
+  background:
+    linear-gradient(90deg, rgba(255,122,24,.14), rgba(57,255,136,.055));
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+
+.nav-icon {
+  width: 26px;
+  min-width: 26px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio.sidebar-collapsed {
+  grid-template-columns: 78px minmax(0, 1fr);
+}
+
+.studio.sidebar-collapsed .sidebar {
+  padding: 18px 10px;
+}
+
+.studio.sidebar-collapsed .nav button {
+  padding: 10px 7px;
+  transform: none;
+}
+
+.studio.sidebar-collapsed .nav-icon {
+  width: 100%;
+}
+
+.studio.sidebar-collapsed .sidebar-toggle {
+  min-height: 42px;
+}
+
+/* Main workspace */
+.main {
+  width: 100%;
+  min-width: 0;
+  max-width: 1680px;
+  margin-inline: auto;
+  padding: 22px clamp(18px, 2.3vw, 34px) 50px;
+}
+
+.hero {
+  min-height: 142px;
+  margin-bottom: 22px;
+  padding: 25px 28px;
+  align-items: center;
+  border-color: rgba(255,255,255,.1);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255,122,24,.18), transparent 28rem),
+    radial-gradient(circle at 100% 100%, rgba(57,255,136,.08), transparent 25rem),
+    rgba(12,18,14,.9);
+  box-shadow: var(--shell-shadow);
+}
+
+.hero h1 {
+  margin-bottom: 7px;
+  font-size: clamp(31px, 3.4vw, 42px);
+  line-height: 1.05;
+  letter-spacing: -.04em;
+}
+
+.hero p {
+  max-width: 820px;
+  color: #a8b8ae;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.status-pill {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 9px 14px;
+  border-color: rgba(57,255,136,.32);
+  background: rgba(57,255,136,.1);
+  box-shadow: 0 0 30px rgba(57,255,136,.07);
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+
+.section {
+  min-width: 0;
+}
+
+.studio-heading {
+  min-width: 0;
+  margin: 0 0 16px;
+  padding: 0 2px;
+  align-items: center;
+}
+
+.studio-heading h2 {
+  margin: 0;
+  font-size: clamp(23px, 2.4vw, 30px);
+  line-height: 1.2;
+  letter-spacing: -.025em;
+}
+
+.mini-badge {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.card {
+  min-width: 0;
+  border-color: var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.025), transparent),
+    rgba(12,18,14,.9);
+  box-shadow: 0 18px 45px rgba(0,0,0,.15);
+}
+
+/* Embedded live-control container */
+#dashboard .card:has(#foxbotDashboardControlFrame) {
+  border-color: rgba(255,255,255,.12) !important;
+  border-radius: 20px !important;
+  background: #09100c;
+  box-shadow: 0 24px 65px rgba(0,0,0,.25);
+}
+
+#foxbotDashboardControlFrame {
+  width: 100% !important;
+  max-width: 100%;
+  background: #080d0a !important;
+}
+
+/* Cleaner controls across every module */
+.small-btn,
+.primary-btn,
+.ghost-btn,
+.secondary,
+button {
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    background .18s ease,
+    color .18s ease;
+}
+
+.small-btn:hover,
+.primary-btn:hover,
+.ghost-btn:hover {
+  transform: translateY(-1px);
+}
+
+input,
+select,
+textarea,
+.input {
+  max-width: 100%;
+  border-radius: 11px;
+}
+
+table {
+  width: 100%;
+}
+
+/* Scrollbars */
+.sidebar::-webkit-scrollbar,
+.main ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.main ::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255,122,24,.3);
+}
+
+.sidebar::-webkit-scrollbar-track,
+.main ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Tablet */
+@media (max-width: 1100px) {
+  .studio {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .studio.sidebar-collapsed {
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
+  .main {
+    padding-inline: 18px;
+  }
+
+  .hero {
+    min-height: 130px;
+  }
+}
+
+/* Mobile navigation */
+@media (max-width: 780px) {
+  .studio,
+  .studio.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar,
+  .studio.sidebar-collapsed .sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+    padding: 15px 12px 12px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo,
+  .studio.sidebar-collapsed .logo {
+    margin-left: 2px;
+    font-size: 19px;
+    text-align: left;
+  }
+
+  .studio.sidebar-collapsed .logo::before {
+    content: none;
+  }
+
+  .sublogo,
+  .studio.sidebar-collapsed .sublogo {
+    display: block;
+    margin-left: 2px;
+    margin-bottom: 13px;
+    font-size: 11px;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .nav {
+    padding-bottom: 3px;
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .nav button,
+  .studio.sidebar-collapsed .nav button {
+    width: auto;
+    min-width: max-content;
+    min-height: 39px;
+    padding: 8px 11px;
+    flex: 0 0 auto;
+  }
+
+  .studio.sidebar-collapsed .nav-label {
+    display: inline;
+  }
+
+  .studio.sidebar-collapsed .nav-icon {
+    width: 23px;
+    min-width: 23px;
+  }
+
+  .main {
+    padding: 15px 12px 40px;
+  }
+
+  .hero {
+    min-height: auto;
+    padding: 21px;
+    align-items: flex-start;
+  }
+
+  .hero h1 {
+    font-size: 30px;
+  }
+
+  .hero p {
+    font-size: 13px;
+  }
+
+  .studio-heading {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .mini-badge {
+    margin-top: 2px;
+  }
+}
+
+@media (max-width: 520px) {
+  .hero {
+    flex-direction: column;
+  }
+
+  .status-pill {
+    align-self: flex-start;
+  }
+
+  .studio-heading {
+    flex-direction: column;
+  }
+
+  #foxbotDashboardControlFrame {
+    min-height: 760px;
+  }
+}
