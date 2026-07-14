@@ -2569,3 +2569,420 @@ table {
     min-height: 760px;
   }
 }
+
+/* =========================================================
+   FoxBot Dashboard Modules 3.1
+   Shared module, form, statistic and action design system
+   ========================================================= */
+
+/* Module page rhythm */
+.section {
+  width: 100%;
+  max-width: 100%;
+}
+
+.section > *:first-child {
+  margin-top: 0;
+}
+
+.section h1,
+.section h2,
+.section h3 {
+  letter-spacing: -.025em;
+}
+
+.section h1 {
+  line-height: 1.08;
+}
+
+.section h2 {
+  line-height: 1.15;
+}
+
+.section p {
+  line-height: 1.55;
+}
+
+/* Shared module hero */
+.studio-hero {
+  position: relative;
+  overflow: hidden;
+  margin: 0 0 18px;
+  padding: 25px 27px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255,122,24,.13), transparent 25rem),
+    radial-gradient(circle at 100% 100%, rgba(57,255,136,.06), transparent 24rem),
+    rgba(11,17,13,.94);
+  box-shadow: 0 18px 45px rgba(0,0,0,.16);
+}
+
+.studio-hero::after {
+  content: "";
+  position: absolute;
+  right: -90px;
+  top: -100px;
+  width: 240px;
+  height: 240px;
+  pointer-events: none;
+  border-radius: 50%;
+  background: rgba(255,122,24,.07);
+  filter: blur(35px);
+}
+
+.studio-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.studio-hero h1 {
+  max-width: 850px;
+  margin: 8px 0 10px;
+  font-size: clamp(27px, 3vw, 39px);
+}
+
+.studio-hero p {
+  max-width: 900px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.eyebrow {
+  color: var(--orange-soft);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.hero-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+/* Prevent specialized heroes from reverting to square blocks */
+.analytics-hero,
+.overlays-hero,
+.ai-hero,
+.diagnostics-hero,
+.giveaway-hero,
+.boss-hero,
+.quest-hero,
+.events-hero,
+.streaks-hero,
+.rewards-hero,
+.economy-hero,
+.recognition-hero {
+  border-radius: 20px;
+}
+
+/* Shared stat layouts */
+.analytics-stat-grid,
+.diagnostics-stat-grid,
+.overlay-stat-grid,
+.giveaway-stat-grid,
+.boss-stat-grid,
+.quest-stat-grid,
+.event-stat-grid,
+.streak-stat-grid,
+.rewards-stat-grid,
+.economy-stat-grid,
+.recognition-stat-grid,
+.ai-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.analytics-stat-card,
+.diagnostics-stat-card,
+.overlay-stat-card,
+.giveaway-stat-card,
+.boss-stat-card,
+.quest-stat-card,
+.event-stat-card,
+.streak-stat-card {
+  min-height: 138px;
+  padding: 18px;
+}
+
+/* All cards */
+.section .card {
+  border-color: rgba(255,255,255,.1);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.025), transparent 60%),
+    rgba(11,17,13,.94);
+}
+
+.section .card:hover {
+  border-color: rgba(255,255,255,.14);
+}
+
+.card-title {
+  color: #9fb1a6;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.card-value {
+  color: #fff;
+  font-size: clamp(25px, 2.5vw, 34px);
+  line-height: 1.1;
+  letter-spacing: -.035em;
+}
+
+.card p {
+  color: var(--muted);
+}
+
+/* Forms */
+.section label {
+  display: block;
+  margin-bottom: 7px;
+  color: #b7c5bc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.section input,
+.section select,
+.section textarea,
+.section .input {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 13px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 11px;
+  outline: none;
+  color: #f7faf8;
+  background: rgba(3,7,5,.78);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+  transition:
+    border-color .18s ease,
+    box-shadow .18s ease,
+    background .18s ease;
+}
+
+.section textarea {
+  min-height: 125px;
+  resize: vertical;
+}
+
+.section input:hover,
+.section select:hover,
+.section textarea:hover,
+.section .input:hover {
+  border-color: rgba(255,255,255,.22);
+}
+
+.section input:focus,
+.section select:focus,
+.section textarea:focus,
+.section .input:focus {
+  border-color: rgba(255,122,24,.72);
+  background: rgba(5,10,7,.95);
+  box-shadow: 0 0 0 3px rgba(255,122,24,.11);
+}
+
+.section input::placeholder,
+.section textarea::placeholder {
+  color: #6f7d74;
+}
+
+/* Buttons */
+.section button,
+.section .primary-btn,
+.section .ghost-btn,
+.section .small-btn,
+.section a.primary-btn,
+.section a.ghost-btn {
+  min-height: 44px;
+  padding: 10px 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.section .primary-btn {
+  border: 1px solid rgba(255,142,61,.5);
+  color: #130a03;
+  background: linear-gradient(135deg, #ffad5c, var(--orange));
+  box-shadow: 0 10px 24px rgba(255,122,24,.14);
+}
+
+.section .ghost-btn,
+.section .small-btn {
+  border: 1px solid rgba(255,255,255,.13);
+  color: #eef5f0;
+  background: rgba(255,255,255,.045);
+}
+
+.section .ghost-btn:hover,
+.section .small-btn:hover {
+  border-color: rgba(255,122,24,.35);
+  background: rgba(255,122,24,.08);
+}
+
+/* Action groups */
+.section .actions,
+.section .button-row,
+.section .button-grid,
+.section .hero-actions,
+.section [class*="-actions"] {
+  gap: 10px;
+}
+
+/* Tables */
+.section .table,
+.section table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: rgba(3,7,5,.35);
+}
+
+.section th,
+.section td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.065);
+  text-align: left;
+  font-size: 13px;
+}
+
+.section th {
+  color: #aabbb0;
+  background: rgba(255,255,255,.035);
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.section tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Output and preview panels */
+.section pre,
+.section .out,
+.section .output,
+.section [class*="-output"] {
+  max-width: 100%;
+  overflow: auto;
+  border-radius: 13px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,122,24,.3) transparent;
+}
+
+/* Bot Control and Rewards */
+#control,
+#rewards {
+  min-width: 0;
+}
+
+#control > div,
+#rewards > div {
+  max-width: 100%;
+}
+
+#control button,
+#rewards button {
+  min-height: 46px;
+}
+
+#control .grid,
+#rewards .grid {
+  gap: 13px;
+}
+
+/* Analytics */
+#analytics .studio-hero {
+  padding: 25px 27px;
+}
+
+#analytics .analytics-stat-grid {
+  margin-top: 16px;
+}
+
+#analytics .analytics-stat-card {
+  min-height: 150px;
+}
+
+/* Responsive grids */
+@media (max-width: 1200px) {
+  .analytics-stat-grid,
+  .diagnostics-stat-grid,
+  .overlay-stat-grid,
+  .giveaway-stat-grid,
+  .boss-stat-grid,
+  .quest-stat-grid,
+  .event-stat-grid,
+  .streak-stat-grid,
+  .rewards-stat-grid,
+  .economy-stat-grid,
+  .recognition-stat-grid,
+  .ai-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .studio-hero {
+    padding: 21px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hero-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .section button,
+  .section .primary-btn,
+  .section .ghost-btn,
+  .section .small-btn {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 560px) {
+  .analytics-stat-grid,
+  .diagnostics-stat-grid,
+  .overlay-stat-grid,
+  .giveaway-stat-grid,
+  .boss-stat-grid,
+  .quest-stat-grid,
+  .event-stat-grid,
+  .streak-stat-grid,
+  .rewards-stat-grid,
+  .economy-stat-grid,
+  .recognition-stat-grid,
+  .ai-stat-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-actions > * {
+    width: 100%;
+  }
+}
