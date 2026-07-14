@@ -1797,3 +1797,35 @@ window.triggerRewardAction = async function(action) {
     ].forEach(wrapActionFunction);
   });
 })();
+
+
+// FoxBot embedded title cleanup v1
+(function () {
+    function cleanEmbeddedTitle() {
+        const frame = document.getElementById("foxbotDashboardControlFrame");
+        if (!frame) return;
+
+        try {
+            const heading = frame.contentDocument?.querySelector("h1");
+            if (heading) {
+                heading.textContent = "FoxBot Control Dashboard";
+            }
+        } catch (error) {
+            console.debug("FoxBot title cleanup waiting for iframe.");
+        }
+    }
+
+    function initializeTitleCleanup() {
+        const frame = document.getElementById("foxbotDashboardControlFrame");
+        if (!frame) return;
+
+        frame.addEventListener("load", cleanEmbeddedTitle);
+        cleanEmbeddedTitle();
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initializeTitleCleanup);
+    } else {
+        initializeTitleCleanup();
+    }
+})();
