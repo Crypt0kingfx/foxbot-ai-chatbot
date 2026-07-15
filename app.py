@@ -21791,3 +21791,181 @@ def foxbot_multichannel_targets_v1():
 
 
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
+
+# === FoxBot OAuth Token Priority Fix v1 ===
+def _foxbot_oauth_token_value_v2(payload, possible_keys):
+    """Find a token in direct or nested OAuth response data."""
+    if isinstance(payload, dict):
+        for key in possible_keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for value in payload.values():
+            found = _foxbot_oauth_token_value_v2(value, possible_keys)
+            if found:
+                return found
+    elif isinstance(payload, list):
+        for value in payload:
+            found = _foxbot_oauth_token_value_v2(value, possible_keys)
+            if found:
+                return found
+    return ""
+
+
+def _foxbot_current_access_token_v2():
+    """Prefer the newest OAuth callback token over stale Render variables."""
+    import json
+    from pathlib import Path
+
+    token_path = Path("data") / "blaze_oauth_tokens.json"
+    if token_path.exists():
+        try:
+            saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
+            token = _foxbot_oauth_token_value_v2(
+                saved,
+                ["accessToken", "access_token", "token"],
+            )
+            if token:
+                return token, "saved_oauth_file"
+        except Exception:
+            pass
+
+    runtime_token = str(bot_tokens.get("accessToken") or "").strip()
+    if runtime_token:
+        return runtime_token, "runtime_oauth"
+
+    environment_token = str(os.getenv("BLAZE_ACCESS_TOKEN") or "").strip()
+    if environment_token:
+        return environment_token, "render_environment"
+
+    return "", "missing"
+
+
+def _foxbot_multichannel_targets_v1():
+    try:
+        limit = int(os.getenv("FOXBOT_MULTI_CHANNEL_LIMIT", "25") or "25")
+    except Exception:
+        limit = 25
+
+    access_token, _ = _foxbot_current_access_token_v2()
+    return _foxbot_multichannel_service_v1.build_targets(
+        client_id=os.getenv("BLAZE_CLIENT_ID", ""),
+        access_token=access_token,
+        default_channel_id=os.getenv("BLAZE_CHANNEL_ID", ""),
+        default_channel_slug=os.getenv("BLAZE_CHANNEL_SLUG", ""),
+        limit=limit,
+    )
+
+
+def send_blaze_chat_message(text: str, channel_id=None):
+    """Send with the newest OAuth callback token."""
+    import requests
+
+    client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
+    target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
+    access_token, token_source = _foxbot_current_access_token_v2()
+
+    if not client_id or not target_channel_id or not access_token:
+        return {
+            "success": False,
+            "message": "Missing Blaze client ID, target channel ID, or access token.",
+            "channel_id": target_channel_id or None,
+            "token_source": token_source,
+        }
+
+    try:
+        response = requests.post(
+            "https://api.blaze.stream/v1/chats/messages",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "client-id": client_id,
+                "Accept": "application/json",
+                "content-type": "application/json",
+            },
+            json={"channelId": target_channel_id, "message": str(text)},
+            timeout=20,
+        )
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {
+                "status_code": response.status_code,
+                "text": response.text[:500],
+            }
+        if isinstance(payload, dict):
+            payload.setdefault("success", response.ok)
+            payload.setdefault("channel_id", target_channel_id)
+            payload.setdefault("token_source", token_source)
+        return payload
+    except Exception as error:
+        return {
+            "success": False,
+            "channel_id": target_channel_id,
+            "token_source": token_source,
+            "error": str(error),
+        }
+
+
+def get_recent_blaze_messages(channel_id=None):
+    """Read chat with the newest OAuth callback token."""
+    import requests
+
+    client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
+    target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
+    access_token, token_source = _foxbot_current_access_token_v2()
+
+    if not client_id or not target_channel_id or not access_token:
+        return {
+            "success": False,
+            "message": "Missing Blaze client ID, target channel ID, or access token.",
+            "channel_id": target_channel_id or None,
+            "token_source": token_source,
+        }
+
+    try:
+        response = requests.get(
+            "https://api.blaze.stream/v1/chats/messages",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "client-id": client_id,
+                "Accept": "application/json",
+            },
+            params={"channelId": target_channel_id, "limit": 20},
+            timeout=20,
+        )
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {
+                "success": False,
+                "status_code": response.status_code,
+                "text": response.text[:500],
+            }
+        if isinstance(payload, dict):
+            payload.setdefault("success", response.ok)
+            payload.setdefault("channel_id", target_channel_id)
+            payload.setdefault("token_source", token_source)
+        return payload
+    except Exception as error:
+        return {
+            "success": False,
+            "channel_id": target_channel_id,
+            "token_source": token_source,
+            "error": str(error),
+        }
+
+
+@app.get("/api/foxbot/token-source")
+def foxbot_token_source_v2():
+    from pathlib import Path
+
+    token, source = _foxbot_current_access_token_v2()
+    return {
+        "ok": True,
+        "has_token": bool(token),
+        "source": source,
+        "saved_oauth_file_exists": (Path("data") / "blaze_oauth_tokens.json").exists(),
+    }
+
+
+# === End FoxBot OAuth Token Priority Fix v1 ===
