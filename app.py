@@ -21501,3 +21501,293 @@ def foxbot_creator_access_status_v1(handle: str):
         "access": _foxbot_creator_access_v1.get_access(handle),
     }
 # === End FoxBot Blaze Creator Access v1 ===
+
+# === FoxBot Blaze Multi-Channel Listener v1 ===
+from services import blaze_multichannel as _foxbot_multichannel_service_v1
+
+_FOXBOT_MULTICHANNEL_STATE_V1 = {
+    "running": False,
+    "cycles": 0,
+    "target_count": 0,
+    "active_creator_count": 0,
+    "channels_checked": 0,
+    "messages_seen": 0,
+    "commands_processed": 0,
+    "unresolved": [],
+    "targets": [],
+    "last_error": None,
+    "last_cycle_at": None,
+}
+_FOXBOT_MULTICHANNEL_INITIALIZED_V1 = set()
+
+
+def _foxbot_multichannel_targets_v1():
+    try:
+        limit = int(os.getenv("FOXBOT_MULTI_CHANNEL_LIMIT", "25") or "25")
+    except Exception:
+        limit = 25
+
+    return _foxbot_multichannel_service_v1.build_targets(
+        client_id=os.getenv("BLAZE_CLIENT_ID", ""),
+        access_token=bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN", ""),
+        default_channel_id=os.getenv("BLAZE_CHANNEL_ID", ""),
+        default_channel_slug=os.getenv("BLAZE_CHANNEL_SLUG", ""),
+        limit=limit,
+    )
+
+
+def send_blaze_chat_message(text: str, channel_id=None):
+    """Send a Blaze reply to an explicit channel or the owner channel."""
+    import requests
+
+    client_id = os.getenv("BLAZE_CLIENT_ID")
+    target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
+    access_token = bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN")
+
+    if not client_id or not target_channel_id or not access_token:
+        return {
+            "success": False,
+            "message": "Missing BLAZE_CLIENT_ID, target channel ID, or access token.",
+            "channel_id": target_channel_id or None,
+        }
+
+    try:
+        response = requests.post(
+            "https://api.blaze.stream/v1/chats/messages",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "client-id": client_id,
+                "Accept": "application/json",
+                "content-type": "application/json",
+            },
+            json={"channelId": target_channel_id, "message": str(text)},
+            timeout=20,
+        )
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {
+                "status_code": response.status_code,
+                "text": response.text[:500],
+            }
+        if isinstance(payload, dict):
+            payload.setdefault("success", response.ok)
+            payload.setdefault("channel_id", target_channel_id)
+        return payload
+    except Exception as error:
+        return {
+            "success": False,
+            "channel_id": target_channel_id,
+            "error": str(error),
+        }
+
+
+def get_recent_blaze_messages(channel_id=None):
+    """Fetch recent messages from an explicit channel or the owner channel."""
+    import requests
+
+    client_id = os.getenv("BLAZE_CLIENT_ID")
+    target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
+    access_token = bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN")
+
+    if not client_id or not target_channel_id or not access_token:
+        return {
+            "success": False,
+            "message": "Missing BLAZE_CLIENT_ID, target channel ID, or access token.",
+            "channel_id": target_channel_id or None,
+        }
+
+    try:
+        response = requests.get(
+            "https://api.blaze.stream/v1/chats/messages",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "client-id": client_id,
+                "Accept": "application/json",
+            },
+            params={"channelId": target_channel_id, "limit": 20},
+            timeout=20,
+        )
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {
+                "success": False,
+                "status_code": response.status_code,
+                "text": response.text[:500],
+            }
+        if isinstance(payload, dict):
+            payload.setdefault("success", response.ok)
+            payload.setdefault("channel_id", target_channel_id)
+        return payload
+    except Exception as error:
+        return {
+            "success": False,
+            "channel_id": target_channel_id,
+            "error": str(error),
+        }
+
+
+def _foxbot_process_channel_rows_v1(target, rows):
+    channel_id = str(target.get("channel_id") or "").strip()
+    channel_slug = str(target.get("channel_slug") or "").strip()
+    channel_key = channel_id or channel_slug
+
+    # The first successful fetch seeds IDs only. This prevents replies to old
+    # commands when FoxBot discovers a creator channel for the first time.
+    if channel_key not in _FOXBOT_MULTICHANNEL_INITIALIZED_V1:
+        for item in rows:
+            message_id = find_chat_message_id(item)
+            if message_id:
+                processed_polling_messages.add(f"{channel_key}:{message_id}")
+        _FOXBOT_MULTICHANNEL_INITIALIZED_V1.add(channel_key)
+        return 0
+
+    processed_count = 0
+    bot_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai"))
+    bot_handle = bot_handle.strip().lower().lstrip("@")
+
+    for item in reversed(rows):
+        message_id = find_chat_message_id(item)
+        message_text = find_chat_message_text(item)
+        username = find_chat_username(item)
+        message_key = f"{channel_key}:{message_id}"
+
+        polling_status["last_message"] = item
+        if not message_id or message_key in processed_polling_messages:
+            continue
+        processed_polling_messages.add(message_key)
+
+        if not message_text:
+            continue
+        if str(username or "").strip().lower().lstrip("@") == bot_handle:
+            continue
+
+        auto_event_result = None
+        try:
+            auto_event_result = handle_auto_chat_event(
+                message_key,
+                message_text,
+                username,
+            )
+        except Exception as auto_event_error:
+            polling_status["last_auto_event_error"] = str(auto_event_error)
+
+        if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
+            foxbot_reply = auto_event_result.get("message")
+            polling_status["last_auto_event"] = auto_event_result
+            if foxbot_reply:
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                processed_count += 1
+                proof_stats["last_command"] = message_text
+                proof_stats["last_reply"] = foxbot_reply
+                proof_stats["last_username"] = username
+                proof_stats["last_message"] = message_text
+                polling_status["last_reply"] = foxbot_reply
+            continue
+
+        if not str(message_text).startswith("!"):
+            continue
+
+        foxbot_result = chat(message=message_text, username=username)
+        foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+        send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+        processed_count += 1
+        proof_stats["last_command"] = message_text
+        proof_stats["last_reply"] = foxbot_reply
+        proof_stats["last_username"] = username
+        proof_stats["last_message"] = message_text
+        polling_status["last_reply"] = foxbot_reply
+
+    return processed_count
+
+
+def blaze_polling_worker():
+    """Poll owner plus every creator channel with current FoxBot access."""
+    from datetime import datetime, timezone
+    import time
+
+    polling_status["running"] = True
+    polling_status["last_error"] = None
+    proof_stats["listener_running"] = True
+    _FOXBOT_MULTICHANNEL_STATE_V1["running"] = True
+    _FOXBOT_MULTICHANNEL_STATE_V1["last_error"] = None
+
+    while polling_status["running"]:
+        cycle_messages = 0
+        cycle_processed = 0
+        channels_checked = 0
+
+        try:
+            target_result = _foxbot_multichannel_targets_v1()
+            targets = target_result.get("targets", [])
+            _FOXBOT_MULTICHANNEL_STATE_V1["targets"] = targets
+            _FOXBOT_MULTICHANNEL_STATE_V1["unresolved"] = target_result.get("unresolved", [])
+            _FOXBOT_MULTICHANNEL_STATE_V1["target_count"] = len(targets)
+            _FOXBOT_MULTICHANNEL_STATE_V1["active_creator_count"] = target_result.get(
+                "active_creator_count", 0
+            )
+
+            for target in targets:
+                if not polling_status["running"]:
+                    break
+
+                channel_id = target.get("channel_id")
+                data = get_recent_blaze_messages(channel_id=channel_id)
+                polling_status["checks"] += 1
+                polling_status["last_response"] = data
+                channels_checked += 1
+
+                if isinstance(data, dict) and data.get("success") is False:
+                    _FOXBOT_MULTICHANNEL_STATE_V1["last_error"] = (
+                        data.get("error") or data.get("message") or "Blaze message fetch failed."
+                    )
+                    continue
+
+                rows = extract_rows_from_blaze_response(data)
+                cycle_messages += len(rows)
+                cycle_processed += _foxbot_process_channel_rows_v1(target, rows)
+
+            polling_status["messages_seen"] = cycle_messages
+            polling_status["commands_processed"] += cycle_processed
+            proof_stats["blaze_connected"] = bool(
+                bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN")
+            )
+            proof_stats["listener_running"] = polling_status["running"]
+            proof_stats["messages_checked"] = polling_status["checks"]
+            proof_stats["messages_seen"] = cycle_messages
+            proof_stats["commands_processed"] += cycle_processed
+
+            _FOXBOT_MULTICHANNEL_STATE_V1["cycles"] += 1
+            _FOXBOT_MULTICHANNEL_STATE_V1["channels_checked"] = channels_checked
+            _FOXBOT_MULTICHANNEL_STATE_V1["messages_seen"] = cycle_messages
+            _FOXBOT_MULTICHANNEL_STATE_V1["commands_processed"] += cycle_processed
+            _FOXBOT_MULTICHANNEL_STATE_V1["last_cycle_at"] = datetime.now(
+                timezone.utc
+            ).isoformat()
+
+        except Exception as error:
+            polling_status["last_error"] = str(error)
+            _FOXBOT_MULTICHANNEL_STATE_V1["last_error"] = str(error)
+
+        try:
+            interval = float(os.getenv("FOXBOT_MULTI_CHANNEL_POLL_SECONDS", "5") or "5")
+        except Exception:
+            interval = 5.0
+        time.sleep(max(2.0, min(interval, 60.0)))
+
+    proof_stats["listener_running"] = False
+    _FOXBOT_MULTICHANNEL_STATE_V1["running"] = False
+
+
+@app.get("/api/foxbot/multichannel/status")
+def foxbot_multichannel_status_v1():
+    return {"ok": True, **_FOXBOT_MULTICHANNEL_STATE_V1}
+
+
+@app.get("/api/foxbot/multichannel/targets")
+def foxbot_multichannel_targets_v1():
+    return _foxbot_multichannel_targets_v1()
+
+
+# === End FoxBot Blaze Multi-Channel Listener v1 ===
