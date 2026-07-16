@@ -33,3 +33,10 @@ foxbot_studio_backup_*.html
 .venv/
 venv/
 env/
+
+# Neon local CLI context
+.neon
+.agents/
+skills-lock.json
+.agents/
+skills-lock.json

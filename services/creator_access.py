@@ -332,3 +332,36 @@ def _save_document(document: dict[str, Any]) -> None:
 
 
 # === End FoxBot Persistent Creator Registry v1 ===
+
+# === FoxBot Neon Creator Storage v1 ===
+from services.postgres_state import (
+    load_or_migrate_json_state as _foxbot_load_creator_state_v1,
+    save_json_state as _foxbot_save_creator_state_v1,
+)
+
+
+def _load_document() -> dict[str, Any]:
+    """Load creator access from Neon, migrating the JSON file once."""
+    value = _foxbot_load_creator_state_v1(
+        "connected_creators",
+        DATA_PATH,
+        {},
+    )
+    return value if isinstance(value, dict) else {}
+
+
+def _save_document(document: dict[str, Any]) -> None:
+    """Save locally for compatibility and atomically mirror into Neon."""
+    import os
+
+    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = DATA_PATH.with_suffix(DATA_PATH.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps(document, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, DATA_PATH)
+    _foxbot_save_creator_state_v1("connected_creators", document)
+
+
+# === End FoxBot Neon Creator Storage v1 ===

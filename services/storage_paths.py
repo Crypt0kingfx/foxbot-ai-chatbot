@@ -1,15 +1,44 @@
-"""Central persistent file locations for FoxBot.
-
-Local development defaults to ./data. Production can set FOXBOT_DATA_DIR to
-a mounted persistent directory such as /var/data/foxbot.
-"""
+"""Central storage locations for FoxBot files and Neon-backed state."""
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Any
+
+from services.postgres_state import (
+    database_status,
+    is_configured as database_is_configured,
+    load_or_migrate_json_state,
+    save_json_state,
+)
+
+
+_STATE_KEYS = {
+    "connected_creators.json": "connected_creators",
+    "blaze_oauth_tokens.json": "blaze_oauth_tokens",
+}
+_initialized_paths: set[str] = set()
+_initialization_lock = threading.Lock()
+_BasePath = type(Path())
+
+
+class _StateBackedPath(_BasePath):
+    """Path that mirrors recognized JSON writes into Postgres."""
+
+    def write_text(self, data, *args, **kwargs):
+        written = super().write_text(data, *args, **kwargs)
+        state_key = _STATE_KEYS.get(self.name)
+        if state_key:
+            try:
+                payload = json.loads(str(data) or "null")
+                save_json_state(state_key, payload)
+            except Exception:
+                pass
+        return written
 
 
 def data_directory() -> Path:
@@ -33,7 +62,6 @@ def storage_path(filename: str, env_key: str | None = None) -> Path:
     path = Path(explicit).expanduser() if explicit else data_directory() / filename
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Migrate a legacy local file once when a persistent directory is enabled.
     legacy = Path("data") / filename
     try:
         if not path.exists() and legacy.exists() and legacy.resolve() != path.resolve():
@@ -41,7 +69,16 @@ def storage_path(filename: str, env_key: str | None = None) -> Path:
     except Exception:
         pass
 
-    return path
+    state_path = _StateBackedPath(str(path))
+    state_key = _STATE_KEYS.get(filename)
+    initialization_key = str(path.resolve())
+    if state_key and initialization_key not in _initialized_paths:
+        with _initialization_lock:
+            if initialization_key not in _initialized_paths:
+                load_or_migrate_json_state(state_key, state_path, {})
+                _initialized_paths.add(initialization_key)
+
+    return state_path
 
 
 def storage_status() -> dict[str, Any]:
@@ -54,9 +91,13 @@ def storage_status() -> dict[str, Any]:
         "blaze_oauth_tokens.json",
         "FOXBOT_OAUTH_TOKEN_FILE",
     )
+    database = database_status()
     return {
         "ok": True,
-        "configured": bool(str(os.getenv("FOXBOT_DATA_DIR") or "").strip()),
+        "configured": bool(str(os.getenv("FOXBOT_DATA_DIR") or "").strip())
+        or database_is_configured(),
+        "backend": database.get("backend"),
+        "database": database,
         "data_directory": str(directory),
         "creator_file": str(creator_file),
         "creator_file_exists": creator_file.exists(),
