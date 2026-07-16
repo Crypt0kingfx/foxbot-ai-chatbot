@@ -308,3 +308,27 @@ def verify_current_subscription(
 
 
 # === End FoxBot Current Blaze Subscription Verification v1 ===
+
+# === FoxBot Persistent Creator Registry v1 ===
+from services.storage_paths import storage_path as _foxbot_access_storage_path_v1
+
+DATA_PATH = _foxbot_access_storage_path_v1(
+    "connected_creators.json",
+    "FOXBOT_CONNECTED_CREATORS_FILE",
+)
+
+
+def _save_document(document: dict[str, Any]) -> None:
+    """Atomically save creator access records to persistent storage."""
+    import os
+
+    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = DATA_PATH.with_suffix(DATA_PATH.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps(document, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, DATA_PATH)
+
+
+# === End FoxBot Persistent Creator Registry v1 ===
