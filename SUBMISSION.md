@@ -1,129 +1,98 @@
-# FoxBot AI Chatbot ? Builder Challenge Submission
+# FoxBot AI - Submission Summary
 
-## Project Name
+## Project
 
-FoxBot AI Chatbot
+**FoxBot AI: The Creator Command Center for Blaze**
 
-## Live App
+- Live application: <https://foxbot-ai-chatbot.onrender.com>
+- GitHub repository: <https://github.com/Crypt0kingfx/foxbot-ai-chatbot>
+- Judge walkthrough: [JUDGE_WALKTHROUGH.md](JUDGE_WALKTHROUGH.md)
+- Final test report: [FINAL_TEST_REPORT.md](FINAL_TEST_REPORT.md)
 
-https://foxbot-ai-chatbot.onrender.com
+## Short description
 
-## GitHub
+FoxBot AI is a Blaze-connected creator platform that combines live chat automation, viewer recognition, FoxCoins and rewards, giveaways, community events, OBS overlays, creator analytics, onboarding, subscription access, and operational diagnostics in one FastAPI application.
 
-https://github.com/Crypt0kingfx/foxbot-ai-chatbot
+## What was built
 
-## Short Description
+- A polished public SaaS-style website
+- Guided creator onboarding
+- Blaze OAuth and refreshable token persistence
+- A multi-channel Blaze chat listener
+- FoxBot Studio creator dashboard
+- Recognition for community events
+- FoxCoins economy, rewards, and redemptions
+- Giveaways, boss battles, quests, streaks, and arcade games
+- OBS giveaway, redemption, and boss overlays
+- Creator trial and Blaze subscription verification
+- Durable creator and OAuth state in Neon PostgreSQL
+- Live status, proof, smoke-test, and diagnostic pages
 
-FoxBot AI Chatbot is a Blaze-connected creator assistant for livestreamers. It connects to Blaze chat, responds to commands, runs giveaways, powers a FoxCoins economy, supports mini games, shows OBS overlays, and gives creators tools to keep their audience engaged.
+## Best pages to review
 
-## What I Built
+| Page | URL |
+|---|---|
+| Public website | <https://foxbot-ai-chatbot.onrender.com> |
+| Creator onboarding | <https://foxbot-ai-chatbot.onrender.com/get-started> |
+| FoxBot Studio | <https://foxbot-ai-chatbot.onrender.com/admin> |
+| Live chat demo | <https://foxbot-ai-chatbot.onrender.com/demo-chat> |
+| Judge demo | <https://foxbot-ai-chatbot.onrender.com/demo> |
+| Project status | <https://foxbot-ai-chatbot.onrender.com/project-status> |
+| Smoke test | <https://foxbot-ai-chatbot.onrender.com/smoke-test> |
+| Live proof | <https://foxbot-ai-chatbot.onrender.com/proof> |
 
-I built a working Blaze chatbot that can log in with Blaze OAuth, listen to live Blaze chat, and reply to viewer commands.
+## Recommended commands
 
-I also expanded it into a full creator engagement system with:
+Use the demo interface for a safe walkthrough:
 
-- Giveaways
-- OBS overlays
-- Viewer leaderboards
-- FoxCoins points economy
-- Reward shop
-- Redemption queue
-- Boss battle game
-- Arcade mini games
-- Custom commands
-- Stream info tools
-- Admin controls
-- Smoke test page
-- Judge demo page
-
-## Best Pages to Review
-
-Judge demo page:
-https://foxbot-ai-chatbot.onrender.com/demo
-
-Smoke test page:
-https://foxbot-ai-chatbot.onrender.com/smoke-test
-
-Economy dashboard:
-https://foxbot-ai-chatbot.onrender.com/economy
-
-Live proof endpoint:
-https://foxbot-ai-chatbot.onrender.com/proof
-
-OBS overlays:
-https://foxbot-ai-chatbot.onrender.com/overlay/giveaway
-
-https://foxbot-ai-chatbot.onrender.com/overlay/redemptions
-
-https://foxbot-ai-chatbot.onrender.com/overlay/boss
-
-## Main Commands to Test
-
+```text
 !help
-!daily
-!foxhunt
 !balance
 !shop
-!redeem hug
-!coinleaderboard
-!arcade
-!coinflip
-!roll 20
-!rps rock
-!startboss Cyber Fox Dragon
-!attack
-!bossleaderboard
-!socials
-!hugs
-!goodnight
+!profile
+!bossstatus
+!leaderboard
+```
 
-## Admin Commands
+Creator access commands:
 
-!giveaway
-!pickwinner
-!givepoints avisi 100
-!takepoints avisi 50
-!addreward hydrate 25 @{username} redeemed hydrate. Drink water!
-!delreward hydrate
-!startboss Cyber Fox Dragon
-!endboss
-!setgame Off The Grid
-!settitle Playing Off The Grid with FoxBot live
-!shoutout avisi
-!setcooldown foxhunt 60
-!clearcooldowns
-!clearredeems
-!goodnight
+```text
+!join
+!access
+!verify
+```
 
-## Demo Flow for Judges
+## Creator access model
 
-1. Open the Judge Demo page.
-2. Click !help to show the bot commands.
-3. Click !daily and !foxhunt to earn FoxCoins.
-4. Click !balance to show the user's balance.
-5. Click !shop and !redeem hug to redeem a reward.
-6. Open the Redemptions Overlay to see the redemption appear.
-7. Start a boss battle with !startboss Cyber Fox Dragon.
-8. Click !attack and open the Boss Overlay.
-9. Open the Giveaway Overlay.
-10. Open /proof to verify Blaze connection and listener status.
-11. Open /smoke-test to check that the major commands are still working.
+- Seven-day free trial
+- Trial starts with `!join` in the FoxBot Blaze profile chat
+- Continued access through a $5 monthly Blaze subscription
+- Subscription verification with `!verify`
+- Owner access remains active without a subscription
 
-## Why This Matters for Blaze Creators
+## Technical architecture
 
-FoxBot gives creators more ways to keep chat active. Viewers can earn points, redeem rewards, join giveaways, fight bosses, play mini games, use custom commands, and interact with stream overlays.
-
-Instead of only being a chatbot, FoxBot acts like a creator engagement layer for Blaze streams.
-
-## Technical Details
-
-- Backend: Python + FastAPI
+- Backend: Python and FastAPI
+- Frontend: HTML, CSS, and JavaScript
+- Platform integration: Blaze OAuth and Blaze chat APIs
+- Persistent state: Neon PostgreSQL with local JSON fallback
 - Hosting: Render
-- API: Blaze OAuth and Blaze chat endpoints
-- Frontend: HTML, CSS, JavaScript
-- Storage: JSON persistence with foxbot_data.json
-- OBS support: Browser-source overlay pages
+- Streaming integration: OBS browser-source overlays
 
-## Final Status
+## Evidence of completion
 
-FoxBot is deployed and working as a live Blaze-connected creator bot with multiple overlays, games, economy features, admin tools, and judge demo pages.
+The final read-only diagnostic produced:
+
+- 44 passing checks
+- 1 expected hosting-tier warning
+- 0 failures
+
+It verified the local build, public routes, UI encoding, Neon connectivity, OAuth restoration, token priority, creator access configuration, multi-channel targets, overlays, and creator APIs.
+
+## Known limitation
+
+The live demonstration uses Render Free. The instance can sleep after inactivity, stopping background polling until the service wakes. Durable OAuth and creator access data remains available through Neon PostgreSQL.
+
+## Why FoxBot matters
+
+FoxBot turns Blaze chat into an interactive creator community. Instead of offering only command replies, it provides a unified product for automation, recognition, rewards, events, overlays, onboarding, creator access, and diagnostics.
