@@ -273,3 +273,38 @@ def list_access() -> list[dict[str, Any]]:
         })
     rows.sort(key=lambda row: str(row.get("handle") or "").lower())
     return rows
+
+# === FoxBot Current Blaze Subscription Verification v1 ===
+SUBSCRIPTION_ACCESS_DAYS = 30
+
+
+def verify_current_subscription(
+    handle: str,
+    source: str = "foxbot_profile_subscriber_role",
+) -> dict[str, Any]:
+    """Grant a fresh subscription window after a live Blaze role check.
+
+    Repeated checks reset the window from now; they never stack extra months.
+    """
+    document = _load_document()
+    _, creator = _ensure_creator(document, handle)
+    now = _now()
+    creator["subscription_started_at"] = creator.get("subscription_started_at") or _iso(now)
+    creator["subscription_ends_at"] = _iso(
+        now + timedelta(days=SUBSCRIPTION_ACCESS_DAYS)
+    )
+    creator["subscription_verification_status"] = "verified"
+    creator["subscription_verified_at"] = _iso(now)
+    creator["subscription_verification_source"] = source
+    creator["access_status"] = "active"
+    creator["access_revoked"] = False
+    badges = creator.setdefault("badges", [])
+    if "FoxBot Subscriber" not in badges:
+        badges.append("FoxBot Subscriber")
+    _save_document(document)
+    result = access_snapshot(creator)
+    result.update({"ok": True, "handle": clean_handle(handle)})
+    return result
+
+
+# === End FoxBot Current Blaze Subscription Verification v1 ===
