@@ -169,3 +169,83 @@ def build_targets(
         "target_count": len(targets),
         "limit": safe_limit,
     }
+
+# === FoxBot Subscription Control Channel Target v1 ===
+_build_targets_without_subscription_v1 = build_targets
+_SUBSCRIPTION_CHANNEL_CACHE_V1: dict[str, str] = {}
+
+
+def build_targets(
+    client_id: str,
+    access_token: str,
+    default_channel_id: str | None = None,
+    default_channel_slug: str | None = None,
+    limit: int = 25,
+    subscription_channel_id: str | None = None,
+    subscription_channel_slug: str | None = "foxbotai",
+) -> dict[str, Any]:
+    """Add the FoxBot profile channel to the authorized creator targets."""
+    result = _build_targets_without_subscription_v1(
+        client_id=client_id,
+        access_token=access_token,
+        default_channel_id=default_channel_id,
+        default_channel_slug=default_channel_slug,
+        limit=limit,
+    )
+
+    targets = result.setdefault("targets", [])
+    unresolved = result.setdefault("unresolved", [])
+    slug = creator_access.clean_handle(subscription_channel_slug or "foxbotai")
+    channel_id = _clean(subscription_channel_id)
+
+    if not channel_id and slug:
+        channel_id = _SUBSCRIPTION_CHANNEL_CACHE_V1.get(slug.lower(), "")
+
+    if not channel_id and slug:
+        resolved = resolve_channel(slug, client_id, access_token)
+        if resolved.get("ok"):
+            channel_id = _clean(resolved.get("channel_id"))
+            slug = creator_access.clean_handle(resolved.get("channel_slug") or slug)
+            _SUBSCRIPTION_CHANNEL_CACHE_V1[slug.lower()] = channel_id
+        else:
+            unresolved.append(
+                {
+                    "handle": slug,
+                    "channel_slug": slug,
+                    "access_status": "subscription_control",
+                    "error": resolved.get("error"),
+                    "status_code": resolved.get("status_code"),
+                }
+            )
+
+    if channel_id:
+        existing = next(
+            (
+                target
+                for target in targets
+                if str(target.get("channel_id") or "") == channel_id
+            ),
+            None,
+        )
+        if existing is not None:
+            existing["is_subscription_channel"] = True
+        else:
+            targets.insert(
+                1 if targets else 0,
+                {
+                    "channel_id": channel_id,
+                    "channel_slug": slug,
+                    "handle": slug,
+                    "access_status": "subscription_control",
+                    "is_owner_channel": False,
+                    "is_subscription_channel": True,
+                },
+            )
+
+    result["target_count"] = len(targets)
+    result["subscription_channel_slug"] = slug
+    result["subscription_channel_ready"] = bool(channel_id)
+    return result
+
+
+# === End FoxBot Subscription Control Channel Target v1 ===

@@ -21969,3 +21969,184 @@ def foxbot_token_source_v2():
 
 
 # === End FoxBot OAuth Token Priority Fix v1 ===
+
+# === FoxBot Blaze Subscription Access v1 ===
+FOXBOT_SUBSCRIPTION_PRICE_USD_V1 = 5
+FOXBOT_SUBSCRIPTION_PROFILE_V1 = "https://blaze.stream/foxbotai"
+
+
+def _foxbot_item_has_subscriber_role_v1(payload):
+    """Detect Blaze subscriber role data in a polling message payload."""
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            normalized_key = str(key or "").strip().lower()
+            if normalized_key in {"issubscriber", "is_subscriber"} and value is True:
+                return True
+            if normalized_key in {"roles", "badges"} and isinstance(value, list):
+                roles = {str(role or "").strip().lower() for role in value}
+                if roles.intersection({"subscriber", "sub"}):
+                    return True
+            if _foxbot_item_has_subscriber_role_v1(value):
+                return True
+    elif isinstance(payload, list):
+        return any(_foxbot_item_has_subscriber_role_v1(item) for item in payload)
+    return False
+
+
+def _foxbot_multichannel_targets_v1():
+    try:
+        limit = int(os.getenv("FOXBOT_MULTI_CHANNEL_LIMIT", "25") or "25")
+    except Exception:
+        limit = 25
+
+    access_token, _ = _foxbot_current_access_token_v2()
+    return _foxbot_multichannel_service_v1.build_targets(
+        client_id=os.getenv("BLAZE_CLIENT_ID", ""),
+        access_token=access_token,
+        default_channel_id=os.getenv("BLAZE_CHANNEL_ID", ""),
+        default_channel_slug=os.getenv("BLAZE_CHANNEL_SLUG", ""),
+        limit=limit,
+        subscription_channel_id=os.getenv("FOXBOT_SUBSCRIPTION_CHANNEL_ID", ""),
+        subscription_channel_slug=os.getenv(
+            "FOXBOT_SUBSCRIPTION_CHANNEL_SLUG",
+            "foxbotai",
+        ),
+    )
+
+
+def _foxbot_process_channel_rows_v1(target, rows):
+    channel_id = str(target.get("channel_id") or "").strip()
+    channel_slug = str(target.get("channel_slug") or "").strip()
+    channel_key = channel_id or channel_slug
+    is_subscription_channel = bool(target.get("is_subscription_channel"))
+
+    # Seed existing message IDs on first discovery so old commands never run.
+    if channel_key not in _FOXBOT_MULTICHANNEL_INITIALIZED_V1:
+        for item in rows:
+            message_id = find_chat_message_id(item)
+            if message_id:
+                processed_polling_messages.add(f"{channel_key}:{message_id}")
+        _FOXBOT_MULTICHANNEL_INITIALIZED_V1.add(channel_key)
+        return 0
+
+    processed_count = 0
+    bot_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai"))
+    bot_handle = bot_handle.strip().lower().lstrip("@")
+    subscription_commands = {
+        "!join",
+        "!connect",
+        "!verify",
+        "!access",
+        "!profile",
+        "!rank",
+    }
+
+    for item in reversed(rows):
+        message_id = find_chat_message_id(item)
+        message_text = find_chat_message_text(item)
+        username = find_chat_username(item)
+        message_key = f"{channel_key}:{message_id}"
+
+        polling_status["last_message"] = item
+        if not message_id or message_key in processed_polling_messages:
+            continue
+        processed_polling_messages.add(message_key)
+
+        if not message_text:
+            continue
+        clean_username = str(username or "").strip().lstrip("@")
+        if clean_username.lower() == bot_handle:
+            continue
+
+        command = str(message_text).strip().split()[0].lower()
+
+        if is_subscription_channel:
+            if command not in subscription_commands:
+                continue
+
+            if command == "!verify":
+                if _foxbot_item_has_subscriber_role_v1(item):
+                    access = _foxbot_creator_access_v1.verify_current_subscription(
+                        clean_username
+                    )
+                    foxbot_reply = (
+                        f"@{clean_username}, your FoxBot subscription is verified. "
+                        "Creator access is active."
+                    )
+                else:
+                    _foxbot_creator_access_v1.request_verification(clean_username)
+                    access = _foxbot_creator_access_v1.get_access(clean_username)
+                    foxbot_reply = (
+                        f"@{clean_username}, FoxBot could not detect an active subscription. "
+                        "Subscribe at blaze.stream/foxbotai, then type !verify again here."
+                    )
+
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                polling_status["last_reply"] = foxbot_reply
+                polling_status["last_subscription_verification"] = {
+                    "handle": clean_username,
+                    "verified": access.get("verification_status") == "verified",
+                    "status": access.get("status"),
+                }
+                processed_count += 1
+                continue
+
+            foxbot_result = chat(message=message_text, username=clean_username)
+            foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+            send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+            polling_status["last_reply"] = foxbot_reply
+            processed_count += 1
+            continue
+
+        auto_event_result = None
+        try:
+            auto_event_result = handle_auto_chat_event(
+                message_key,
+                message_text,
+                clean_username,
+            )
+        except Exception as auto_event_error:
+            polling_status["last_auto_event_error"] = str(auto_event_error)
+
+        if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
+            foxbot_reply = auto_event_result.get("message")
+            polling_status["last_auto_event"] = auto_event_result
+            if foxbot_reply:
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                processed_count += 1
+                proof_stats["last_command"] = message_text
+                proof_stats["last_reply"] = foxbot_reply
+                proof_stats["last_username"] = clean_username
+                proof_stats["last_message"] = message_text
+                polling_status["last_reply"] = foxbot_reply
+            continue
+
+        if not str(message_text).startswith("!"):
+            continue
+
+        foxbot_result = chat(message=message_text, username=clean_username)
+        foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
+        send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+        processed_count += 1
+        proof_stats["last_command"] = message_text
+        proof_stats["last_reply"] = foxbot_reply
+        proof_stats["last_username"] = clean_username
+        proof_stats["last_message"] = message_text
+        polling_status["last_reply"] = foxbot_reply
+
+    return processed_count
+
+
+@app.get("/api/foxbot/subscription/config")
+def foxbot_subscription_config_v1():
+    return {
+        "ok": True,
+        "trial_days": _foxbot_creator_access_v1.TRIAL_DAYS,
+        "price_usd_monthly": FOXBOT_SUBSCRIPTION_PRICE_USD_V1,
+        "blaze_profile": FOXBOT_SUBSCRIPTION_PROFILE_V1,
+        "join_command": "!join",
+        "verify_command": "!verify",
+    }
+
+
+# === End FoxBot Blaze Subscription Access v1 ===
