@@ -89,6 +89,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from services.storage_paths import storage_path as _foxbot_storage_path_v1
 
 from fastapi.staticfiles import StaticFiles
 
@@ -16470,7 +16471,7 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
 
 
-        data_path = Path("data") / "connected_creators.json"
+        data_path = _foxbot_storage_path_v1("connected_creators.json", "FOXBOT_CONNECTED_CREATORS_FILE")
 
         data_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -16732,7 +16733,7 @@ def _foxbot_connect_data_path_v1():
 
     from pathlib import Path
 
-    path = Path("data") / "connected_creators.json"
+    path = _foxbot_storage_path_v1("connected_creators.json", "FOXBOT_CONNECTED_CREATORS_FILE")
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -17912,7 +17913,7 @@ def _foxbot_connect_mark_follow_v1(handle, follow_status="verified_public_follow
 
 
 
-    path = Path("data") / "connected_creators.json"
+    path = _foxbot_storage_path_v1("connected_creators.json", "FOXBOT_CONNECTED_CREATORS_FILE")
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -18240,7 +18241,7 @@ def _foxbot_blaze_oauth_save_tokens_v1(tokens):
 
 
 
-    path = Path("data") / "blaze_oauth_tokens.json"
+    path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -18692,7 +18693,7 @@ def foxbot_blaze_oauth_status_v1():
 
 
 
-    token_path = Path("data") / "blaze_oauth_tokens.json"
+    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
 
     saved = {}
 
@@ -18760,7 +18761,7 @@ def foxbot_blaze_oauth_refresh_v1():
 
 
 
-    token_path = Path("data") / "blaze_oauth_tokens.json"
+    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
 
     saved = {}
 
@@ -21817,7 +21818,7 @@ def _foxbot_current_access_token_v2():
     import json
     from pathlib import Path
 
-    token_path = Path("data") / "blaze_oauth_tokens.json"
+    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
     if token_path.exists():
         try:
             saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
@@ -21964,7 +21965,7 @@ def foxbot_token_source_v2():
         "ok": True,
         "has_token": bool(token),
         "source": source,
-        "saved_oauth_file_exists": (Path("data") / "blaze_oauth_tokens.json").exists(),
+        "saved_oauth_file_exists": (_foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")).exists(),
     }
 
 
@@ -22150,3 +22151,13 @@ def foxbot_subscription_config_v1():
 
 
 # === End FoxBot Blaze Subscription Access v1 ===
+
+# === FoxBot Persistent Storage v1 ===
+@app.get("/api/foxbot/storage/status")
+def foxbot_storage_status_v1():
+    from services.storage_paths import storage_status
+
+    return storage_status()
+
+
+# === End FoxBot Persistent Storage v1 ===
