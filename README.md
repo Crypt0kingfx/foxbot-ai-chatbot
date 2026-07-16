@@ -4,206 +4,144 @@
 
 FoxBot AI is a Blaze-connected creator platform for stream automation, viewer recognition, community rewards, interactive events, OBS overlays, analytics, and live bot control.
 
-FoxBot combines a public SaaS-style website, guided creator onboarding, a unified Studio dashboard, and a real Blaze integration in one FastAPI application.
+It combines a polished public website, guided creator onboarding, Blaze OAuth, a multi-channel chat listener, a unified Studio dashboard, and durable creator access state in one FastAPI application.
 
-## Live Application
+## Live application
 
 | Experience | Link |
 |---|---|
-| Public website | https://foxbot-ai-chatbot.onrender.com |
-| Creator onboarding | https://foxbot-ai-chatbot.onrender.com/get-started |
-| FoxBot Studio | https://foxbot-ai-chatbot.onrender.com/admin |
-| Live chat demo | https://foxbot-ai-chatbot.onrender.com/demo-chat |
-| Connected creators | https://foxbot-ai-chatbot.onrender.com/connected-creators |
-| Project status | https://foxbot-ai-chatbot.onrender.com/project-status |
-| Judge demo | https://foxbot-ai-chatbot.onrender.com/demo |
-| Smoke test | https://foxbot-ai-chatbot.onrender.com/smoke-test |
-| Live proof | https://foxbot-ai-chatbot.onrender.com/proof |
+| Public website | <https://foxbot-ai-chatbot.onrender.com> |
+| Creator onboarding | <https://foxbot-ai-chatbot.onrender.com/get-started> |
+| FoxBot Studio | <https://foxbot-ai-chatbot.onrender.com/admin> |
+| Live chat demo | <https://foxbot-ai-chatbot.onrender.com/demo-chat> |
+| Judge demo | <https://foxbot-ai-chatbot.onrender.com/demo> |
+| Connected creators | <https://foxbot-ai-chatbot.onrender.com/connected-creators> |
+| Project status | <https://foxbot-ai-chatbot.onrender.com/project-status> |
+| Smoke test | <https://foxbot-ai-chatbot.onrender.com/smoke-test> |
+| Live proof | <https://foxbot-ai-chatbot.onrender.com/proof> |
 
-## Product Overview
+## Product highlights
 
-FoxBot gives Blaze creators one place to:
+- Real Blaze OAuth login and refreshable token storage
+- Owner, subscription-control, and active creator channel targets
+- Seven-day creator trial through `!join`
+- Blaze subscription verification through `!verify`
+- Viewer recognition for follows, votes, subscriptions, gifts, and tips
+- FoxCoins balances, daily claims, leaderboards, rewards, and redemptions
+- Giveaways, boss battles, community quests, streaks, and stream events
+- OBS browser-source overlays
+- Creator analytics, diagnostics, and live control
+- Durable OAuth and creator access state in Neon PostgreSQL
+- Local JSON fallback for development
 
-- Connect their Blaze account through OAuth
-- Monitor the Blaze listener and bot status
-- Recognize follows, votes, subscriptions, tips, and community activity
-- Reward viewers through the FoxCoins economy
-- Manage rewards and redemptions
-- Run giveaways and select winners
-- Launch boss battles, quests, streaks, and stream events
-- Configure OBS browser-source overlays
-- Review real activity and engagement analytics
-- Generate stream ideas through the Fox AI assistant
-- Diagnose routes, tokens, listener state, and saved data
+FoxBot's public website does not display invented creator, revenue, uptime, viewer, or command statistics. Operational status comes from real backend endpoints.
 
-No artificial platform statistics are displayed on the public website. Status information is loaded from FoxBot's real backend endpoints.
+## Creator access
+
+FoxBot uses a straightforward Blaze-native access model:
+
+1. Type `!join` in the FoxBot Blaze profile chat.
+2. Receive full creator access for seven days.
+3. Type `!access` to check the current access state.
+4. Subscribe at <https://blaze.stream/foxbotai> for continued access at $5 per month.
+5. Type `!verify` in the FoxBot profile chat after subscribing.
+
+The FoxBot owner channel remains available without a subscription.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    A["Blaze Creator"] --> B["FoxBot FastAPI Application"]
-    B --> C["Blaze OAuth and Listener"]
-    B --> D["FoxBot Studio"]
-    B --> E["Public Website and Onboarding"]
-    C --> F["Recognition and Commands"]
-    F --> G["Economy, Rewards and Events"]
-    G --> H["Persistent FoxBot Data"]
-    G --> I["OBS Overlays"]
-    D --> F
-    D --> G
+    Creator["Blaze creator"] --> OAuth["Blaze OAuth"]
+    Blaze["Blaze chat API"] <--> Listener["Multi-channel listener"]
+    OAuth --> App["FoxBot FastAPI application"]
+    Listener --> App
+    App --> Commands["Commands and recognition"]
+    Commands --> Engagement["FoxCoins, rewards, giveaways, quests, bosses"]
+    Engagement --> Studio["FoxBot Studio"]
+    Engagement --> Overlays["OBS overlays"]
+    App <--> Neon["Neon PostgreSQL"]
 ```
 
-## Main Systems
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete system and persistence flows.
 
-### Blaze Integration
+## Main systems
 
-- Blaze OAuth login and callback
-- Access-token and refresh-token status
-- Native listener and polling support
-- Listener status and control endpoints
-- Live chat parsing
-- Event bridge
-- Configurable automatic sending
+### Blaze integration
 
-### Recognition Center
+- OAuth login and callback
+- Persisted access and refresh tokens
+- Token-priority handling that favors fresh saved OAuth state
+- Multi-channel polling
+- Live command replies
+- Subscription role verification
+
+### Recognition and engagement
 
 - Follow, vote, subscription, gift, and tip recognition
 - MVP and OG recognition
-- Recognition queue and history
-- Configurable recognition rewards
+- FoxCoins economy and leaderboards
+- Reward shop and redemptions
+- Giveaways and winner selection
+- Boss battles, quests, streaks, events, and arcade games
 
-### FoxCoins Economy and Rewards
+### Creator tools
 
-- Viewer balances and daily claims
-- Leaderboards and administrative balance controls
-- Transaction tracking
-- Reward shop and viewer redemptions
-- Custom, premium, and elite rewards
-- OBS redemption support
-
-### Interactive Stream Systems
-
-- Giveaways
-- Boss battles
-- Community quests
-- Stream events
-- Viewer streaks
-- FoxBot Arcade
-- Custom chat commands
-
-### Creator Tools
-
-- FoxBot Studio dashboard
+- Unified FoxBot Studio dashboard
 - Guided onboarding
 - Connected Creator profiles
-- Bot Control
-- Analytics
-- Fox AI assistant
-- Diagnostics Center
-- Project status
-- Judge demonstration tools
+- Bot and listener controls
+- Analytics and diagnostics
+- OBS overlay management
 
-### OBS Overlays
+## OBS overlays
 
-- Giveaway overlay
-- Redemptions overlay
-- Boss battle overlay
-- Event and streak previews
-- Browser-source URLs managed through Studio
+| Overlay | URL |
+|---|---|
+| Giveaway | <https://foxbot-ai-chatbot.onrender.com/overlay/giveaway> |
+| Redemptions | <https://foxbot-ai-chatbot.onrender.com/overlay/redemptions> |
+| Boss Battle | <https://foxbot-ai-chatbot.onrender.com/overlay/boss> |
 
-Recommended OBS browser-source resolution:
-
-```text
-Width: 1920
-Height: 1080
-```
+Recommended OBS browser-source size: **1920 by 1080**.
 
 ## Technology
 
 - Python
-- FastAPI
-- Uvicorn
+- FastAPI and Uvicorn
 - HTML, CSS, and JavaScript
-- Blaze OAuth
-- Render
-- JSON-based persistence
+- Blaze OAuth and chat APIs
+- Neon PostgreSQL
+- Render deployment
 - OBS browser sources
 
-## Local Setup
-
-### 1. Clone the repository
+## Local setup
 
 ```powershell
 git clone https://github.com/Crypt0kingfx/foxbot-ai-chatbot.git
-cd foxbot-ai-chatbot
-```
-
-### 2. Create a virtual environment
-
-```powershell
+Set-Location .\foxbot-ai-chatbot
 python -m venv .venv
-```
-
-### 3. Install dependencies
-
-```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-### 4. Configure environment variables
-
-Blaze configuration:
-
-```text
-BLAZE_CLIENT_ID
-BLAZE_CLIENT_SECRET
-BLAZE_REDIRECT_URI
-BLAZE_ACCESS_TOKEN
-BLAZE_REFRESH_TOKEN
-BLAZE_CHANNEL_ID
-BLAZE_CHANNEL_SLUG
-BLAZE_BOT_USER_ID
-```
-
-FoxBot runtime configuration:
-
-```text
-FOXBOT_BLAZE_AUTO_SEND
-FOXBOT_BLAZE_PROFILE_HANDLE
-FOXBOT_BLAZE_USER_ID
-FOXBOT_DATA_FILE
-FOXBOT_FAQ
-FOXBOT_MODE
-```
-
-The OAuth redirect URI must exactly match the URI registered with Blaze.
-
-Production callback:
-
-```text
-https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback
-```
-
-Keep client secrets, access tokens, and refresh tokens out of Git.
-
-### 5. Verify the application
-
-```powershell
-.\.venv\Scripts\python.exe -m py_compile .\app.py
-```
-
-### 6. Start FoxBot locally
-
-```powershell
+Copy-Item .\.env.example .\.env
 .\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000`.
+Fill `.env` with your own Blaze credentials. For durable production state, add a pooled Neon PostgreSQL URI as `DATABASE_URL`.
 
-## Command Reference
+See [INSTALLATION.md](INSTALLATION.md) for complete configuration, verification, OAuth, persistence, and deployment instructions.
 
-### Core Viewer Commands
+## Core commands
+
+### Creator access
+
+```text
+!join
+!access
+!verify
+!profile
+!rank
+```
+
+### Viewer and economy
 
 ```text
 !help
@@ -212,59 +150,21 @@ Open `http://127.0.0.1:8000`.
 !socials
 !stats
 !leaderboard
-!hugs
-!profile
-!rank
-!connect
-```
-
-### FoxCoins Commands
-
-```text
 !daily
 !balance
-!points
-!foxcoins
-!coinleaderboard
 !shop
 !redeem
 ```
 
-Administrative economy commands:
-
-```text
-!givepoints username amount
-!takepoints username amount
-!addreward name cost message
-!delreward name
-```
-
-### Giveaway Commands
+### Interactive systems
 
 ```text
 !giveaway
 !enter
-!entries
-!pickwinner
-```
-
-Giveaway creation and winner selection are administrative actions.
-
-### Boss Battle Commands
-
-```text
 !boss
 !bossstatus
-!startboss Cyber Fox Dragon
 !attack
 !powerattack
-!bossleaderboard
-!endboss
-```
-
-### FoxBot Arcade Commands
-
-```text
 !arcade
 !coinflip
 !roll
@@ -273,61 +173,44 @@ Giveaway creation and winner selection are administrative actions.
 !foxhunt
 ```
 
-### Custom Commands
+Administrative commands are limited to the appropriate creator/admin workflow and should be demonstrated only with test data.
 
-```text
-!commands
-!addcmd
-!delcmd
-```
+## Persistence
 
-## Testing Checklist
+`services/postgres_state.py` stores creator access and OAuth documents in Neon PostgreSQL using atomic upserts. Existing JSON files are migrated automatically and remain as a compatibility layer. When `DATABASE_URL` is absent, local development falls back to JSON files.
 
-Before deploying or submitting FoxBot, compile the application:
+Production persistence was verified across a Render redeploy:
 
-```powershell
-.\.venv\Scripts\python.exe -m py_compile .\app.py
-```
+- Neon connected: true
+- OAuth state restored: true
+- Token available: true
+- Token source: `saved_oauth_file`
 
-Verify:
+## Final validation
 
-- Public homepage loads
-- Creator onboarding loads real status
-- Blaze OAuth route begins authorization
-- Studio navigation switches between every module
-- Listener status loads
-- Connected Creators API responds
-- Demo chat remains available
-- Giveaways and rewards load saved data
-- Overlay routes render correctly
-- Analytics loads real backend data
-- Diagnostics and smoke-test routes respond
-- Desktop and mobile layouts remain usable
+The final diagnostic completed on 2026-07-17 with:
 
-## Submission Walkthrough
+- **44 passed**
+- **1 warning**
+- **0 failed**
 
-1. Open the public homepage.
-2. Review FoxBot's creator features.
-3. Open Creator Onboarding.
-4. Review real OAuth, creator, and listener readiness.
-5. Enter FoxBot Studio.
-6. Open Bot Control and Recognition.
-7. Review Economy and Rewards.
-8. Open Giveaways, Boss Battles, Quests, and Stream Events.
-9. Preview OBS overlays.
-10. Review Analytics and Diagnostics.
-11. Open the live chat demo or Judge Demo for command testing.
+The warning records the expected Render Free limitation: background polling stops when the free service sleeps. No listener error or data-integrity failure was present.
 
-## Data and Persistence
+See [FINAL_TEST_REPORT.md](FINAL_TEST_REPORT.md) for route and system coverage.
 
-FoxBot stores application state in JSON-backed data files. Production deployments that require durable local files should use persistent storage or an external data store.
+## Documentation
 
-Token files and environment secrets must never be committed to the repository.
+- [Architecture](ARCHITECTURE.md)
+- [Installation](INSTALLATION.md)
+- [Judge walkthrough](JUDGE_WALKTHROUGH.md)
+- [Final test report](FINAL_TEST_REPORT.md)
+- [Security notes](SECURITY.md)
+- [Submission summary](SUBMISSION.md)
 
-## Deployment
+## Known hosting limitation
 
-FoxBot is deployed on Render and starts as a FastAPI/Uvicorn web service. After merging changes into `main`, verify the live deployment and complete the testing checklist above.
+The demonstration deployment uses Render Free. Render can sleep after inactivity, so the background listener might need to be started after the service wakes. OAuth tokens, creator trials, and subscription state remain durable in Neon PostgreSQL.
 
-## Project Direction
+## Project goal
 
-FoxBot's goal is to provide Blaze creators with a professional, unified creator platform—not only a chat bot. The product combines automation, community engagement, live stream controls, overlays, and operational visibility in one system.
+FoxBot is designed to feel like a commercial creator platform rather than a collection of disconnected chatbot features. It gives Blaze creators one consistent command center for automation, engagement, overlays, rewards, and operational visibility.
