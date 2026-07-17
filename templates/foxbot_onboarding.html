@@ -151,6 +151,22 @@
       margin-top: 9px !important;
       font-size: 12px !important;
     }
+    .form-message.success { color: #4ade80; }
+    .form-message.error { color: #f87171; }
+    .next-steps {
+      margin-top: 10px;
+      padding: 12px 14px;
+      border: 1px solid rgba(74, 222, 128, .35);
+      border-radius: 11px;
+      background: rgba(74, 222, 128, .08);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .next-steps code {
+      padding: 1px 6px;
+      border-radius: 6px;
+      background: rgba(0,0,0,.35);
+    }
     .readiness-card {
       position: sticky;
       top: 100px;
@@ -276,10 +292,16 @@
             <h2>Add your creator profile</h2>
             <p>Save the Blaze handle that FoxBot should recognize and manage.</p>
             <form id="creatorForm" class="creator-form">
-              <input id="creatorHandle" type="text" placeholder="Your Blaze handle" autocomplete="off" required>
-              <button class="button" type="submit">Save Handle</button>
+              <input id="creatorHandle" type="text" placeholder="Your Blaze handle (e.g. @crypt0k1ng96)" autocomplete="off" required>
+              <button class="button" type="submit">Connect Me</button>
             </form>
             <p id="creatorMessage" class="form-message"></p>
+            <div id="creatorNextSteps" class="next-steps" hidden>
+              <strong>🦊 You're connected! Next steps:</strong><br>
+              1. Type <code>!join</code> in your Blaze chat to start your free 7-day trial.<br>
+              2. Try <code>!shop</code> and <code>!redeem hug</code> to see viewer rewards.<br>
+              3. Open the <a href="/admin">FoxBot Studio</a> to customize commands.
+            </div>
           </div>
         </article>
 
@@ -436,7 +458,10 @@
       if (!handle) return;
 
       const message = byId("creatorMessage");
-      message.textContent = "Saving creator profile…";
+      const nextSteps = byId("creatorNextSteps");
+      message.className = "form-message";
+      message.textContent = "Connecting your creator profile…";
+      nextSteps.hidden = true;
 
       try {
         const result = await fetchJson("/api/connected-creators/connect", {
@@ -445,11 +470,20 @@
           body: JSON.stringify({ handle: handle, verified_follow: false })
         });
 
+        if (result && result.ok === false) {
+          message.className = "form-message error";
+          message.textContent = result.message || "Could not save the creator profile.";
+          return;
+        }
+
+        message.className = "form-message success";
         message.textContent = result.message || "Creator profile saved.";
+        nextSteps.hidden = false;
         byId("creatorHandle").value = "";
         await refreshOnboardingStatus();
       } catch (error) {
-        message.textContent = "Could not save the creator profile.";
+        message.className = "form-message error";
+        message.textContent = "Could not reach FoxBot (" + error.message + "). Please try again in a moment.";
       }
     });
 

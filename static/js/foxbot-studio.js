@@ -78,7 +78,7 @@ async function blazeService(action) {
   try {
     const res = await fetch(url, options);
     const data = await res.json();
-    addFeed(`ðŸ”Œ Blaze Service: ${data.message || data.mapped_event || action}`);
+    addFeed(`🔌 Blaze Service: ${data.message || data.mapped_event || action}`);
     loadStudioStats();
   } catch (err) {
     addFeed(`âš ï¸ Blaze Service failed: ${action}`);
@@ -112,7 +112,7 @@ async function clearActivity() {
 }
 
 function renderActivityItem(item) {
-  const icon = item.icon || "ðŸ¦Š";
+  const icon = item.icon || "🦊";
   const title = item.title || item.message || "FoxBot event";
   const detail = item.detail || "";
   const time = item.time || "Now";
