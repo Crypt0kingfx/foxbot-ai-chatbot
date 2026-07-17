@@ -42,6 +42,13 @@ def foxbot_clean_shop_response_v1():
 
 from fastapi import Request
 
+# === FoxBot Request Payload Type Aliases v1 ===
+# Shared aliases used by connected-creator route signatures below.
+from typing import Any as _FoxAny
+
+_FoxDict = dict
+# === End FoxBot Request Payload Type Aliases v1 ===
+
 
 
 from services import blaze_listener
