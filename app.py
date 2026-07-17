@@ -2144,21 +2144,21 @@ judges_html = """
 
         <ul>
 
-            <li><code>!help</code> â€” shows available commands</li>
+            <li><code>!help</code> — shows available commands</li>
 
-            <li><code>!schedule</code> â€” shows the stream schedule</li>
+            <li><code>!schedule</code> — shows the stream schedule</li>
 
-            <li><code>!faq</code> â€” explains FoxBot</li>
+            <li><code>!faq</code> — explains FoxBot</li>
 
-            <li><code>!giveaway</code> â€” starts a giveaway</li>
+            <li><code>!giveaway</code> — starts a giveaway</li>
 
-            <li><code>!enter</code> â€” enters a viewer into the giveaway</li>
+            <li><code>!enter</code> — enters a viewer into the giveaway</li>
 
-            <li><code>!entries</code> â€” shows current giveaway entries</li>
+            <li><code>!entries</code> — shows current giveaway entries</li>
 
-            <li><code>!pickwinner</code> â€” randomly selects a winner</li>
+            <li><code>!pickwinner</code> — randomly selects a winner</li>
 
-            <li><code>!ask</code> â€” demo AI response mode</li>
+            <li><code>!ask</code> — demo AI response mode</li>
 
         </ul>
 
@@ -3541,7 +3541,7 @@ def chat(message: str = "", username: str = "viewer"):
 
         if page not in allowed_pages:
             return {
-                "response": "ðŸ¦Šâ“ Page not found. Try !shop cheap, social, control, premium, elite, or all."
+                "response": "🦊❓ Page not found. Try !shop cheap, social, control, premium, elite, or all."
             }
 
         try:
@@ -3555,7 +3555,7 @@ def chat(message: str = "", username: str = "viewer"):
                 }
             except Exception as e2:
                 return {
-                    "response": f"ðŸ¦Š Shop category command loaded, but reward menu failed: {type(e2).__name__}"
+                    "response": f"🦊 Shop category command loaded, but reward menu failed: {type(e2).__name__}"
                 }
 
     admin = is_admin(username)
@@ -3580,7 +3580,7 @@ def chat(message: str = "", username: str = "viewer"):
 
             )
 
-            foxbot_connect_reply = foxbot_connect_result.get("reply") or "ðŸ¦Š FoxBot Connect command handled."
+            foxbot_connect_reply = foxbot_connect_result.get("reply") or "🦊 FoxBot Connect command handled."
 
             return {
 
@@ -3600,9 +3600,9 @@ def chat(message: str = "", username: str = "viewer"):
 
             return {
 
-                "response": f"ðŸ¦Š FoxBot Connect error: {foxbot_connect_error}",
+                "response": f"🦊 FoxBot Connect error: {foxbot_connect_error}",
 
-                "reply": f"ðŸ¦Š FoxBot Connect error: {foxbot_connect_error}",
+                "reply": f"🦊 FoxBot Connect error: {foxbot_connect_error}",
 
                 "handled": True,
 
@@ -14410,7 +14410,7 @@ STUDIO_STATE = {
 
             "time": datetime.now().strftime("%I:%M:%S %p"),
 
-            "message": "ðŸ¦Š FoxBot Studio online."
+            "message": "🦊 FoxBot Studio online."
 
         }
 
@@ -14452,7 +14452,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(50)
 
-        studio_log("? Test follow detected â€” +50 FoxCoins reward triggered.")
+        studio_log("? Test follow detected — +50 FoxCoins reward triggered.")
 
 
 
@@ -14462,7 +14462,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(25)
 
-        studio_log("??? Test vote detected â€” +25 FoxCoins reward triggered.")
+        studio_log("??? Test vote detected — +25 FoxCoins reward triggered.")
 
 
 
@@ -14472,7 +14472,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(250)
 
-        studio_log("?? Test sub detected â€” +250 FoxCoins reward triggered.")
+        studio_log("?? Test sub detected — +250 FoxCoins reward triggered.")
 
 
 
@@ -14484,7 +14484,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(500)
 
-        studio_log("?? Test tip detected â€” $5 tip +500 FoxCoins reward triggered.")
+        studio_log("?? Test tip detected — $5 tip +500 FoxCoins reward triggered.")
 
 
 
@@ -14492,7 +14492,7 @@ def recognition_test(event_type: str):
 
         add_foxcoins(300)
 
-        studio_log("?? Test raid detected â€” raid recognition triggered.")
+        studio_log("?? Test raid detected — raid recognition triggered.")
 
 
 
@@ -15072,7 +15072,7 @@ async def blaze_service_connect():
 
     listener = blaze_listener.connect()
 
-    studio_log("ðŸ”Œ Blaze Listener service connected.")
+    studio_log("🔌 Blaze Listener service connected.")
 
 
 
@@ -15096,7 +15096,7 @@ async def blaze_service_disconnect():
 
     listener = blaze_listener.disconnect()
 
-    studio_log("ðŸ”Œ Blaze Listener service disconnected.")
+    studio_log("🔌 Blaze Listener service disconnected.")
 
 
 
@@ -15256,7 +15256,7 @@ async def foxbot_clear_activity():
 
     STUDIO_STATE["activity"] = []
 
-    studio_log("ðŸ§¹ Activity feed cleared.")
+    studio_log("🧹 Activity feed cleared.")
 
     return {
 
@@ -15278,7 +15278,7 @@ async def foxbot_clear_activity():
 
 
 
-def studio_event(event_type: str, title: str, detail: str = "", icon: str = "ðŸ¦Š"):
+def studio_event(event_type: str, title: str, detail: str = "", icon: str = "🦊"):
 
     item = {
 
@@ -15318,15 +15318,15 @@ async def foxbot_demo_activity():
 
         ("follow", "Ryan followed", "+50 FoxCoins", "â­"),
 
-        ("sub", "Mike subscribed", "Recognition sent", "ðŸ”¥"),
+        ("sub", "Mike subscribed", "Recognition sent", "🔥"),
 
-        ("tip", "Sarah tipped $20", "+500 FoxCoins", "ðŸ’°"),
+        ("tip", "Sarah tipped $20", "+500 FoxCoins", "💰"),
 
-        ("boss", "Boss Battle started", "Cyber Fox Dragon appeared", "ðŸ‘‘"),
+        ("boss", "Boss Battle started", "Cyber Fox Dragon appeared", "👑"),
 
-        ("event", "Treasure Drop started", "Viewers can claim rewards", "ðŸŽ"),
+        ("event", "Treasure Drop started", "Viewers can claim rewards", "🎁"),
 
-        ("quest", "Community Quest updated", "Progress 4/10", "ðŸŽ¯")
+        ("quest", "Community Quest updated", "Progress 4/10", "🎯")
 
     ]
 
@@ -16311,6 +16311,101 @@ def foxbot_v1_status():
     }
 
 
+# === FoxBot Connected Creators Route Helpers v2 ===
+# The original helper block was removed in "Remove duplicate connected
+# creators routes" while the routes below survived, leaving them to raise
+# NameError at request time. These adapters back the routes with the modern
+# FoxBot Connect data layer defined later in this file
+# (_foxbot_connect_*_v1: flat handle-keyed JSON, mirrored to Neon), so both
+# code paths share one dataset. All lookups happen at call time, after the
+# whole module has loaded.
+from pathlib import Path as _FoxPath
+from fastapi.responses import HTMLResponse as _FoxHTMLResponse
+
+_FOXBOT_CONNECTED_TEMPLATE = _FoxPath(__file__).resolve().parent / "templates" / "connected_creators.html"
+
+
+def _foxbot_load_connected_creators():
+    return {"creators": _foxbot_connect_load_raw_v1()}
+
+
+def _foxbot_save_connected_creators(data):
+    creators = (data or {}).get("creators", {})
+    if isinstance(creators, dict):
+        _foxbot_connect_save_raw_v1(creators)
+
+
+def _foxbot_creator_totals(creators):
+    values = [c for c in creators.values() if isinstance(c, dict)]
+    return {
+        "creators": len(values),
+        "messages": sum(int(c.get("messages", 0) or 0) for c in values),
+        "stars": sum(int(c.get("stars", 0) or 0) for c in values),
+        "foxcoins": sum(int(c.get("foxcoins", 0) or 0) for c in values),
+    }
+
+
+def foxbot_connect_creator(handle: str, source: str = "manual", verified_follow: bool = False):
+    creator = _foxbot_connect_upsert_creator_v1(handle, source=source)
+    if not creator:
+        return {"ok": False, "message": "Missing Blaze handle."}
+    if verified_follow:
+        raw = _foxbot_connect_load_raw_v1()
+        key = creator.get("handle")
+        if key in raw and isinstance(raw[key], dict):
+            raw[key]["follow_status"] = "verified"
+            _foxbot_connect_save_raw_v1(raw)
+            creator = raw[key]
+    return {
+        "ok": True,
+        "creator": creator,
+        "message": f"{creator.get('handle')} is now connected to FoxBot."
+    }
+
+
+def _foxbot_touch_creator(handle: str):
+    """Return (raw, key) for an existing creator, connecting them first if needed."""
+    handle = _foxbot_connect_clean_handle_v1(handle)
+    if not handle:
+        return None, None
+    raw = _foxbot_connect_load_raw_v1()
+    for key in raw:
+        if str(key).lower() == handle.lower():
+            return raw, key
+    _foxbot_connect_upsert_creator_v1(handle, source="auto")
+    raw = _foxbot_connect_load_raw_v1()
+    return (raw, handle) if handle in raw else (None, None)
+
+
+def foxbot_record_creator_message(handle: str, amount: int = 1):
+    raw, key = _foxbot_touch_creator(handle)
+    if not key:
+        return {"ok": False, "message": "Missing Blaze handle."}
+    raw[key]["messages"] = int(raw[key].get("messages", 0) or 0) + int(amount or 1)
+    raw[key]["last_seen_at"] = _foxbot_connect_now_iso_v1()
+    _foxbot_connect_save_raw_v1(raw)
+    return {"ok": True, "creator": raw[key]}
+
+
+def foxbot_award_creator_foxcoins(handle: str, amount: int = 25, reason: str = "reward"):
+    raw, key = _foxbot_touch_creator(handle)
+    if not key:
+        return {"ok": False, "message": "Missing Blaze handle."}
+    raw[key]["foxcoins"] = int(raw[key].get("foxcoins", 0) or 0) + int(amount or 0)
+    raw[key]["last_reward_reason"] = str(reason)
+    raw[key]["last_seen_at"] = _foxbot_connect_now_iso_v1()
+    _foxbot_connect_save_raw_v1(raw)
+    return {"ok": True, "creator": raw[key]}
+
+
+def foxbot_connected_chat_reply(handle: str, message: str):
+    result = _foxbot_connect_process_command_v1(handle, message)
+    if isinstance(result, dict):
+        return result.get("reply")
+    return None
+# === End FoxBot Connected Creators Route Helpers v2 ===
+
+
 
 
 
@@ -16580,7 +16675,7 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
                 <div class='status'>{status}</div>
 
-                <div class='stats'><span>ðŸ’¬ {messages}</span><span>â­ {stars}</span><span>ðŸ¦Š {foxcoins}</span></div>
+                <div class='stats'><span>💬 {messages}</span><span>⭐ {stars}</span><span>🦊 {foxcoins}</span></div>
 
                 <div class='commands'>{' '.join(commands)}</div>
 
@@ -16680,11 +16775,13 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
                 <div class='hero'>
 
-                    <h1>ðŸ¦Š FoxBot Connect</h1>
+                    <h1>🦊 FoxBot Connect</h1>
 
                     <div class='sub'>Public Blaze connection system for connected creators.</div>
 
                     <p>Follow the FoxBot Blaze profile, then type <b>!connect</b> in Blaze chat.</p>
+
+                    <p><a href='/get-started' style='display:inline-block;padding:10px 22px;border-radius:11px;background:#f97316;color:#0b0b0f;font-weight:700;text-decoration:none;'>Get Started — connect your channel</a></p>
 
                 </div>
 
@@ -16996,7 +17093,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
             "creator": creator,
 
-            "reply": f"ðŸ¦Š @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
+            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
 
         }
 
@@ -17018,7 +17115,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
                 "command": command,
 
-                "reply": f"ðŸ¦Š @{handle}, you are not connected yet. Follow the FoxBot Blaze profile and type !connect."
+                "reply": f"🦊 @{handle}, you are not connected yet. Follow the FoxBot Blaze profile and type !connect."
 
             }
 
@@ -17044,7 +17141,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
             "creator": creator,
 
-            "reply": f"ðŸ¦Š @{handle} FoxBot Profile | Status: {status} | FoxCoins: {foxcoins} | Messages: {messages} | Stars: {stars}"
+            "reply": f"🦊 @{handle} FoxBot Profile | Status: {status} | FoxCoins: {foxcoins} | Messages: {messages} | Stars: {stars}"
 
         }
 
@@ -17102,7 +17199,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
             "command": "!disconnect",
 
-            "reply": f"ðŸ¦Š @{handle} has been disconnected from FoxBot Connect."
+            "reply": f"🦊 @{handle} has been disconnected from FoxBot Connect."
 
         }
 
@@ -17534,7 +17631,7 @@ def foxbot_connect_test_panel_v1():
 
             <div class="hero">
 
-                <h1>ðŸ¦Š FoxBot Connect Test Panel</h1>
+                <h1>🦊 FoxBot Connect Test Panel</h1>
 
                 <div class="sub">
 
@@ -17822,7 +17919,7 @@ def foxbot_blaze_native_event_ingest_sync_v1(payload: dict):
 
                 _foxbot_connect_mark_follow_v1(username, "verified_public_follow")
 
-                reply = f"ðŸ¦Š @{username} followed FoxBot! Type !connect to activate your FoxBot profile."
+                reply = f"🦊 @{username} followed FoxBot! Type !connect to activate your FoxBot profile."
 
             except Exception:
 
@@ -18110,7 +18207,7 @@ def foxbot_connect_start_page_v1():
 
             <div class="card">
 
-                <h1>ðŸ¦Š Start Using FoxBot Connect</h1>
+                <h1>🦊 Start Using FoxBot Connect</h1>
 
                 <p class="handle">{handle}</p>
 
@@ -18128,7 +18225,7 @@ def foxbot_connect_start_page_v1():
 
                 <p class="safe">FoxBot will never ask for passwords, private keys, seed phrases, or login codes.</p>
 
-                <p><a href="/connected-creators">View Connected Creators</a> Â· <a href="/foxbot-connect-test">Test Panel</a></p>
+                <p><a href="/connected-creators">View Connected Creators</a> · <a href="/foxbot-connect-test">Test Panel</a></p>
 
             </div>
 
@@ -18636,7 +18733,7 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
         <div class="card">
 
-            <h1>ðŸ¦Š FoxBot Blaze OAuth Complete</h1>
+            <h1>🦊 FoxBot Blaze OAuth Complete</h1>
 
             <p>FoxBot received and saved the Blaze OAuth tokens on this Render instance.</p>
 
@@ -20087,7 +20184,7 @@ def foxbot_live_control_page_v1():
 <body>
   <div class="wrap">
     <div class="hero">
-      <h1>ðŸ¦Š FoxBot Live Control</h1>
+      <h1>🦊 FoxBot Live Control</h1>
       <div class="sub">Emergency controls for Blaze auto-replies.</div>
 
       <div class="buttons">
@@ -20301,7 +20398,7 @@ def foxbot_control_dashboard_v2():
     <div class="hero">
       <div class="topbar">
         <div>
-          <h1>ðŸ¦Š FoxBot Control Dashboard</h1>
+          <h1>🦊 FoxBot Control Dashboard</h1>
           <div class="sub">Live Blaze controls for @foxbotai and crypt0k1ng96.</div>
         </div>
         <div class="pill" id="updated">Loading...</div>
@@ -20829,6 +20926,40 @@ def foxbot_safe_rewards21_reply_v1(username, message):
 
     return None
 # === End FoxBot Safe Rewards 2.1 Admin Command Hook v1 ===
+
+
+# === FoxBot Rewards v2 Compat Aliases v1 ===
+# The "Rewards Fun Emoji Skin" fallback functions above reference v2 helper
+# names that were never defined anywhere, so the fallback path raised
+# NameError when invoked. Alias them to the Safe Rewards 2.1 implementations
+# so both paths share one catalog and one redemption file.
+import time as _foxbot_rewards_time
+
+FOXBOT_REWARDS_V2 = FOXBOT_SAFE_REWARDS_21
+foxbot_rewards_v2_find = foxbot_safe_rewards21_find_v1
+
+
+def foxbot_rewards_v2_redemptions_path():
+    data_dir = _foxbot_safe_rewards_Path("data")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "foxbot_safe_rewards21_redemptions.json"
+
+
+def foxbot_rewards_v2_read_json(path, default):
+    try:
+        if path.exists():
+            return _foxbot_safe_rewards_json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return default
+
+
+def foxbot_rewards_v2_write_json(path, data):
+    path.write_text(
+        _foxbot_safe_rewards_json.dumps(data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+# === End FoxBot Rewards v2 Compat Aliases v1 ===
 
 
 
