@@ -2320,7 +2320,7 @@ def format_boss_leaderboard(limit: int = 5):
 
     for index, (viewer, damage) in enumerate(sorted_damage[:limit], start=1):
 
-        parts.append(f"{index}. {viewer} ? {damage} damage")
+        parts.append(f"{index}. {viewer} — {damage} damage")
 
 
 
@@ -2866,7 +2866,7 @@ def format_reward_shop():
 
         cost = reward_data.get("cost", 0)
 
-        parts.append(f"{reward_name} ? {cost} {currency}")
+        parts.append(f"{reward_name} — {cost} {currency}")
 
 
 
@@ -2962,7 +2962,7 @@ def format_streak_leaderboard(limit: int = 5):
 
     for index, item in enumerate(sorted_streaks[:limit], start=1):
 
-        parts.append(f"{index}. {item.get('display_name')} ? {item.get('streak', 0)} streak")
+        parts.append(f"{index}. {item.get('display_name')} — {item.get('streak', 0)} streak")
 
 
 
@@ -3224,7 +3224,7 @@ def format_coin_leaderboard(limit: int = 5):
 
     for index, (name, balance) in enumerate(sorted_balances[:limit], start=1):
 
-        parts.append(f"{index}. {name} ? {balance} {currency}")
+        parts.append(f"{index}. {name} — {balance} {currency}")
 
 
 
@@ -3386,7 +3386,7 @@ def format_leaderboard(limit: int = 5):
 
     for index, user in enumerate(top_users, start=1):
 
-        parts.append(f"{index}. {user['display_name']} ? {user['commands']} commands")
+        parts.append(f"{index}. {user['display_name']} — {user['commands']} commands")
 
 
 
@@ -6540,7 +6540,20 @@ def chat(message: str = "", username: str = "viewer"):
 
         }
 
+    if lower_message == "!discord":
+        discord_link = os.getenv("DISCORD_INVITE", "")
+        if discord_link:
+            return {
+                "response": f"Join the community Discord: {discord_link}"
+            }
+        return {
+            "response": "The community Discord opens soon. Type !socials to follow the creator and catch the invite."
+        }
 
+    if lower_message == "!love":
+        return {
+            "response": f"🦊💛 @{username} sends love to the stream! FoxBot appreciates you."
+        }
 
     if lower_message == "!stats":
 
@@ -16653,11 +16666,19 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
         cards = ""
 
+        total_messages = sum(int(c.get("messages", 0) or 0) for c in creators)
+
+        total_foxcoins = sum(int(c.get("foxcoins", 0) or 0) for c in creators)
+
         for c in creators:
 
             handle = c.get("handle", "unknown")
 
+            display_name = c.get("display_name") or handle
+
             status = c.get("status", "connected")
+
+            status_class = "live" if str(status).lower() == "connected" else "pending"
 
             messages = c.get("messages", 0)
 
@@ -16665,19 +16686,41 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
             foxcoins = c.get("foxcoins", 0)
 
-            commands = c.get("commands", [])
+            initial = (str(handle)[:1] or "?").upper()
+
+            command_tags = " ".join(f"<span class='tag'>{cmd}</span>" for cmd in c.get("commands", []))
 
             cards += f"""
 
             <div class='card'>
 
-                <div class='handle'>@{handle}</div>
+                <div class='card-top'>
 
-                <div class='status'>{status}</div>
+                    <div class='avatar'>{initial}</div>
 
-                <div class='stats'><span>💬 {messages}</span><span>⭐ {stars}</span><span>🦊 {foxcoins}</span></div>
+                    <div>
 
-                <div class='commands'>{' '.join(commands)}</div>
+                        <div class='handle'>@{handle}</div>
+
+                        <div class='display-name'>{display_name}</div>
+
+                    </div>
+
+                    <span class='pill {status_class}'>{status}</span>
+
+                </div>
+
+                <div class='stats'>
+
+                    <div class='stat'><b>{messages}</b><span>messages</span></div>
+
+                    <div class='stat'><b>{stars}</b><span>stars</span></div>
+
+                    <div class='stat'><b>{foxcoins}</b><span>foxcoins</span></div>
+
+                </div>
+
+                <div class='commands'>{command_tags}</div>
 
             </div>
 
@@ -16687,7 +16730,7 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
         if not cards:
 
-            cards = "<p>No connected creators yet. Follow FoxBot and type <b>!connect</b> in Blaze chat.</p>"
+            cards = "<div class='empty'>🦊 No connected creators yet.<br>Follow FoxBot on Blaze and type <b>!connect</b> in chat — or use the button above.</div>"
 
 
 
@@ -16695,7 +16738,7 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
         <!doctype html>
 
-        <html>
+        <html lang='en'>
 
         <head>
 
@@ -16703,9 +16746,35 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
             <meta name='viewport' content='width=device-width, initial-scale=1'>
 
-            <title>FoxBot Connect</title>
+            <title>Connected Creators | FoxBot AI</title>
+
+            <meta name='description' content='Creators connected to FoxBot AI on Blaze. Join them in minutes.'>
+
+            <link rel='icon' type='image/png' href='/static/foxbot-logo.png'>
 
             <style>
+
+                :root {{
+
+                    --bg: #050807;
+
+                    --panel: rgba(255,255,255,.05);
+
+                    --border: rgba(255,255,255,.12);
+
+                    --text: #f4f2ee;
+
+                    --muted: rgba(244,242,238,.65);
+
+                    --accent: #f97316;
+
+                    --accent-soft: #ff9b3d;
+
+                    --green: #4ade80;
+
+                }}
+
+                * {{ box-sizing: border-box; }}
 
                 body {{
 
@@ -16713,57 +16782,199 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
                     min-height: 100vh;
 
-                    font-family: Arial, sans-serif;
+                    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-                    background: radial-gradient(circle at top left, rgba(255,122,24,.22), transparent 35%), #050807;
+                    background:
 
-                    color: white;
+                        radial-gradient(1000px 500px at 85% -10%, rgba(249,115,22,.18), transparent 60%),
 
-                    padding: 32px;
+                        radial-gradient(800px 420px at -10% 20%, rgba(249,115,22,.10), transparent 55%),
+
+                        var(--bg);
+
+                    color: var(--text);
 
                 }}
 
-                .wrap {{ max-width: 1100px; margin: 0 auto; }}
+                .site-header {{
+
+                    display: flex; align-items: center; gap: 18px;
+
+                    max-width: 1100px; margin: 0 auto; padding: 18px 24px;
+
+                }}
+
+                .brand {{ display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-size: 19px; }}
+
+                .brand img {{ width: 34px; height: 34px; border-radius: 9px; }}
+
+                .brand strong {{ color: var(--accent-soft); }}
+
+                .site-header nav {{ margin-left: auto; display: flex; gap: 18px; }}
+
+                .site-header nav a {{ color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; }}
+
+                .site-header nav a:hover {{ color: var(--text); }}
+
+                .wrap {{ max-width: 1100px; margin: 0 auto; padding: 12px 24px 64px; }}
 
                 .hero {{
 
-                    border: 1px solid rgba(255,255,255,.14);
+                    position: relative; overflow: hidden;
 
-                    background: rgba(255,255,255,.05);
+                    border: 1px solid var(--border);
 
-                    border-radius: 24px;
+                    background: linear-gradient(140deg, rgba(249,115,22,.14), rgba(255,255,255,.04) 45%);
 
-                    padding: 28px;
+                    border-radius: 26px;
 
-                    margin-bottom: 20px;
+                    padding: 40px 36px;
+
+                    margin-bottom: 22px;
 
                 }}
 
-                h1 {{ margin: 0 0 8px; font-size: 42px; }}
+                h1 {{ margin: 0 0 10px; font-size: clamp(32px, 5vw, 46px); letter-spacing: -.5px; }}
 
-                .sub {{ opacity: .8; font-size: 17px; }}
+                h1 span {{
 
-                .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }}
+                    background: linear-gradient(90deg, var(--accent), #ffb46b);
+
+                    -webkit-background-clip: text; background-clip: text; color: transparent;
+
+                }}
+
+                .sub {{ color: var(--muted); font-size: 17px; max-width: 560px; line-height: 1.6; }}
+
+                .hero-actions {{ margin-top: 22px; display: flex; gap: 12px; flex-wrap: wrap; }}
+
+                .button {{
+
+                    display: inline-block; padding: 12px 26px; border-radius: 12px;
+
+                    background: linear-gradient(180deg, #ff8a2a, var(--accent));
+
+                    color: #0b0b0f; font-weight: 700; text-decoration: none;
+
+                    box-shadow: 0 8px 24px rgba(249,115,22,.35);
+
+                    transition: transform .15s ease, box-shadow .15s ease;
+
+                }}
+
+                .button:hover {{ transform: translateY(-2px); box-shadow: 0 12px 30px rgba(249,115,22,.45); }}
+
+                .button.secondary {{
+
+                    background: rgba(255,255,255,.07); color: var(--text);
+
+                    border: 1px solid var(--border); box-shadow: none;
+
+                }}
+
+                .totals {{
+
+                    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+
+                    gap: 14px; margin-bottom: 26px;
+
+                }}
+
+                .total {{
+
+                    border: 1px solid var(--border); background: var(--panel);
+
+                    border-radius: 18px; padding: 18px 20px; text-align: center;
+
+                }}
+
+                .total b {{ display: block; font-size: 30px; color: var(--accent-soft); }}
+
+                .total span {{ color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }}
+
+                .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }}
 
                 .card {{
 
-                    border: 1px solid rgba(255,255,255,.14);
+                    border: 1px solid var(--border); background: var(--panel);
 
-                    background: rgba(255,255,255,.06);
+                    border-radius: 20px; padding: 22px;
 
-                    border-radius: 20px;
-
-                    padding: 20px;
+                    transition: transform .15s ease, border-color .15s ease, background .15s ease;
 
                 }}
 
-                .handle {{ font-size: 24px; font-weight: 800; color: #ff9b3d; }}
+                .card:hover {{ transform: translateY(-3px); border-color: rgba(249,115,22,.5); background: rgba(255,255,255,.07); }}
 
-                .status {{ margin-top: 8px; color: #39ff88; font-weight: 700; }}
+                .card-top {{ display: flex; align-items: center; gap: 13px; }}
 
-                .stats {{ display: flex; gap: 14px; margin: 16px 0; font-size: 18px; }}
+                .avatar {{
 
-                .commands {{ opacity: .8; line-height: 1.6; }}
+                    width: 46px; height: 46px; flex: none; border-radius: 50%;
+
+                    display: flex; align-items: center; justify-content: center;
+
+                    font-weight: 800; font-size: 20px; color: #0b0b0f;
+
+                    background: linear-gradient(140deg, #ffb46b, var(--accent));
+
+                }}
+
+                .handle {{ font-size: 19px; font-weight: 800; color: var(--accent-soft); }}
+
+                .display-name {{ color: var(--muted); font-size: 13px; }}
+
+                .pill {{
+
+                    margin-left: auto; padding: 4px 12px; border-radius: 999px;
+
+                    font-size: 12px; font-weight: 700; text-transform: capitalize;
+
+                }}
+
+                .pill.live {{ color: var(--green); background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.35); }}
+
+                .pill.pending {{ color: var(--accent-soft); background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.35); }}
+
+                .stats {{ display: flex; gap: 10px; margin: 18px 0 14px; }}
+
+                .stat {{
+
+                    flex: 1; text-align: center; padding: 10px 6px;
+
+                    background: rgba(0,0,0,.25); border-radius: 12px;
+
+                }}
+
+                .stat b {{ display: block; font-size: 18px; }}
+
+                .stat span {{ color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }}
+
+                .commands {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+
+                .tag {{
+
+                    font-size: 12px; font-weight: 600; color: var(--muted);
+
+                    padding: 3px 10px; border-radius: 8px;
+
+                    background: rgba(255,255,255,.06); border: 1px solid var(--border);
+
+                }}
+
+                .empty {{
+
+                    grid-column: 1 / -1; text-align: center; color: var(--muted);
+
+                    border: 1px dashed var(--border); border-radius: 20px;
+
+                    padding: 48px 24px; font-size: 17px; line-height: 1.8;
+
+                }}
+
+                footer {{ text-align: center; color: var(--muted); font-size: 13px; padding: 26px 0 12px; }}
+
+                footer a {{ color: var(--accent-soft); text-decoration: none; }}
 
             </style>
 
@@ -16771,21 +16982,55 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
         <body>
 
+            <header class='site-header'>
+
+                <a href='/' class='brand'><img src='/static/foxbot-logo.png' alt='FoxBot AI'><span><strong>FoxBot</strong> AI</span></a>
+
+                <nav>
+
+                    <a href='/'>Home</a>
+
+                    <a href='/get-started'>Get Started</a>
+
+                    <a href='/demo-chat'>Live Demo</a>
+
+                    <a href='/admin'>Studio</a>
+
+                </nav>
+
+            </header>
+
             <div class='wrap'>
 
                 <div class='hero'>
 
-                    <h1>🦊 FoxBot Connect</h1>
+                    <h1>🦊 Connected <span>Creators</span></h1>
 
-                    <div class='sub'>Public Blaze connection system for connected creators.</div>
+                    <div class='sub'>Blaze creators running their streams with FoxBot AI. Follow the FoxBot Blaze profile and type <b>!connect</b> in chat — or connect right here.</div>
 
-                    <p>Follow the FoxBot Blaze profile, then type <b>!connect</b> in Blaze chat.</p>
+                    <div class='hero-actions'>
 
-                    <p><a href='/get-started' style='display:inline-block;padding:10px 22px;border-radius:11px;background:#f97316;color:#0b0b0f;font-weight:700;text-decoration:none;'>Get Started — connect your channel</a></p>
+                        <a href='/get-started' class='button'>Get Started — connect your channel</a>
+
+                        <a href='/demo-chat' class='button secondary'>Try the live demo</a>
+
+                    </div>
+
+                </div>
+
+                <div class='totals'>
+
+                    <div class='total'><b>{len(creators)}</b><span>Creators</span></div>
+
+                    <div class='total'><b>{total_messages}</b><span>Messages</span></div>
+
+                    <div class='total'><b>{total_foxcoins}</b><span>FoxCoins earned</span></div>
 
                 </div>
 
                 <div class='grid'>{cards}</div>
+
+                <footer>Powered by <a href='/'>FoxBot AI</a> — the creator command center for Blaze.</footer>
 
             </div>
 
@@ -19653,7 +19898,7 @@ def foxbot_blaze_native_safety_test_route_v1(
             "subscriptionType": "channel.chat.message"
         },
         "payload": {
-            "channelId": env("BLAZE_CHANNEL_ID", "") if "env" in globals() else "",
+            "channelId": os.getenv("BLAZE_CHANNEL_ID", ""),
             "sender": {
                 "username": username,
                 "displayName": username
