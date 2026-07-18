@@ -15243,6 +15243,13 @@ async def foxbot_studio_clean():
 
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+
+async def foxbot_favicon_v1():
+
+    return FileResponse("static/foxbot-logo.png", media_type="image/png")
+
+
 @app.get("/admin", response_class=HTMLResponse)
 
 async def foxbot_studio_primary_admin():
