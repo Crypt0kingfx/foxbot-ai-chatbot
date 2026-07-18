@@ -13,9 +13,9 @@ async function studioAction(action) {
   try {
     const res = await fetch(`/api/studio/action/${action}`, { method: "POST" });
     const data = await res.json();
-    addFeed(`?? ${data.message || action + " triggered"}`);
+    addFeed(`✅ ${data.message || action + " triggered"}`);
   } catch (err) {
-    addFeed(`?? Failed: ${action}`);
+    addFeed(`⚠️ Failed: ${action}`);
   }
 }
 
@@ -50,7 +50,71 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loadStudioStats();
   setInterval(loadStudioStats, 5000);
+
+  refreshDashLive();
+  setInterval(refreshDashLive, 15000);
 });
+
+async function dashAskFoxAI() {
+  const input = document.getElementById("dashAiInput");
+  const reply = document.getElementById("dashAiReply");
+  if (!input || !reply) return;
+
+  const prompt = input.value.trim();
+  if (!prompt) return;
+
+  reply.style.display = "block";
+  reply.textContent = "🦊 Fox AI is thinking…";
+
+  try {
+    const response = await fetch(`/chat?message=${encodeURIComponent("!ask " + prompt)}&username=Studio`);
+    const data = await response.json();
+    reply.textContent = data.response || "No response returned.";
+    addFeed(`🤖 Fox AI answered: ${prompt.slice(0, 50)}`);
+  } catch (err) {
+    reply.textContent = "Fox AI request failed. Check that the app is online and try again.";
+  }
+}
+
+async function refreshDashLive() {
+  const set = (id, text, state) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove("state-on", "state-off", "state-warn");
+    if (state) el.classList.add(state);
+  };
+
+  try {
+    const [liveRes, nativeRes] = await Promise.all([
+      fetch("/api/blaze/native/live-control"),
+      fetch("/api/blaze/native/status")
+    ]);
+    const live = await liveRes.json();
+    const native = await nativeRes.json();
+    const state = native?.state || {};
+
+    const autoSend = Boolean(live.auto_send_effective);
+    set("dashLiveReplies", autoSend ? "ON" : "OFF", autoSend ? "state-on" : "state-off");
+
+    const running = Boolean(state.running);
+    const connected = Boolean(state.connected);
+    set(
+      "dashListener",
+      connected ? "CONNECTED" : (running ? "STARTING" : "OFFLINE"),
+      connected ? "state-on" : (running ? "state-warn" : "state-off")
+    );
+
+    set("dashChatEvents", String(state.chat_messages_received ?? 0));
+    set("dashRepliesSent", String(state.replies_sent ?? 0));
+
+    const err = state.last_error;
+    set("dashLastError", err ? String(err).slice(0, 60) : "none", err ? "state-off" : "state-on");
+  } catch (err) {
+    set("dashLiveReplies", "N/A", "state-warn");
+    set("dashListener", "N/A", "state-warn");
+  }
+}
 
 async function blazeService(action) {
   let url = "/api/blaze/service/status";

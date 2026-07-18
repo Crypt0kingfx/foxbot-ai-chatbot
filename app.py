@@ -15243,6 +15243,13 @@ async def foxbot_studio_clean():
 
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+
+async def foxbot_favicon_v1():
+
+    return FileResponse("static/foxbot-logo.png", media_type="image/png")
+
+
 @app.get("/admin", response_class=HTMLResponse)
 
 async def foxbot_studio_primary_admin():
@@ -20636,6 +20643,33 @@ def foxbot_control_dashboard_v2():
       .wrap { padding: 16px; }
       h1 { font-size: 30px; }
     }
+    .kv {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .kv-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .kv-row:last-child { border-bottom: 0; }
+    .kv-row .k { color: rgba(255,255,255,.6); }
+    .kv-row .v { font-weight: 800; text-align: right; word-break: break-word; }
+    details.raw { margin-top: 10px; }
+    details.raw summary {
+      cursor: pointer;
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+    details.raw pre { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -20690,16 +20724,24 @@ def foxbot_control_dashboard_v2():
       <div class="split">
         <div>
           <h2>Last Reply / Event</h2>
-          <pre id="replyBox">Loading...</pre>
+          <div id="replyRows" class="kv"></div>
         </div>
         <div>
-          <h2>Full Live Control Status</h2>
-          <pre id="statusBox">Loading...</pre>
+          <h2>Live Control Status</h2>
+          <div id="statusRows" class="kv"></div>
+          <details class="raw">
+            <summary>Raw live-control JSON</summary>
+            <pre id="statusBox">Loading...</pre>
+          </details>
         </div>
       </div>
 
-      <h2>Native Listener Status</h2>
-      <pre id="nativeBox">Loading...</pre>
+      <h2>Native Listener</h2>
+      <div id="nativeRows" class="kv"></div>
+      <details class="raw">
+        <summary>Raw listener JSON</summary>
+        <pre id="nativeBox">Loading...</pre>
+      </details>
     </div>
   </div>
 
@@ -20714,6 +20756,32 @@ function setHtml(id, value) {
 
 function setText(id, value) {
   document.getElementById(id).textContent = value;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderRows(id, rows) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = rows.map(([label, val]) => {
+    const [text, cls] = Array.isArray(val) ? val : [val, ''];
+    return '<div class="kv-row"><span class="k">' + escapeHtml(label) +
+           '</span><span class="v ' + (cls || '') + '">' + escapeHtml(text) + '</span></div>';
+  }).join('');
+}
+
+function describeAttempt(attempt) {
+  if (!attempt) return ['none yet', ''];
+  if (typeof attempt === 'string') return [attempt, ''];
+  const ok = attempt.ok ?? attempt.sent ?? attempt.success;
+  const what = attempt.command || attempt.type || attempt.reason || attempt.message || 'attempt';
+  const when = attempt.at || attempt.time || attempt.timestamp || '';
+  const text = String(what).slice(0, 48) + (when ? ' @ ' + when : '');
+  if (ok === true) return [text, 'good'];
+  if (ok === false) return [text, 'bad'];
+  return [text, ''];
 }
 
 async function getJson(url) {
@@ -20757,14 +20825,36 @@ async function loadAll() {
     setText('chatEvents', native?.state?.chat_messages_received ?? live.chat_messages_received ?? 0);
     setText('replies', native?.state?.replies_sent ?? live.replies_sent ?? 0);
 
-    const replySummary = {
-      last_reply_attempt: live.last_reply_attempt || native?.state?.last_reply_attempt || null,
-      last_event_reply_attempt: live.last_event_reply_attempt || native?.state?.last_event_reply_attempt || null,
-      last_role_shoutout_attempt: live.last_role_shoutout_attempt || native?.state?.last_role_shoutout_attempt || null,
-      last_error: live.last_error || native?.state?.last_error || null
-    };
+    const lastReply = live.last_reply_attempt || native?.state?.last_reply_attempt || null;
+    const lastEvent = live.last_event_reply_attempt || native?.state?.last_event_reply_attempt || null;
+    const lastShout = live.last_role_shoutout_attempt || native?.state?.last_role_shoutout_attempt || null;
+    const lastErr = live.last_error || native?.state?.last_error || null;
 
-    setText('replyBox', pretty(replySummary));
+    renderRows('replyRows', [
+      ['Last command reply', describeAttempt(lastReply)],
+      ['Last event reply', describeAttempt(lastEvent)],
+      ['Last role shoutout', describeAttempt(lastShout)],
+      ['Last error', lastErr ? [String(lastErr), 'bad'] : ['none', 'good']]
+    ]);
+
+    renderRows('statusRows', [
+      ['Auto-send', auto ? ['ON', 'good'] : ['OFF', 'bad']],
+      ['Source', String(live.source || 'unknown')],
+      ['Override reason', String(live.override?.reason || '-')],
+      ['Override updated', String(live.override?.updated_at || 'never')]
+    ]);
+
+    renderRows('nativeRows', [
+      ['Running', running ? ['yes', 'good'] : ['no', 'bad']],
+      ['Connected', connected ? ['yes', 'good'] : ['no', 'bad']],
+      ['Session', String(native?.state?.session_id || 'none')],
+      ['Events received', String(native?.state?.events_received ?? 0)],
+      ['Chat messages', String(native?.state?.chat_messages_received ?? 0)],
+      ['Replies sent', String(native?.state?.replies_sent ?? 0)],
+      ['Started at', String(native?.state?.started_at || '-')],
+      ['Disconnect reason', String(native?.state?.disconnect_reason || '-')]
+    ]);
+
     setText('statusBox', pretty(live));
     setText('nativeBox', pretty(native));
     setText('updated', 'Updated: ' + new Date().toLocaleTimeString());

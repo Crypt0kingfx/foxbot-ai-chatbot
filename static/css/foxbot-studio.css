@@ -72,17 +72,18 @@ body {
 .hero {
   background: linear-gradient(135deg, rgba(255,122,24,.20), rgba(57,255,136,.09));
   border: 1px solid var(--border);
-  border-radius: 26px;
-  padding: 28px;
-  margin-bottom: 24px;
+  border-radius: 20px;
+  padding: 16px 22px;
+  margin-bottom: 20px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 20px;
 }
 
 .hero h1 {
-  margin: 0 0 8px;
-  font-size: 38px;
+  margin: 0 0 4px;
+  font-size: 24px;
 }
 
 .hero p {
@@ -91,13 +92,14 @@ body {
 }
 
 .status-pill {
-  align-self: start;
+  align-self: center;
   background: rgba(57,255,136,.14);
   color: var(--green);
   border: 1px solid rgba(57,255,136,.28);
-  padding: 10px 14px;
+  padding: 8px 14px;
   border-radius: 999px;
   font-weight: 900;
+  flex: none;
 }
 
 .grid {
@@ -113,16 +115,45 @@ body {
   border-radius: 22px;
   padding: 18px;
   box-shadow: 0 20px 40px rgba(0,0,0,.18);
+  transition: border-color .16s ease, transform .16s ease;
+}
+
+.grid > .card {
+  position: relative;
+  overflow: hidden;
+}
+
+.grid > .card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--orange), transparent 70%);
+  opacity: .75;
+}
+
+.grid > .card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,122,24,.45);
 }
 
 .card-title {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  letter-spacing: .6px;
+  text-transform: uppercase;
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.kpi-ico {
+  font-size: 15px;
 }
 
 .card-value {
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 900;
 }
 
@@ -458,20 +489,28 @@ body {
 
 .quick-actions-v2 {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
 }
 
 .quick-action-card {
   background: linear-gradient(135deg, rgba(255,122,24,.12), rgba(57,255,136,.04));
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 18px;
-  padding: 18px;
+  border-radius: 16px;
+  padding: 14px 12px;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
   transition: .16s ease;
-  min-height: 96px;
+  min-height: 108px;
+  min-width: 0;
+  font: inherit;
+  overflow-wrap: break-word;
+  /* the blanket ".section button" rule sets inline-flex; stack our contents */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .quick-action-card:hover {
@@ -481,25 +520,20 @@ body {
 }
 
 .quick-action-icon {
-  font-size: 26px;
-  margin-bottom: 10px;
+  font-size: 24px;
+  margin-bottom: 8px;
 }
 
 .quick-action-title {
   font-weight: 900;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .quick-action-desc {
   color: var(--muted);
-  font-size: 12px;
-  margin-top: 5px;
-}
-
-@media (max-width: 1200px) {
-  .quick-actions-v2 {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  font-size: 11px;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 @media (max-width: 700px) {
@@ -2986,3 +3020,115 @@ table {
     width: 100%;
   }
 }
+/* === Studio Dashboard 2.1 upgrades === */
+
+.dash-live {
+  margin: 18px 0;
+}
+
+.dash-live-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.dash-live-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.dash-live-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dash-live-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dash-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.dash-chip {
+  background: rgba(0,0,0,.28);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.dash-chip .label {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.dash-chip .value {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.dash-chip .hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.value.state-on { color: var(--green); }
+.value.state-off { color: #ff6b6b; }
+.value.state-warn { color: var(--orange); }
+
+.status-tag {
+  display: inline-block;
+  padding: 3px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.status-tag.ok {
+  color: var(--green);
+  background: rgba(57,255,136,.1);
+  border: 1px solid rgba(57,255,136,.3);
+}
+
+.status-tag.info {
+  color: var(--orange);
+  background: rgba(255,122,24,.1);
+  border: 1px solid rgba(255,122,24,.32);
+}
+
+/* form polish */
+input[type="checkbox"] {
+  accent-color: var(--orange);
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(255,122,24,.7);
+  outline-offset: 2px;
+}
+
+/* scrollbar polish */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.14);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,122,24,.45); }

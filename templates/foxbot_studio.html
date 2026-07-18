@@ -1,7 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>FoxBot Studio</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FoxBot Studio | Creator Command Center</title>
+  <link rel="icon" type="image/png" href="/static/foxbot-logo.png">
   <link rel="stylesheet" href="/static/css/foxbot-studio.css">
 </head>
 <body>
@@ -44,32 +47,59 @@
           <span class="mini-badge">FoxBot Studio 2.0</span>
         </div>
 
-        <!-- FoxBot Dashboard Control Embed v1 -->
-        <div class="card" style="padding:0; overflow:hidden; margin:18px 0; border:1px solid rgba(255,255,255,.14);">
-          <div style="padding:16px 20px; border-bottom:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <!-- FoxBot Dashboard Live Control v2 -->
+        <div class="card dash-live">
+          <div class="dash-live-head">
             <div>
-              <h2 style="margin:0; font-size:22px;">FoxBot Live Control</h2>
-              <p style="margin:6px 0 0; color:#a9b9ae;">Live Blaze connection, listener status, and command testing.</p>
+              <h2>🔌 FoxBot Live Control</h2>
+              <p>Live Blaze connection and listener status. Full controls live in the Bot Control tab.</p>
             </div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <a href="/foxbot-control" target="_blank" style="background:#fff; color:#050505; text-decoration:none; font-weight:900; border-radius:10px; padding:9px 14px; font-size:13px;">Open Full Control</a>
-              <button class="small-btn" onclick="document.getElementById('foxbotDashboardControlFrame').contentWindow.location.reload()">Refresh</button>
+            <div class="dash-live-actions">
+              <button class="small-btn" onclick="document.querySelector('.nav button[data-target=control]').click()">Open Bot Control</button>
+              <a href="/foxbot-control" target="_blank" class="small-btn" style="text-decoration:none; display:inline-block;">Full Control Panel</a>
+              <button class="small-btn" onclick="refreshDashLive()">Refresh</button>
             </div>
           </div>
-          <iframe id="foxbotDashboardControlFrame" src="/foxbot-control" style="width:100%; height:820px; border:0; background:#0b1020; display:block;" title="FoxBot Control Dashboard"></iframe>
+          <div class="dash-chips">
+            <div class="dash-chip">
+              <div class="label">Live Replies</div>
+              <div id="dashLiveReplies" class="value state-warn">…</div>
+              <div class="hint">Auto-send to Blaze chat</div>
+            </div>
+            <div class="dash-chip">
+              <div class="label">Listener</div>
+              <div id="dashListener" class="value state-warn">…</div>
+              <div class="hint">Native Blaze chat listener</div>
+            </div>
+            <div class="dash-chip">
+              <div class="label">Chat Events</div>
+              <div id="dashChatEvents" class="value">0</div>
+              <div class="hint">Live messages received</div>
+            </div>
+            <div class="dash-chip">
+              <div class="label">Replies Sent</div>
+              <div id="dashRepliesSent" class="value">0</div>
+              <div class="hint">Commands + events + shoutouts</div>
+            </div>
+            <div class="dash-chip">
+              <div class="label">Last Error</div>
+              <div id="dashLastError" class="value state-on" style="font-size:15px;">none</div>
+              <div class="hint">Most recent listener error</div>
+            </div>
+          </div>
         </div>
-        <!-- End FoxBot Dashboard Control Embed v1 -->
+        <!-- End FoxBot Dashboard Live Control v2 -->
 
 
         <div class="grid">
-          <div class="card"><div class="card-title">Followers Today</div><div id="followersToday" class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Votes Today</div><div id="votesToday" class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Subs Today</div><div id="subsToday" class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Tips Today</div><div id="tipsToday" class="card-value">$0</div></div>
-          <div class="card"><div class="card-title">FoxCoins Earned</div><div id="foxcoinsToday" class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Recognition Queue</div><div id="recognitionQueue" class="card-value">0</div></div>
-          <div class="card"><div class="card-title">Boss HP</div><div id="bossHp" class="card-value">100%</div></div>
-          <div class="card"><div class="card-title">Current Event</div><div id="currentEvent" class="card-value">None</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">👥</span>Followers Today</div><div id="followersToday" class="card-value">0</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">🗳️</span>Votes Today</div><div id="votesToday" class="card-value">0</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">⭐</span>Subs Today</div><div id="subsToday" class="card-value">0</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">💸</span>Tips Today</div><div id="tipsToday" class="card-value">$0</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">🪙</span>FoxCoins Earned</div><div id="foxcoinsToday" class="card-value">0</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">🎉</span>Recognition Queue</div><div id="recognitionQueue" class="card-value">0</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">👑</span>Boss HP</div><div id="bossHp" class="card-value">100%</div></div>
+          <div class="card"><div class="card-title"><span class="kpi-ico">⚡</span>Current Event</div><div id="currentEvent" class="card-value">None</div></div>
         </div>
 
         <div class="module-grid">
@@ -159,7 +189,12 @@
               Ask Fox AI to create quests, start events, tune rewards, plan giveaways, or improve stream engagement.
             </div>
             <br>
-            <input class="input" placeholder="Example: Make tonight's stream more exciting...">
+            <div style="display:flex; gap:8px;">
+              <input id="dashAiInput" class="input" style="flex:1; min-width:0;" placeholder="Example: Make tonight's stream more exciting..."
+                     onkeydown="if(event.key==='Enter')dashAskFoxAI()">
+              <button class="small-btn" onclick="dashAskFoxAI()">Ask Fox AI</button>
+            </div>
+            <div id="dashAiReply" class="ai-box" style="display:none; margin-top:12px; white-space:pre-wrap;"></div>
           </div>
         </div>
 
@@ -181,11 +216,11 @@
             <h2>System Snapshot</h2>
             <table class="table">
               <tr><th>System</th><th>Status</th></tr>
-              <tr><td>Bot</td><td>Online</td></tr>
-              <tr><td>Recognition</td><td>Enabled</td></tr>
-              <tr><td>Persistence</td><td>Auto-save</td></tr>
-              <tr><td>Render</td><td>Live</td></tr>
-              <tr><td>Studio</td><td>v2.0</td></tr>
+              <tr><td>Bot</td><td><span class="status-tag ok">Online</span></td></tr>
+              <tr><td>Recognition</td><td><span class="status-tag ok">Enabled</span></td></tr>
+              <tr><td>Persistence</td><td><span class="status-tag ok">Auto-save</span></td></tr>
+              <tr><td>Render</td><td><span class="status-tag ok">Live</span></td></tr>
+              <tr><td>Studio</td><td><span class="status-tag info">v2.1</span></td></tr>
             </table>
           </div>
         </div>
@@ -2144,10 +2179,15 @@
     }
   }
 
+  const realBotLog = [];
+
   function renderOutput(title, data) {
     const box = document.getElementById("realBotControlOutput");
     if (!box) return;
-    box.textContent = title + "\n\n" + JSON.stringify(data, null, 2);
+    const stamp = new Date().toLocaleTimeString();
+    realBotLog.unshift(`▸ [${stamp}] ${title}\n${JSON.stringify(data, null, 2)}`);
+    if (realBotLog.length > 8) realBotLog.pop();
+    box.textContent = realBotLog.join("\n\n────────────────────────\n\n");
   }
 
   async function refreshRealBotControl() {
