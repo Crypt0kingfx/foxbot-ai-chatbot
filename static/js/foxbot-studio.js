@@ -86,24 +86,29 @@ async function refreshDashLive() {
   };
 
   try {
-    const res = await fetch("/api/blaze/native/status");
-    const data = await res.json();
+    const [liveRes, nativeRes] = await Promise.all([
+      fetch("/api/blaze/native/live-control"),
+      fetch("/api/blaze/native/status")
+    ]);
+    const live = await liveRes.json();
+    const native = await nativeRes.json();
+    const state = native?.state || {};
 
-    const autoSend = Boolean(data.auto_send_effective ?? data.auto_send);
+    const autoSend = Boolean(live.auto_send_effective);
     set("dashLiveReplies", autoSend ? "ON" : "OFF", autoSend ? "state-on" : "state-off");
 
-    const running = Boolean(data.running);
-    const connected = Boolean(data.connected);
+    const running = Boolean(state.running);
+    const connected = Boolean(state.connected);
     set(
       "dashListener",
       connected ? "CONNECTED" : (running ? "STARTING" : "OFFLINE"),
       connected ? "state-on" : (running ? "state-warn" : "state-off")
     );
 
-    set("dashChatEvents", String(data.chat_messages_received ?? 0));
-    set("dashRepliesSent", String(data.replies_sent ?? 0));
+    set("dashChatEvents", String(state.chat_messages_received ?? 0));
+    set("dashRepliesSent", String(state.replies_sent ?? 0));
 
-    const err = data.last_error;
+    const err = state.last_error;
     set("dashLastError", err ? String(err).slice(0, 60) : "none", err ? "state-off" : "state-on");
   } catch (err) {
     set("dashLiveReplies", "N/A", "state-warn");

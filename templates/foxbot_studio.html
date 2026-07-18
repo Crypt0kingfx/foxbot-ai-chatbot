@@ -2179,10 +2179,15 @@
     }
   }
 
+  const realBotLog = [];
+
   function renderOutput(title, data) {
     const box = document.getElementById("realBotControlOutput");
     if (!box) return;
-    box.textContent = title + "\n\n" + JSON.stringify(data, null, 2);
+    const stamp = new Date().toLocaleTimeString();
+    realBotLog.unshift(`▸ [${stamp}] ${title}\n${JSON.stringify(data, null, 2)}`);
+    if (realBotLog.length > 8) realBotLog.pop();
+    box.textContent = realBotLog.join("\n\n────────────────────────\n\n");
   }
 
   async function refreshRealBotControl() {
