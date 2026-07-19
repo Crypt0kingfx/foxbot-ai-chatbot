@@ -60,17 +60,25 @@ def add_log(message):
 
 
 def env(name, default=""):
-    value = os.getenv(name)
-    if value:
-        return value
-
+    """Read connector configuration with fresh saved OAuth tokens first."""
+    # FoxBot saved OAuth sender priority v1
+    # The account that most recently completed OAuth must be the account that
+    # speaks in Blaze chat. Stale Render token variables are fallback only.
     tokens = _saved_oauth_tokens()
 
     if name == "BLAZE_ACCESS_TOKEN":
-        return tokens.get("accessToken") or tokens.get("access_token") or default
+        saved_access = tokens.get("accessToken") or tokens.get("access_token")
+        if saved_access:
+            return saved_access
 
     if name == "BLAZE_REFRESH_TOKEN":
-        return tokens.get("refreshToken") or tokens.get("refresh_token") or default
+        saved_refresh = tokens.get("refreshToken") or tokens.get("refresh_token")
+        if saved_refresh:
+            return saved_refresh
+
+    value = os.getenv(name)
+    if value:
+        return value
 
     return default
 
