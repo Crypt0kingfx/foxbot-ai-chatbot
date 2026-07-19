@@ -17,7 +17,7 @@
 
     <nav>
         <a href="#features">Features</a>
-        <a href="#setup">How It Works</a>
+        <a href="#setup">Connect</a>
         <a href="#commands">Commands</a>
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
@@ -42,7 +42,7 @@
             </p>
 
             <div class="actions">
-                <a href="/get-started" class="button">Connect Blaze Account</a>
+                <a href="/get-started" class="button">Start 7-Day Trial</a>
                 <a href="/admin" class="button secondary">Open Dashboard</a>
                 <a href="/demo-chat" class="button secondary">Live Demo</a>
             </div>
@@ -206,23 +206,67 @@
     </section>
 
     <section id="setup" class="section setup-section">
-        <div class="shell setup-layout">
-            <div class="section-heading">
-                <div class="eyebrow">FAST SETUP</div>
-                <h2>Connect. Configure. Go live.</h2>
-                <p>FoxBot uses Blaze OAuth for a straightforward creator connection flow.</p>
-                <a href="/get-started" class="button">Connect Blaze</a>
+        <div class="shell connection-guide">
+            <div class="section-heading centered">
+                <div class="eyebrow">CREATOR CONNECTION</div>
+                <h2>Connect FoxBot in four clear steps.</h2>
+                <p>Start in the FoxBot profile chat, activate your access, then test FoxBot inside your own Blaze channel.</p>
             </div>
 
-            <div class="steps">
-                <article><b>01</b><div><h3>Connect Blaze</h3><p>Authorize FoxBot through the real Blaze OAuth flow.</p></div></article>
-                <article><b>02</b><div><h3>Start the Listener</h3><p>Enable live chat monitoring from the dashboard.</p></div></article>
-                <article><b>03</b><div><h3>Customize</h3><p>Configure rewards, recognition, events, and overlays.</p></div></article>
-                <article><b>04</b><div><h3>Go Live</h3><p>Focus on content while FoxBot handles repetitive engagement.</p></div></article>
+            <div class="connection-warning">
+                <strong>Important: a Connected Creators badge does not mean FoxBot is listening yet.</strong>
+                <p>The badge only confirms that your profile was registered. Commands work after your access is active, your Blaze channel is resolved, and the live listener is monitoring it.</p>
+            </div>
+
+            <div class="connection-flow">
+                <article class="connection-step">
+                    <b>01</b>
+                    <span>FOXBOT PROFILE CHAT</span>
+                    <h3>Open the FoxBot Blaze profile</h3>
+                    <p>Visit <strong>blaze.stream/foxbotai</strong>. Do not start by typing the activation command in your own channel.</p>
+                </article>
+
+                <article class="connection-step">
+                    <b>02</b>
+                    <span>START YOUR TRIAL</span>
+                    <h3>Type <code>!join</code></h3>
+                    <p>Send <code>!join</code> in the FoxBot profile chat. This starts your seven-day trial and registers your creator access.</p>
+                </article>
+
+                <article class="connection-step">
+                    <b>03</b>
+                    <span>CONFIRM ACCESS</span>
+                    <h3>Type <code>!access</code></h3>
+                    <p>Confirm that FoxBot reports an active trial or subscription. Allow 15&ndash;30 seconds for your Blaze channel to enter the listener targets.</p>
+                </article>
+
+                <article class="connection-step">
+                    <b>04</b>
+                    <span>TEST YOUR CHANNEL</span>
+                    <h3>Type <code>!help</code> in your chat</h3>
+                    <p>Return to your own Blaze channel and send <code>!help</code>. A FoxBot reply confirms that your channel is actively monitored.</p>
+                </article>
+            </div>
+
+            <div class="connection-status-grid">
+                <div><strong>Registered</strong><span>Your creator profile is saved.</span></div>
+                <div><strong>Access Active</strong><span>Your trial or subscription is valid.</span></div>
+                <div><strong>Channel Ready</strong><span>Your Blaze channel ID is resolved.</span></div>
+                <div><strong>Listening</strong><span>FoxBot processes commands in your chat.</span></div>
+            </div>
+
+            <div class="connection-help">
+                <div>
+                    <h3>No reply yet?</h3>
+                    <p>Run <code>!access</code> again in the FoxBot profile chat, confirm your exact Blaze handle, and check that the live listener is running.</p>
+                </div>
+                <div class="actions">
+                    <a href="https://blaze.stream/foxbotai" class="button" target="_blank" rel="noopener">Open FoxBot on Blaze</a>
+                    <a href="/project-status" class="button secondary">Check System Status</a>
+                </div>
             </div>
         </div>
     </section>
-
     <section id="commands" class="section shell">
         <div class="section-heading centered">
             <div class="eyebrow">COMMANDS</div>
