@@ -16563,6 +16563,90 @@ async def foxbot_connected_creators_chat_test(payload: _FoxDict[str, _FoxAny]):
 
 
 
+@app.get("/api/connected-creators/me")
+
+async def foxbot_connected_creators_me(handle: str = ""):
+
+    handle = _foxbot_connect_clean_handle_v1(handle)
+
+    if not handle:
+
+        return {"ok": False, "error": "Missing handle."}
+
+    raw = _foxbot_connect_load_raw_v1()
+
+    creators = []
+
+    for key, info in raw.items():
+
+        if isinstance(info, dict):
+
+            item = dict(info)
+
+            item.setdefault("handle", key)
+
+            creators.append(item)
+
+    me = next(
+
+        (c for c in creators if str(c.get("handle", "")).lower() == handle.lower()),
+
+        None
+
+    )
+
+    if not me:
+
+        return {"ok": False, "error": "not_connected", "handle": handle}
+
+    ranked = sorted(creators, key=lambda c: int(c.get("foxcoins", 0) or 0), reverse=True)
+
+    rank = next(
+
+        (i + 1 for i, c in enumerate(ranked) if str(c.get("handle", "")).lower() == handle.lower()),
+
+        None
+
+    )
+
+    days_connected = None
+
+    try:
+
+        from datetime import datetime, timezone
+
+        connected_at = str(me.get("connected_at") or "")
+
+        if connected_at:
+
+            connected_dt = datetime.fromisoformat(connected_at.replace("Z", "+00:00"))
+
+            if connected_dt.tzinfo is None:
+
+                connected_dt = connected_dt.replace(tzinfo=timezone.utc)
+
+            days_connected = max(0, int((datetime.now(timezone.utc) - connected_dt).total_seconds() // 86400))
+
+    except Exception:
+
+        days_connected = None
+
+    return {
+
+        "ok": True,
+
+        "creator": me,
+
+        "rank": rank,
+
+        "creator_count": len(creators),
+
+        "days_connected": days_connected
+
+    }
+
+
+
 # ============================================================
 
 # END FOXBOT CONNECTED CREATORS V1
@@ -16699,7 +16783,7 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
             cards += f"""
 
-            <div class='card'>
+            <div class='card' data-handle='{handle}'>
 
                 <div class='card-top'>
 
@@ -16979,6 +17063,112 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
                 }}
 
+                .claim-row {{
+
+                    margin-top: 22px; padding-top: 18px;
+
+                    border-top: 1px dashed var(--border);
+
+                    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+
+                }}
+
+                .claim-label {{ color: var(--muted); font-size: 14px; font-weight: 600; }}
+
+                .claim-row input {{
+
+                    padding: 10px 14px; border-radius: 12px; min-width: 210px;
+
+                    background: rgba(0,0,0,.35); color: var(--text);
+
+                    border: 1px solid var(--border); font-size: 14px; outline: none;
+
+                }}
+
+                .claim-row input:focus {{ border-color: rgba(249,115,22,.6); }}
+
+                .claim-row .button {{ padding: 10px 18px; cursor: pointer; font-size: 14px; }}
+
+                .claim-msg {{ color: var(--accent-soft); font-size: 13px; }}
+
+                .me-top {{ display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }}
+
+                .me-avatar {{
+
+                    width: 84px; height: 84px; flex: none; border-radius: 50%;
+
+                    display: flex; align-items: center; justify-content: center;
+
+                    font-weight: 800; font-size: 38px; color: #0b0b0f;
+
+                    background: linear-gradient(140deg, #ffb46b, var(--accent));
+
+                    box-shadow: 0 10px 30px rgba(249,115,22,.35);
+
+                }}
+
+                .me-greeting {{ color: var(--muted); font-size: 15px; letter-spacing: .3px; }}
+
+                .me-name {{ margin: 2px 0 0; }}
+
+                .me-meta {{ color: var(--muted); font-size: 14px; margin-top: 6px; line-height: 1.6; }}
+
+                .me-pill {{ margin-left: auto; align-self: flex-start; }}
+
+                .me-stats {{
+
+                    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+
+                    gap: 12px; margin: 22px 0 4px;
+
+                }}
+
+                .me-stat {{
+
+                    text-align: center; padding: 14px 8px;
+
+                    background: rgba(0,0,0,.28); border: 1px solid var(--border); border-radius: 14px;
+
+                }}
+
+                .me-stat b {{ display: block; font-size: 24px; color: var(--accent-soft); }}
+
+                .me-stat span {{ color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .8px; }}
+
+                .me-badges {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }}
+
+                .linklike {{
+
+                    background: none; border: none; cursor: pointer;
+
+                    color: var(--muted); font-size: 14px; text-decoration: underline;
+
+                    padding: 12px 6px; font-family: inherit;
+
+                }}
+
+                .linklike:hover {{ color: var(--text); }}
+
+                .card.is-me {{
+
+                    border-color: rgba(249,115,22,.75);
+
+                    box-shadow: 0 0 0 1px rgba(249,115,22,.5), 0 10px 30px rgba(249,115,22,.2);
+
+                }}
+
+                .you-pill {{
+
+                    display: inline-block; vertical-align: middle; white-space: nowrap;
+
+                    margin-left: 8px; padding: 2px 9px; border-radius: 999px;
+
+                    font-size: 11px; font-weight: 700;
+
+                    color: #0b0b0f; background: linear-gradient(180deg, #ff8a2a, var(--accent));
+
+                }}
+
                 footer {{ text-align: center; color: var(--muted); font-size: 13px; padding: 26px 0 12px; }}
 
                 footer a {{ color: var(--accent-soft); text-decoration: none; }}
@@ -17011,15 +17201,77 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
                 <div class='hero'>
 
-                    <h1>🦊 Connected <span>Creators</span></h1>
+                    <div id='heroDefault'>
 
-                    <div class='sub'>Blaze creators running their streams with FoxBot AI. Follow the FoxBot Blaze profile and type <b>!connect</b> in chat — or connect right here.</div>
+                        <h1>🦊 Connected <span>Creators</span></h1>
 
-                    <div class='hero-actions'>
+                        <div class='sub'>Blaze creators running their streams with FoxBot AI. Follow the FoxBot Blaze profile and type <b>!connect</b> in chat — or connect right here.</div>
 
-                        <a href='/get-started' class='button'>Get Started — connect your channel</a>
+                        <div class='hero-actions'>
 
-                        <a href='/demo-chat' class='button secondary'>Try the live demo</a>
+                            <a href='/get-started' class='button'>Get Started — connect your channel</a>
+
+                            <a href='/demo-chat' class='button secondary'>Try the live demo</a>
+
+                        </div>
+
+                        <div class='claim-row'>
+
+                            <span class='claim-label'>Already in the pack?</span>
+
+                            <input id='claimInput' placeholder='your Blaze handle' autocomplete='off' />
+
+                            <button id='claimBtn' class='button secondary'>Open my den</button>
+
+                            <span id='claimMsg' class='claim-msg'></span>
+
+                        </div>
+
+                    </div>
+
+                    <div id='heroPersonal' hidden>
+
+                        <div class='me-top'>
+
+                            <div class='me-avatar' id='meAvatar'>?</div>
+
+                            <div class='me-id'>
+
+                                <div class='me-greeting' id='meGreeting'>Welcome back</div>
+
+                                <h1 class='me-name'>@<span id='meName'>creator</span></h1>
+
+                                <div class='me-meta' id='meMeta'></div>
+
+                            </div>
+
+                            <span class='pill live me-pill'>connected</span>
+
+                        </div>
+
+                        <div class='me-stats'>
+
+                            <div class='me-stat'><b id='meFoxcoins'>0</b><span>FoxCoins</span></div>
+
+                            <div class='me-stat'><b id='meMessages'>0</b><span>Messages</span></div>
+
+                            <div class='me-stat'><b id='meStars'>0</b><span>Stars</span></div>
+
+                            <div class='me-stat'><b id='meRank'>—</b><span>Pack rank</span></div>
+
+                        </div>
+
+                        <div class='me-badges' id='meBadges'></div>
+
+                        <div class='hero-actions'>
+
+                            <a href='/admin' class='button'>Open FoxBot Studio</a>
+
+                            <a href='/demo-chat' class='button secondary'>Try the live demo</a>
+
+                            <button id='meSignout' class='linklike'>Not you? Switch creator</button>
+
+                        </div>
 
                     </div>
 
@@ -17040,6 +17292,8 @@ async def foxbot_connect_public_route_v2(request, call_next):
                 <footer>Powered by <a href='/'>FoxBot AI</a> — the creator command center for Blaze.</footer>
 
             </div>
+
+            <script src='/static/js/connect-personal.js'></script>
 
         </body>
 
@@ -18953,6 +19207,106 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
 
 
+    # Personal touch: greet the person who just logged in by their Blaze name
+
+    # and register them as a connected creator so their den is ready.
+
+    profile_name = ""
+
+    try:
+
+        import requests as _fox_requests
+
+        prof_res = _fox_requests.get(
+
+            "https://api.blaze.stream/v1/users/profile",
+
+            headers={
+
+                "Authorization": f"Bearer {access_token}",
+
+                "client-id": client_id,
+
+                "Accept": "application/json"
+
+            },
+
+            timeout=15
+
+        )
+
+        prof = prof_res.json() if prof_res.ok else {}
+
+        node = prof.get("data") if isinstance(prof.get("data"), dict) else prof
+
+        if isinstance(node, dict):
+
+            for key in ("username", "handle", "slug", "displayName", "display_name", "name"):
+
+                value = node.get(key)
+
+                if value:
+
+                    profile_name = str(value).strip().lstrip("@")[:40]
+
+                    break
+
+    except Exception:
+
+        profile_name = ""
+
+
+
+    if profile_name:
+
+        try:
+
+            _foxbot_connect_upsert_creator_v1(profile_name, display_name=profile_name, source="blaze_oauth")
+
+        except Exception:
+
+            pass
+
+
+
+    hour = __import__("datetime").datetime.now().hour
+
+    if hour < 5:
+
+        day_greeting = "Burning the midnight oil"
+
+    elif hour < 12:
+
+        day_greeting = "Good morning"
+
+    elif hour < 18:
+
+        day_greeting = "Good afternoon"
+
+    else:
+
+        day_greeting = "Good evening"
+
+
+
+    if profile_name:
+
+        headline = f"{day_greeting}, @{profile_name}! 🦊"
+
+        subline = "You're logged in with Blaze and FoxBot just rolled out the welcome mat. Your den is ready."
+
+        den_link = f"/connected-creators?me={profile_name}&connected=1"
+
+    else:
+
+        headline = "You're connected! 🦊"
+
+        subline = "Blaze login complete — FoxBot is now linked to your account."
+
+        den_link = "/connected-creators"
+
+
+
     html = f"""
 
     <!doctype html>
@@ -18961,21 +19315,103 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
     <head>
 
-        <title>FoxBot Blaze OAuth Complete</title>
+        <title>Welcome to FoxBot</title>
+
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/png" href="/static/foxbot-logo.png">
 
         <style>
 
-            body {{ font-family: Arial, sans-serif; background: #050807; color: white; padding: 32px; }}
+            body {{
 
-            .card {{ max-width: 980px; margin: 0 auto; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); border-radius: 24px; padding: 28px; }}
+                font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 
-            h1 {{ color: #39ff88; }}
+                background:
 
-            textarea {{ width: 100%; min-height: 160px; background: #111; color: #39ff88; border: 1px solid #333; border-radius: 12px; padding: 14px; }}
+                    radial-gradient(1000px 500px at 85% -10%, rgba(249,115,22,.18), transparent 60%),
 
-            code, pre {{ color: #ff9b3d; }}
+                    #050807;
 
-            a {{ color: #39ff88; }}
+                color: #f4f2ee; padding: 32px; margin: 0; min-height: 100vh;
+
+            }}
+
+            .card {{
+
+                max-width: 720px; margin: 40px auto 0;
+
+                border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06);
+
+                border-radius: 24px; padding: 36px; text-align: center;
+
+            }}
+
+            .fox-avatar {{
+
+                width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 18px;
+
+                display: flex; align-items: center; justify-content: center;
+
+                font-size: 40px; font-weight: 800; color: #0b0b0f;
+
+                background: linear-gradient(140deg, #ffb46b, #f97316);
+
+                box-shadow: 0 10px 30px rgba(249,115,22,.4);
+
+            }}
+
+            h1 {{ margin: 0 0 10px; font-size: clamp(26px, 5vw, 38px); }}
+
+            .sub {{ color: rgba(244,242,238,.7); font-size: 16px; line-height: 1.7; max-width: 480px; margin: 0 auto; }}
+
+            .actions {{ margin-top: 26px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }}
+
+            .button {{
+
+                display: inline-block; padding: 13px 28px; border-radius: 12px;
+
+                background: linear-gradient(180deg, #ff8a2a, #f97316);
+
+                color: #0b0b0f; font-weight: 700; text-decoration: none;
+
+                box-shadow: 0 8px 24px rgba(249,115,22,.35);
+
+            }}
+
+            .button.secondary {{
+
+                background: rgba(255,255,255,.07); color: #f4f2ee;
+
+                border: 1px solid rgba(255,255,255,.14); box-shadow: none;
+
+            }}
+
+            details {{
+
+                max-width: 720px; margin: 22px auto 40px; text-align: left;
+
+                border: 1px solid rgba(255,255,255,.1); border-radius: 16px;
+
+                padding: 16px 20px; background: rgba(255,255,255,.03);
+
+                color: rgba(244,242,238,.8);
+
+            }}
+
+            summary {{ cursor: pointer; font-weight: 600; color: rgba(244,242,238,.65); }}
+
+            textarea {{
+
+                width: 100%; min-height: 120px; margin-top: 12px; box-sizing: border-box;
+
+                background: #111; color: #39ff88; border: 1px solid #333; border-radius: 12px; padding: 14px;
+
+            }}
+
+            code {{ color: #ff9b3d; }}
+
+            details a {{ color: #39ff88; }}
 
         </style>
 
@@ -18985,29 +19421,33 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
         <div class="card">
 
-            <h1>🦊 FoxBot Blaze OAuth Complete</h1>
+            <div class="fox-avatar">{(profile_name[:1] or "🦊").upper() if profile_name else "🦊"}</div>
 
-            <p>FoxBot received and saved the Blaze OAuth tokens on this Render instance.</p>
+            <h1>{headline}</h1>
 
+            <p class="sub">{subline}</p>
 
+            <div class="actions">
 
-            <h2>Token Check</h2>
+                <a class="button" href="{den_link}">Open my creator den</a>
 
-            <p><b>Access token:</b> {_foxbot_blaze_oauth_mask_v1(access_token)}</p>
+                <a class="button secondary" href="/demo-chat">Try the live demo</a>
 
-            <p><b>Refresh token:</b> {_foxbot_blaze_oauth_mask_v1(refresh_token)}</p>
+            </div>
 
+        </div>
 
+        <details>
 
-            <h2>Copy these into Render Environment</h2>
+            <summary>Bot owner setup — OAuth tokens (keep private)</summary>
 
-            <p>Do not share these publicly. Add them to <b>Render â†’ foxbot-ai-chatbot â†’ Environment</b>.</p>
+            <p><b>Access token:</b> {_foxbot_blaze_oauth_mask_v1(access_token)}<br>
+
+            <b>Refresh token:</b> {_foxbot_blaze_oauth_mask_v1(refresh_token)}</p>
+
+            <p>Add these to <b>Render → foxbot-ai-chatbot → Environment</b>. Do not share them publicly.</p>
 
             <textarea readonly>{env_text}</textarea>
-
-
-
-            <h2>Next</h2>
 
             <ol>
 
@@ -19021,7 +19461,7 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
             </ol>
 
-        </div>
+        </details>
 
     </body>
 
