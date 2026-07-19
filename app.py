@@ -6917,13 +6917,54 @@ def find_blaze_channel():
 
 
 
+def get_blaze_access_token():
+
+    """Blaze access token from any source: OAuth login (memory), Render env, or saved token file.
+
+    The listener and chat sender use this so they keep working after a redeploy
+
+    without needing a fresh /login/blaze visit."""
+
+    token = bot_tokens.get("accessToken")
+
+    if token:
+
+        return token
+
+    token = (os.getenv("BLAZE_ACCESS_TOKEN") or "").strip()
+
+    if token:
+
+        return token
+
+    try:
+
+        import json as _fox_json
+
+        path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+
+        if path.exists():
+
+            saved = _fox_json.loads(path.read_text(encoding="utf-8") or "{}")
+
+            return saved.get("accessToken") or saved.get("access_token") or ""
+
+    except Exception:
+
+        pass
+
+    return ""
+
+
+
+
 def send_blaze_chat_message(text: str):
 
     client_id = os.getenv("BLAZE_CLIENT_ID")
 
     channel_id = os.getenv("BLAZE_CHANNEL_ID")
 
-    access_token = bot_tokens.get("accessToken")
+    access_token = get_blaze_access_token()
 
 
 
@@ -6933,7 +6974,7 @@ def send_blaze_chat_message(text: str):
 
             "success": False,
 
-            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token."
+            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /login/blaze."
 
         }
 
@@ -7145,7 +7186,7 @@ def get_recent_blaze_messages():
 
     channel_id = os.getenv("BLAZE_CHANNEL_ID")
 
-    access_token = bot_tokens.get("accessToken")
+    access_token = get_blaze_access_token()
 
 
 
@@ -7155,7 +7196,7 @@ def get_recent_blaze_messages():
 
             "success": False,
 
-            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Visit /login/blaze first."
+            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /login/blaze."
 
         }
 
@@ -7423,6 +7464,12 @@ def start_polling_listener():
 
     if polling_thread and polling_thread.is_alive():
 
+        # Flip running back on so a stop followed by a quick start actually resumes
+
+        # instead of letting the winding-down thread exit.
+
+        polling_status["running"] = True
+
         proof_stats["listener_running"] = True
 
         return {
@@ -7488,6 +7535,57 @@ def stop_polling_listener():
 def get_polling_status():
 
     return polling_status
+
+
+
+
+@app.on_event("startup")
+
+def foxbot_auto_start_listener_v1():
+
+    """Start the chat listener automatically on boot when Blaze is configured.
+
+    Means the dashboard comes up already listening after every Render deploy —
+
+    no manual Start Listener click needed. Set FOXBOT_AUTO_START_LISTENER=false to opt out."""
+
+    global polling_thread
+
+
+
+    opt_out = (os.getenv("FOXBOT_AUTO_START_LISTENER", "true") or "").strip().lower()
+
+    if opt_out in ["0", "false", "no", "off"]:
+
+        return
+
+
+
+    if not os.getenv("BLAZE_CLIENT_ID") or not os.getenv("BLAZE_CHANNEL_ID"):
+
+        return
+
+
+
+    if not get_blaze_access_token():
+
+        return
+
+
+
+    if polling_thread and polling_thread.is_alive():
+
+        return
+
+
+
+    polling_status["running"] = True
+
+    proof_stats["listener_running"] = True
+
+    polling_thread = threading.Thread(target=blaze_polling_worker, daemon=True)
+
+    polling_thread.start()
 
 
 
