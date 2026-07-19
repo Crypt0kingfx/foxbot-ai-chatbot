@@ -6753,6 +6753,15 @@ def blaze_oauth_callback(code: str = "", state: str = ""):
 
     bot_tokens["refreshToken"] = token_data.get("refreshToken")
 
+    try:
+
+        _foxbot_blaze_oauth_save_tokens_v1(token_data)
+
+    except Exception:
+
+        pass
+
+
 
 
     proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
@@ -19673,7 +19682,7 @@ def foxbot_blaze_oauth_refresh_v1():
 
 
 
-    refresh_token = os.getenv("BLAZE_REFRESH_TOKEN") or saved.get("refreshToken") or saved.get("refresh_token") or ""
+    refresh_token = saved.get("refreshToken") or saved.get("refresh_token") or os.getenv("BLAZE_REFRESH_TOKEN") or ""
 
 
 
@@ -22977,6 +22986,42 @@ def foxbot_token_source_v2():
         "has_token": bool(token),
         "source": source,
         "saved_oauth_file_exists": (_foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")).exists(),
+    }
+
+
+@app.get("/api/foxbot/sender-identity")
+def foxbot_sender_identity_v1():
+    import requests as _requests
+
+    token, source = _foxbot_current_access_token_v2()
+    if not token:
+        return {"ok": False, "error": "No access token available.", "token_source": source}
+
+    try:
+        response = _requests.get(
+            "https://api.blaze.stream/v1/users/profile",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "client-id": str(os.getenv("BLAZE_CLIENT_ID") or "").strip(),
+                "Accept": "application/json",
+            },
+            timeout=20,
+        )
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+    except Exception as error:
+        return {"ok": False, "error": str(error), "token_source": source}
+
+    data = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else body
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "ok": response.ok,
+        "username": data.get("username") or data.get("handle") or data.get("slug"),
+        "user_id": data.get("id") or data.get("userId"),
+        "token_source": source,
     }
 
 
