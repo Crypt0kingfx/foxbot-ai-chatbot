@@ -3396,13 +3396,16 @@ def format_leaderboard(limit: int = 5):
 
 
 
-def is_admin(username: str):
+def is_admin(username: str, roles: str = ""):
 
     admin_usernames = os.getenv("ADMIN_USERNAMES", "crypt0k1ng96,Ryan")
 
     admins = [name.strip().lower() for name in admin_usernames.split(",")]
 
-    return username.strip().lower() in admins
+    if username.strip().lower() in admins:
+        return True
+    role_set = {r.strip().lower() for r in str(roles or "").replace("|", ",").split(",") if r.strip()}
+    return bool(role_set & {"moderator", "mod", "owner", "broadcaster", "channel_owner"})
 
 
 
@@ -3410,7 +3413,7 @@ def is_admin(username: str):
 
 @app.get("/chat")
 
-def chat(message: str = "", username: str = "viewer"):
+def chat(message: str = "", username: str = "viewer", roles: str = ""):
 
     global giveaway_entries
 
@@ -3558,7 +3561,7 @@ def chat(message: str = "", username: str = "viewer"):
                     "response": f"🦊 Shop category command loaded, but reward menu failed: {type(e2).__name__}"
                 }
 
-    admin = is_admin(username)
+    admin = is_admin(username, roles)
 
 
 
