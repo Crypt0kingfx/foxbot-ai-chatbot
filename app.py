@@ -3413,7 +3413,7 @@ def is_admin(username: str, roles: str = ""):
 
 @app.get("/chat")
 
-def chat(message: str = "", username: str = "viewer", roles: str = ""):
+def chat(message: str = "", username: str = "viewer", *, roles: str = ""):
 
     global giveaway_entries
 
