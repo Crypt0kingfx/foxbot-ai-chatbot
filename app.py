@@ -97,6 +97,7 @@ from fastapi import FastAPI
 
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from services.storage_paths import storage_path as _foxbot_storage_path_v1
+from services.blaze_tokens import resolve_blaze_access_token
 
 from fastapi.staticfiles import StaticFiles
 
@@ -6788,44 +6789,6 @@ def find_blaze_channel():
 
 
 
-def get_blaze_access_token():
-
-    """Blaze access token from any source: OAuth login (memory), Render env, or saved token file.
-
-    The listener and chat sender use this so they keep working after a redeploy
-
-    without needing a fresh /auth/blaze/login visit."""
-
-    token = bot_tokens.get("accessToken")
-
-    if token:
-
-        return token
-
-    token = (os.getenv("BLAZE_ACCESS_TOKEN") or "").strip()
-
-    if token:
-
-        return token
-
-    try:
-
-        import json as _fox_json
-
-        path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
-
-        if path.exists():
-
-            saved = _fox_json.loads(path.read_text(encoding="utf-8") or "{}")
-
-            return saved.get("accessToken") or saved.get("access_token") or ""
-
-    except Exception:
-
-        pass
-
-    return ""
-
 
 @app.get("/blaze/send-test-message")
 
@@ -7145,7 +7108,7 @@ def foxbot_auto_start_listener_v1():
 
 
 
-    if not get_blaze_access_token():
+    if not resolve_blaze_access_token()[0]:
 
         return
 
@@ -22025,63 +21988,13 @@ def foxbot_multichannel_targets_v1():
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
 
 # === FoxBot OAuth Token Priority Fix v1 ===
-def _foxbot_oauth_token_value_v2(payload, possible_keys):
-    """Find a token in direct or nested OAuth response data."""
-    if isinstance(payload, dict):
-        for key in possible_keys:
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        for value in payload.values():
-            found = _foxbot_oauth_token_value_v2(value, possible_keys)
-            if found:
-                return found
-    elif isinstance(payload, list):
-        for value in payload:
-            found = _foxbot_oauth_token_value_v2(value, possible_keys)
-            if found:
-                return found
-    return ""
-
-
-def _foxbot_current_access_token_v2():
-    """Prefer the newest OAuth callback token over stale Render variables."""
-    import json
-    from pathlib import Path
-
-    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
-    if token_path.exists():
-        try:
-            saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
-            token = _foxbot_oauth_token_value_v2(
-                saved,
-                ["accessToken", "access_token", "token"],
-            )
-            if token:
-                return token, "saved_oauth_file"
-        except Exception:
-            pass
-
-    runtime_token = str(bot_tokens.get("accessToken") or "").strip()
-    if runtime_token:
-        return runtime_token, "runtime_oauth"
-
-    environment_token = str(os.getenv("BLAZE_ACCESS_TOKEN") or "").strip()
-    if environment_token:
-        return environment_token, "render_environment"
-
-    return "", "missing"
-
-
-
-
 def send_blaze_chat_message(text: str, channel_id=None):
     """Send with the newest OAuth callback token."""
     import requests
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token, token_source = _foxbot_current_access_token_v2()
+    access_token, token_source = resolve_blaze_access_token()
 
     if not client_id or not target_channel_id or not access_token:
         return {
@@ -22130,7 +22043,7 @@ def get_recent_blaze_messages(channel_id=None):
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token, token_source = _foxbot_current_access_token_v2()
+    access_token, token_source = resolve_blaze_access_token()
 
     if not client_id or not target_channel_id or not access_token:
         return {
@@ -22177,7 +22090,7 @@ def get_recent_blaze_messages(channel_id=None):
 def foxbot_token_source_v2():
     from pathlib import Path
 
-    token, source = _foxbot_current_access_token_v2()
+    token, source = resolve_blaze_access_token()
     return {
         "ok": True,
         "has_token": bool(token),
@@ -22217,7 +22130,7 @@ def _foxbot_multichannel_targets_v1():
     except Exception:
         limit = 25
 
-    access_token, _ = _foxbot_current_access_token_v2()
+    access_token, _ = resolve_blaze_access_token()
     return _foxbot_multichannel_service_v1.build_targets(
         client_id=os.getenv("BLAZE_CLIENT_ID", ""),
         access_token=access_token,

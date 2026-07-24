@@ -4,7 +4,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
+
+from services.blaze_tokens import resolve_blaze_access_token, resolve_blaze_refresh_token
+from services.storage_paths import storage_path
 
 STATE = {
     "running": False,
@@ -37,16 +39,6 @@ EVENT_TYPES = [
     "stream.offline",
 ]
 
-def _saved_oauth_tokens():
-    try:
-        path = Path("data") / "blaze_oauth_tokens.json"
-        if not path.exists():
-            return {}
-        return json.loads(path.read_text(encoding="utf-8") or "{}")
-    except Exception:
-        return {}
-
-
 def add_log(message):
     try:
         entry = {
@@ -60,19 +52,14 @@ def add_log(message):
 
 
 def env(name, default=""):
-    value = os.getenv(name)
-    if value:
-        return value
-
-    tokens = _saved_oauth_tokens()
-
     if name == "BLAZE_ACCESS_TOKEN":
-        return tokens.get("accessToken") or tokens.get("access_token") or default
+        token, _source = resolve_blaze_access_token()
+        return token or default
 
     if name == "BLAZE_REFRESH_TOKEN":
-        return tokens.get("refreshToken") or tokens.get("refresh_token") or default
+        return resolve_blaze_refresh_token() or default
 
-    return default
+    return os.getenv(name) or default
 
 def bot_profile_handle():
     handle = env("FOXBOT_BLAZE_PROFILE_HANDLE", "@FoxBotStudio").strip()
@@ -639,14 +626,12 @@ def _fb_blaze_headers_diag(token=None):
 
 def _fb_save_tokens_diag(tokens):
     import json
-    from pathlib import Path
     from datetime import datetime, timezone
 
     if not isinstance(tokens, dict):
         return {}
 
-    path = Path("data") / "blaze_oauth_tokens.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = storage_path("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
 
     existing = {}
     if path.exists():
