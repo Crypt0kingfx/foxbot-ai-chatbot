@@ -97,6 +97,7 @@ from fastapi import FastAPI
 
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from services.storage_paths import storage_path as _foxbot_storage_path_v1
+from services.storage_paths import hydration_failed as _foxbot_hydration_failed_v1
 from services.blaze_tokens import resolve_blaze_access_token
 
 from fastapi.staticfiles import StaticFiles
@@ -741,27 +742,118 @@ def apply_persistent_snapshot(data):
 
 
 
+_foxbot_last_saved_snapshot_json_v1 = None
+
+
+def _foxbot_describe_discarded_state_v1(before, after, path=""):
+
+    # Reports which keys/entries were present in `before` and are gone or
+    # changed in `after` -- key names and counts only, never values, so
+    # this is safe to print (custom command names are identifiers a creator
+    # set up, not secrets, but the response text / balances / etc. behind
+    # them stay out of the log).
+
+    notes = []
+
+    if isinstance(before, dict) and isinstance(after, dict):
+
+        dropped = sorted(str(key) for key in (before.keys() - after.keys()))
+
+        if dropped:
+
+            notes.append(f"{path or 'snapshot'}: dropped keys {dropped}")
+
+        for key in (before.keys() & after.keys()):
+
+            notes.extend(
+                _foxbot_describe_discarded_state_v1(
+                    before[key], after[key], f"{path}.{key}" if path else str(key)
+                )
+            )
+
+    elif isinstance(before, list) and isinstance(after, list):
+
+        if len(before) != len(after):
+
+            notes.append(f"{path}: {len(before)} entries before reload vs {len(after)} after")
+
+    else:
+
+        if before != after:
+
+            notes.append(f"{path}: value replaced by reload")
+
+    return notes
+
+
 def save_persistent_data():
+
+    global _foxbot_last_saved_snapshot_json_v1
 
     try:
 
+        # Calling this on every save (not just on a real write) lets a
+        # previously-failed Postgres hydration retry on the next request
+        # instead of staying stuck failed for the rest of the process.
+        was_hydration_failed = _foxbot_hydration_failed_v1("foxbot_data.json")
+
+        path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
+
+        if was_hydration_failed and not _foxbot_hydration_failed_v1("foxbot_data.json"):
+
+            # Hydration just recovered on the call above. In-memory globals
+            # were never updated while it was failing (refusing to write
+            # doesn't refresh them), so they're still whatever they were
+            # during the outage -- almost certainly defaults, since this
+            # path only matters when hydration never succeeded yet this
+            # process. Reload from the freshly-hydrated file before
+            # trusting them as the basis for a write, or this save would
+            # immediately overwrite the just-recovered Postgres row with
+            # that stale in-memory state. Known trade-off: any in-memory-only
+            # edits made during the outage window are discarded in favor of
+            # the recovered row, since there's no version/timestamp to
+            # arbitrate between them. Not silent, though -- log exactly
+            # what got dropped so a creator whose command/reward/balance
+            # vanished has something in the logs pointing at why.
+            #
+            # apply_persistent_snapshot() mutates some of these globals in
+            # place (e.g. foxcoin_economy.update(...)) rather than rebinding
+            # them, so a plain reference to get_persistent_snapshot()'s
+            # result would get silently mutated out from under this
+            # comparison once load_persistent_data() runs. Deep-copy via a
+            # JSON round-trip (this data is already known JSON-safe) so
+            # "before" actually stays before.
+            before_reload = json.loads(json.dumps(get_persistent_snapshot()))
+
+            load_persistent_data()
+
+            discarded = _foxbot_describe_discarded_state_v1(before_reload, get_persistent_snapshot())
+
+            if discarded:
+
+                print(
+                    "FoxBot data recovery reload discarded in-memory-only state "
+                    "made during the Postgres outage (values omitted): "
+                    + "; ".join(discarded)
+                )
+
         data = get_persistent_snapshot()
 
+        serialized = json.dumps(data, indent=2)
 
+        if serialized == _foxbot_last_saved_snapshot_json_v1:
 
-        temp_file = DATA_FILE + ".tmp"
+            return True
 
+        if _foxbot_hydration_failed_v1("foxbot_data.json"):
 
+            print("FoxBot data save skipped: last Postgres hydration for foxbot_data failed; refusing to write until a hydration succeeds, to avoid overwriting a good row with incomplete local state.")
 
-        with open(temp_file, "w", encoding="utf-8") as file:
+            return False
 
-            json.dump(data, file, indent=2)
+        path.write_text(serialized, encoding="utf-8")
 
-
-
-        os.replace(temp_file, DATA_FILE)
-
-
+        _foxbot_last_saved_snapshot_json_v1 = serialized
 
         return True
 
@@ -777,7 +869,11 @@ def save_persistent_data():
 
 def load_persistent_data():
 
-    if not os.path.exists(DATA_FILE):
+    global _foxbot_last_saved_snapshot_json_v1
+
+    path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
+
+    if not path.exists():
 
         print("FoxBot data file not found. Starting fresh.")
 
@@ -787,9 +883,7 @@ def load_persistent_data():
 
     try:
 
-        with open(DATA_FILE, "r", encoding="utf-8") as file:
-
-            data = json.load(file)
+        data = json.loads(path.read_text(encoding="utf-8"))
 
 
 
@@ -799,7 +893,9 @@ def load_persistent_data():
 
         if loaded:
 
-            print(f"FoxBot data loaded from {DATA_FILE}")
+            _foxbot_last_saved_snapshot_json_v1 = json.dumps(get_persistent_snapshot(), indent=2)
+
+            print(f"FoxBot data loaded from {path}")
 
 
 

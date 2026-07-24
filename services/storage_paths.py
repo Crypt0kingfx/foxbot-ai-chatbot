@@ -20,8 +20,10 @@ from services.postgres_state import (
 _STATE_KEYS = {
     "connected_creators.json": "connected_creators",
     "blaze_oauth_tokens.json": "blaze_oauth_tokens",
+    "foxbot_data.json": "foxbot_data",
 }
-_initialized_paths: set[str] = set()
+_hydrated_state_keys: set[str] = set()
+_failed_state_keys: set[str] = set()
 _initialization_lock = threading.Lock()
 _BasePath = type(Path())
 
@@ -62,23 +64,51 @@ def storage_path(filename: str, env_key: str | None = None) -> Path:
     path = Path(explicit).expanduser() if explicit else data_directory() / filename
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    legacy = Path("data") / filename
+    legacy_candidates = [Path("data") / filename]
+    if filename == "foxbot_data.json":
+        legacy_candidates.insert(0, Path("foxbot_data.json"))
+
     try:
-        if not path.exists() and legacy.exists() and legacy.resolve() != path.resolve():
-            shutil.copy2(legacy, path)
+        for legacy in legacy_candidates:
+            if not path.exists() and legacy.exists() and legacy.resolve() != path.resolve():
+                shutil.copy2(legacy, path)
+                break
     except Exception:
         pass
 
     state_path = _StateBackedPath(str(path))
     state_key = _STATE_KEYS.get(filename)
-    initialization_key = str(path.resolve())
-    if state_key and initialization_key not in _initialized_paths:
+    if state_key and state_key not in _hydrated_state_keys:
         with _initialization_lock:
-            if initialization_key not in _initialized_paths:
-                load_or_migrate_json_state(state_key, state_path, {})
-                _initialized_paths.add(initialization_key)
+            if state_key not in _hydrated_state_keys:
+                try:
+                    load_or_migrate_json_state(state_key, state_path, {})
+                    _hydrated_state_keys.add(state_key)
+                    _failed_state_keys.discard(state_key)
+                except Exception:
+                    # Leave state_key out of _hydrated_state_keys so the
+                    # next storage_path() call for this file retries the
+                    # hydration instead of treating this as done.
+                    _failed_state_keys.add(state_key)
 
     return state_path
+
+
+def hydration_failed(filename: str) -> bool:
+    """True when the most recent Postgres hydration attempt for this
+    state-backed file raised, and no successful hydration has happened
+    since (including one that legitimately found nothing there).
+
+    Callers that would write state derived from this file's in-memory
+    contents back to Postgres must check this first and refuse while it's
+    True -- otherwise a transient failure looks identical to "genuinely
+    empty" and the write overwrites a good row with incomplete or stale
+    local state.
+    """
+    state_key = _STATE_KEYS.get(filename)
+    if not state_key:
+        return False
+    return state_key in _failed_state_keys
 
 
 def storage_status() -> dict[str, Any]:

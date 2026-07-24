@@ -311,6 +311,7 @@ def verify_current_subscription(
 
 # === FoxBot Persistent Creator Registry v1 ===
 from services.storage_paths import storage_path as _foxbot_access_storage_path_v1
+from services.storage_paths import hydration_failed as _foxbot_access_hydration_failed_v1
 
 DATA_PATH = _foxbot_access_storage_path_v1(
     "connected_creators.json",
@@ -334,25 +335,64 @@ def _save_document(document: dict[str, Any]) -> None:
 # === End FoxBot Persistent Creator Registry v1 ===
 
 # === FoxBot Neon Creator Storage v1 ===
-from services.postgres_state import (
-    load_or_migrate_json_state as _foxbot_load_creator_state_v1,
-    save_json_state as _foxbot_save_creator_state_v1,
-)
+from services.postgres_state import save_json_state as _foxbot_save_creator_state_v1
 
 
 def _load_document() -> dict[str, Any]:
-    """Load creator access from Neon, migrating the JSON file once."""
-    value = _foxbot_load_creator_state_v1(
-        "connected_creators",
-        DATA_PATH,
-        {},
+    """Load creator access from Neon, migrating the JSON file once.
+
+    Goes through storage_path() on every call (not load_or_migrate_json_state
+    directly) instead of only once at import time via the module-level
+    DATA_PATH assignment. storage_path() itself is a fast no-op once
+    hydration has already succeeded, so this costs nothing extra in the
+    common case -- but while it's failed, this is what gives it a retry on
+    every creator lookup instead of staying stuck failed for the rest of the
+    process. A successful retry here also clears the shared hydration-failed
+    flag that _save_document() checks, unblocking its Neon mirror again.
+    """
+    _foxbot_access_storage_path_v1(
+        "connected_creators.json",
+        "FOXBOT_CONNECTED_CREATORS_FILE",
     )
+    try:
+        value = json.loads(DATA_PATH.read_text(encoding="utf-8") or "{}")
+    except Exception:
+        value = {}
     return value if isinstance(value, dict) else {}
 
 
 def _save_document(document: dict[str, Any]) -> None:
-    """Save locally for compatibility and atomically mirror into Neon."""
+    """Save locally for compatibility and atomically mirror into Neon.
+
+    Skips the Neon mirror while the last hydration attempt for
+    connected_creators.json is known to have failed -- writing then risks
+    overwriting a good row with a document built from a possibly-incomplete
+    local read. The local copy still saves normally either way.
+
+    Retries the hydration gate itself here too (not just relying on a
+    preceding _load_document() call in the same request) so a save-only
+    caller still self-heals instead of staying stuck refused forever after
+    one transient failure.
+    """
     import os
+
+    was_hydration_failed = _foxbot_access_hydration_failed_v1(
+        "connected_creators.json"
+    )
+
+    _foxbot_access_storage_path_v1(
+        "connected_creators.json",
+        "FOXBOT_CONNECTED_CREATORS_FILE",
+    )
+
+    if was_hydration_failed and not _foxbot_access_hydration_failed_v1(
+        "connected_creators.json"
+    ):
+        print(
+            "Creator access save skipped: Postgres hydration recovered during "
+            "the save; discarded a document built from pre-recovery state."
+        )
+        return
 
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = DATA_PATH.with_suffix(DATA_PATH.suffix + ".tmp")
@@ -361,6 +401,10 @@ def _save_document(document: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(temporary_path, DATA_PATH)
+
+    if _foxbot_access_hydration_failed_v1("connected_creators.json"):
+        return
+
     _foxbot_save_creator_state_v1("connected_creators", document)
 
 

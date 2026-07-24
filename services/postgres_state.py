@@ -145,9 +145,17 @@ def _write_local(path: Path, payload: Any) -> None:
 
 
 def load_or_migrate_json_state(state_key: str, path: Path, default: Any) -> Any:
-    """Prefer Postgres, migrating an existing local JSON document once."""
+    """Prefer Postgres, migrating an existing local JSON document once.
+
+    Raises on a genuine Postgres query failure rather than treating it the
+    same as "no row yet" -- ``load_json_state`` used to collapse both cases
+    to ``None``, which made a transient connection error indistinguishable
+    from a fresh install, and the migrate branch would then write a stale
+    or empty local document over a real row. Callers decide how to react to
+    the failure (skip a write, retry later); it is not hidden here.
+    """
     if is_configured():
-        stored = load_json_state(state_key)
+        stored = load_json_state_strict(state_key)
         if stored is not None:
             try:
                 _write_local(path, stored)
