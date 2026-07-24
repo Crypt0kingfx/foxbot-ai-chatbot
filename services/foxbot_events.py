@@ -50,10 +50,18 @@ def _set_error(error: Exception | str | None) -> None:
     _last_error = str(error)[:500] if error else None
 
 
+# Short on purpose: emit_event() runs the actual connect/insert on a
+# background daemon thread (see below), so this timeout does not add
+# latency to the calling chat path -- it only bounds how long a single
+# background thread stays alive trying to reach a dead database, which
+# matters for not accumulating threads during a sustained outage.
+EMIT_CONNECT_TIMEOUT_SECONDS = 2
+
+
 def _connect():
     import psycopg
 
-    return psycopg.connect(database_url(), connect_timeout=10)
+    return psycopg.connect(database_url(), connect_timeout=EMIT_CONNECT_TIMEOUT_SECONDS)
 
 
 def _ensure_schema(connection) -> None:
@@ -96,22 +104,16 @@ def _ensure_schema(connection) -> None:
         _schema_ready = True
 
 
-def emit_event(
+def _emit_event_blocking(
     creator_handle: str,
     kind: str,
-    actor: str | None = None,
-    detail: dict[str, Any] | None = None,
-) -> bool:
-    """Log one foxbot_events row. Never raises.
-
-    A failed insert (bad connection, missing table, database down, whatever)
-    must never break the chat path calling this -- every failure mode here
-    is caught, logged, and swallowed. Returns True only on a confirmed
-    insert; callers that don't check the return value are still safe.
+    actor: str | None,
+    detail: dict[str, Any] | None,
+) -> None:
+    """The real connect/insert/retention-delete. Only ever runs on the
+    background thread emit_event() spawns -- never call this directly
+    from a request or chat path, it can block for EMIT_CONNECT_TIMEOUT_SECONDS.
     """
-    if not is_configured():
-        return False
-
     try:
         from psycopg.types.json import Jsonb
 
@@ -133,7 +135,7 @@ def emit_event(
     except Exception as error:
         _set_error(error)
         print(f"FoxBot event emit failed (kind={kind}): {error}")
-        return False
+        return
 
     if random.random() < RETENTION_DELETE_PROBABILITY:
         try:
@@ -146,4 +148,32 @@ def emit_event(
             # the event above already landed.
             print(f"FoxBot event retention cleanup failed: {error}")
 
+
+def emit_event(
+    creator_handle: str,
+    kind: str,
+    actor: str | None = None,
+    detail: dict[str, Any] | None = None,
+) -> bool:
+    """Schedule one foxbot_events row for background insert. Returns
+    almost immediately -- this must never block the chat path calling it,
+    regardless of whether Postgres is reachable at all.
+
+    The connect/insert/retention-delete happens on a short-lived daemon
+    thread instead of inline, so a dead DATABASE_URL can only ever cost
+    that background thread up to EMIT_CONNECT_TIMEOUT_SECONDS -- never the
+    caller. Returns True once the emit has been *scheduled*, not once it
+    has landed; there is no way to report insert success synchronously
+    anymore. Check logs for "FoxBot event emit failed" for actual
+    failures. No call site in this codebase reads the return value as
+    "inserted" -- all of them call this as a bare statement.
+    """
+    if not is_configured():
+        return False
+
+    threading.Thread(
+        target=_emit_event_blocking,
+        args=(creator_handle, kind, actor, detail),
+        daemon=True,
+    ).start()
     return True
