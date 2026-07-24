@@ -1386,8 +1386,7 @@ window.studioAction = async function(action) {
       stop_bot: () => foxbotRunEndpoint("/blaze/stop-polling-listener"),
       restart_bot: () => foxbotRestartPolling(),
       reconnect_blaze: () => {
-        window.open("/login/blaze", "_blank", "noopener,noreferrer");
-        foxbotStudioResult("Reconnect Blaze", "Opened Blaze login.");
+        foxbotStudioResult("Reconnect Blaze", "FoxBot's Blaze connection is set up once by the bot owner via /auth/blaze/login, not per creator.");
       },
       save_data: () => foxbotRunEndpoint("/save-data"),
       load_data: () => foxbotRunEndpoint("/data-status"),
@@ -1445,8 +1444,7 @@ window.blazeService = async function(action) {
   try {
     const routes = {
       connect: () => {
-        window.open("/login/blaze", "_blank", "noopener,noreferrer");
-        foxbotStudioResult("Blaze Connect", "Opened Blaze login. After login, start the listener.");
+        foxbotStudioResult("Blaze Connect", "Creators connect by registering their handle, not by logging in to Blaze -- FoxBot posts through one shared bot account.");
       },
       disconnect: () => foxbotRunEndpoint("/blaze/stop-polling-listener"),
       status: async () => {

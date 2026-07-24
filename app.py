@@ -97,6 +97,7 @@ from fastapi import FastAPI
 
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from services.storage_paths import storage_path as _foxbot_storage_path_v1
+from services.blaze_tokens import resolve_blaze_access_token
 
 from fastapi.staticfiles import StaticFiles
 
@@ -130,11 +131,7 @@ BLAZE_CLIENT_ID = os.environ.get("BLAZE_CLIENT_ID", "")
 
 BLAZE_CLIENT_SECRET = os.environ.get("BLAZE_CLIENT_SECRET", "")
 
-BLAZE_REDIRECT_URI = "https://foxbot-ai-chatbot.onrender.com/oauth/blaze/callback"
 
-
-
-oauth_session = {}
 
 bot_tokens = {}
 
@@ -1793,8 +1790,6 @@ dashboard_html = """
 
 
         <div class="grid">
-
-            <a class="button" href="/login/blaze">Login with Blaze</a>
 
             <button onclick="callEndpoint('/blaze/start-polling-listener')">Start Listener</button>
 
@@ -6634,151 +6629,16 @@ def chat(message: str = "", username: str = "viewer"):
 # ----------------------------
 
 # Blaze OAuth
+#
+# /login/blaze + /oauth/blaze/callback were removed: they wrote an
+# unkeyed OAuth token into the global bot_tokens dict with no check
+# that the visitor was an authorized creator, letting any visitor who
+# completed Blaze's consent screen clobber the token every channel's
+# live chat sender was using. Bot-owner setup goes through
+# /auth/blaze/login instead, which stays deliberately unlinked from
+# any UI so it can't be triggered by an anonymous visitor.
 
 # ----------------------------
-
-
-
-@app.get("/login/blaze")
-
-def login_blaze():
-
-    if not BLAZE_CLIENT_ID or not BLAZE_CLIENT_SECRET:
-
-        return {
-
-            "success": False,
-
-            "message": "Missing BLAZE_CLIENT_ID or BLAZE_CLIENT_SECRET in Render environment variables."
-
-        }
-
-
-
-    response = requests.post(
-
-        "https://blaze.stream/bapi/oauth2/generate-auth-url",
-
-        json={
-
-            "clientId": BLAZE_CLIENT_ID,
-
-            "clientSecret": BLAZE_CLIENT_SECRET,
-
-            "redirectUri": BLAZE_REDIRECT_URI,
-
-            "scopes": ["users.read", "offline.access", "channel.moderate", "users.bot"]
-
-        }
-
-    )
-
-
-
-    data = response.json()
-
-
-
-    oauth_session["state"] = data.get("state")
-
-    oauth_session["codeVerifier"] = data.get("codeVerifier")
-
-
-
-    if not data.get("url"):
-
-        return {
-
-            "success": False,
-
-            "message": "Blaze did not return a login URL.",
-
-            "response": data
-
-        }
-
-
-
-    return RedirectResponse(data.get("url"))
-
-
-
-
-
-@app.get("/oauth/blaze/callback")
-
-def blaze_oauth_callback(code: str = "", state: str = ""):
-
-    if not code:
-
-        return {"error": "Missing code from Blaze callback."}
-
-
-
-    if state != oauth_session.get("state"):
-
-        return {"error": "State did not match. Please try logging in again."}
-
-
-
-    token_response = requests.post(
-
-        "https://blaze.stream/bapi/oauth2/token",
-
-        json={
-
-            "clientId": BLAZE_CLIENT_ID,
-
-            "clientSecret": BLAZE_CLIENT_SECRET,
-
-            "code": code,
-
-            "codeVerifier": oauth_session.get("codeVerifier"),
-
-            "redirectUri": BLAZE_REDIRECT_URI,
-
-            "grantType": "authorization_code"
-
-        }
-
-    )
-
-
-
-    token_data = token_response.json()
-
-
-
-    bot_tokens["accessToken"] = token_data.get("accessToken")
-
-    bot_tokens["refreshToken"] = token_data.get("refreshToken")
-
-    try:
-
-        _foxbot_blaze_oauth_save_tokens_v1(token_data)
-
-    except Exception:
-
-        pass
-
-
-
-
-    proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
-
-    proof_stats["channel_id"] = os.getenv("BLAZE_CHANNEL_ID")
-
-    proof_stats["channel_slug"] = os.getenv("BLAZE_CHANNEL_SLUG")
-
-
-
-    return {
-
-        "message": "Blaze login successful! FoxBot is now connected to your account.",
-
-        "scopes": token_data.get("scopes")
-
-    }
 
 
 
@@ -6794,7 +6654,7 @@ def get_my_profile():
 
     if not access_token:
 
-        return {"error": "Not logged in yet. Visit /login/blaze first."}
+        return {"error": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -6850,7 +6710,7 @@ def find_blaze_channel():
 
     if not access_token:
 
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+        return {"success": False, "message": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -6926,114 +6786,6 @@ def find_blaze_channel():
 
 
 
-def get_blaze_access_token():
-
-    """Blaze access token from any source: OAuth login (memory), Render env, or saved token file.
-
-    The listener and chat sender use this so they keep working after a redeploy
-
-    without needing a fresh /login/blaze visit."""
-
-    token = bot_tokens.get("accessToken")
-
-    if token:
-
-        return token
-
-    token = (os.getenv("BLAZE_ACCESS_TOKEN") or "").strip()
-
-    if token:
-
-        return token
-
-    try:
-
-        import json as _fox_json
-
-        path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
-
-        if path.exists():
-
-            saved = _fox_json.loads(path.read_text(encoding="utf-8") or "{}")
-
-            return saved.get("accessToken") or saved.get("access_token") or ""
-
-    except Exception:
-
-        pass
-
-    return ""
-
-
-
-
-def send_blaze_chat_message(text: str):
-
-    client_id = os.getenv("BLAZE_CLIENT_ID")
-
-    channel_id = os.getenv("BLAZE_CHANNEL_ID")
-
-    access_token = get_blaze_access_token()
-
-
-
-    if not client_id or not channel_id or not access_token:
-
-        return {
-
-            "success": False,
-
-            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /login/blaze."
-
-        }
-
-
-
-    response = requests.post(
-
-        "https://api.blaze.stream/v1/chats/messages",
-
-        headers={
-
-            "Authorization": f"Bearer {access_token}",
-
-            "client-id": client_id,
-
-            "Accept": "application/json",
-
-            "content-type": "application/json"
-
-        },
-
-        json={
-
-            "channelId": channel_id,
-
-            "message": text
-
-        }
-
-    )
-
-
-
-    try:
-
-        return response.json()
-
-    except Exception:
-
-        return {
-
-            "status_code": response.status_code,
-
-            "text": response.text
-
-        }
-
-
-
-
 
 @app.get("/blaze/send-test-message")
 
@@ -7061,7 +6813,7 @@ def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
 
     if not bot_tokens.get("accessToken"):
 
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+        return {"success": False, "message": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -7189,74 +6941,6 @@ def find_chat_message_id(payload):
 
 
 
-def get_recent_blaze_messages():
-
-    client_id = os.getenv("BLAZE_CLIENT_ID")
-
-    channel_id = os.getenv("BLAZE_CHANNEL_ID")
-
-    access_token = get_blaze_access_token()
-
-
-
-    if not client_id or not channel_id or not access_token:
-
-        return {
-
-            "success": False,
-
-            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /login/blaze."
-
-        }
-
-
-
-    response = requests.get(
-
-        "https://api.blaze.stream/v1/chats/messages",
-
-        headers={
-
-            "Authorization": f"Bearer {access_token}",
-
-            "client-id": client_id,
-
-            "Accept": "application/json"
-
-        },
-
-        params={
-
-            "channelId": channel_id,
-
-            "limit": 20
-
-        }
-
-    )
-
-
-
-    try:
-
-        return response.json()
-
-    except Exception:
-
-        return {
-
-            "success": False,
-
-            "status_code": response.status_code,
-
-            "text": response.text
-
-        }
-
-
-
-
-
 def extract_rows_from_blaze_response(data):
 
     if isinstance(data, dict):
@@ -7293,161 +6977,6 @@ def extract_rows_from_blaze_response(data):
 
 
 
-def blaze_polling_worker():
-
-    polling_status["running"] = True
-
-    polling_status["last_error"] = None
-
-    proof_stats["listener_running"] = True
-
-
-
-    while polling_status["running"]:
-
-        try:
-
-            data = get_recent_blaze_messages()
-
-            polling_status["checks"] += 1
-
-            polling_status["last_response"] = data
-
-
-
-            rows = extract_rows_from_blaze_response(data)
-
-            polling_status["messages_seen"] = len(rows)
-
-
-
-            proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
-
-            proof_stats["listener_running"] = polling_status["running"]
-
-            proof_stats["messages_checked"] = polling_status["checks"]
-
-            proof_stats["messages_seen"] = len(rows)
-
-
-
-            for item in reversed(rows):
-
-                message_id = find_chat_message_id(item)
-
-                message_text = find_chat_message_text(item)
-
-                username = find_chat_username(item)
-
-
-
-                polling_status["last_message"] = item
-
-
-
-                if not message_id or message_id in processed_polling_messages:
-
-                    continue
-
-
-
-                processed_polling_messages.add(message_id)
-
-
-
-                if not message_text:
-
-                    continue
-
-
-
-                auto_event_result = None
-
-                try:
-
-                    auto_event_result = handle_auto_chat_event(message_id, message_text, username)
-
-                except Exception as auto_event_error:
-
-                    polling_status["last_auto_event_error"] = str(auto_event_error)
-
-
-
-                if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
-
-                    foxbot_reply = auto_event_result.get("message")
-
-                    polling_status["last_auto_event"] = auto_event_result
-
-
-
-                    if foxbot_reply:
-
-                        send_blaze_chat_message(foxbot_reply)
-
-                        polling_status["commands_processed"] += 1
-
-                        proof_stats["commands_processed"] += 1
-
-                        proof_stats["last_command"] = message_text
-
-                        proof_stats["last_reply"] = foxbot_reply
-
-                        proof_stats["last_username"] = username
-
-                        proof_stats["last_message"] = message_text
-
-                        polling_status["last_reply"] = foxbot_reply
-
-
-
-                    continue
-
-
-
-                if not message_text.startswith("!"):
-
-                    continue
-
-
-
-                foxbot_result = chat(message=message_text, username=username)
-
-                foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
-
-
-
-                send_blaze_chat_message(foxbot_reply)
-
-                polling_status["commands_processed"] += 1
-
-
-
-                proof_stats["commands_processed"] += 1
-
-                proof_stats["last_command"] = message_text
-
-                proof_stats["last_reply"] = foxbot_reply
-
-                proof_stats["last_username"] = username
-
-                proof_stats["last_message"] = message_text
-
-
-
-            time.sleep(5)
-
-
-
-        except Exception as error:
-
-            polling_status["last_error"] = str(error)
-
-            time.sleep(5)
-
-
-
-    proof_stats["listener_running"] = False
 
 
 
@@ -7772,7 +7301,7 @@ def judge_demo():
 
     if not bot_tokens.get("accessToken"):
 
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+        return {"success": False, "message": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -13690,8 +13219,6 @@ button.secondary:hover {
 
             <div class="row">
 
-                <button class="action" onclick="openPage('/login/blaze')">Login With Blaze</button>
-
                 <button class="secondary" onclick="callEndpoint('/blaze/start-polling-listener')">Start Chat Listener</button>
 
                 <button class="secondary" onclick="callEndpoint('/blaze/polling-status')">Listener Status</button>
@@ -17652,183 +17179,6 @@ def _foxbot_connect_upsert_creator_v1(handle, display_name=None, source="blaze_c
 
 
 
-def _foxbot_connect_process_command_v1(handle, message, display_name=None):
-
-    handle = _foxbot_connect_clean_handle_v1(handle)
-
-    message = str(message or "").strip()
-
-
-
-    if not handle:
-
-        return {
-
-            "ok": False,
-
-            "handled": False,
-
-            "error": "Missing Blaze handle."
-
-        }
-
-
-
-    if not message.startswith("!"):
-
-        return {
-
-            "ok": True,
-
-            "handled": False,
-
-            "reply": None
-
-        }
-
-
-
-    command = message.split()[0].lower()
-
-
-
-    if command == "!connect":
-
-        creator = _foxbot_connect_upsert_creator_v1(handle, display_name=display_name)
-
-        return {
-
-            "ok": True,
-
-            "handled": True,
-
-            "command": "!connect",
-
-            "creator": creator,
-
-            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
-
-        }
-
-
-
-    if command in ["!profile", "!rank"]:
-
-        creator = _foxbot_connect_get_creator_v1(handle)
-
-
-
-        if not creator:
-
-            return {
-
-                "ok": True,
-
-                "handled": True,
-
-                "command": command,
-
-                "reply": f"🦊 @{handle}, you are not connected yet. Follow the FoxBot Blaze profile and type !connect."
-
-            }
-
-
-
-        foxcoins = creator.get("foxcoins", 0)
-
-        messages = creator.get("messages", 0)
-
-        stars = creator.get("stars", 0)
-
-        status = creator.get("status", "connected")
-
-
-
-        return {
-
-            "ok": True,
-
-            "handled": True,
-
-            "command": command,
-
-            "creator": creator,
-
-            "reply": f"🦊 @{handle} FoxBot Profile | Status: {status} | FoxCoins: {foxcoins} | Messages: {messages} | Stars: {stars}"
-
-        }
-
-
-
-    if command == "!disconnect":
-
-        raw = _foxbot_connect_load_raw_v1()
-
-        creator = _foxbot_connect_get_creator_v1(handle)
-
-
-
-        if not creator:
-
-            return {
-
-                "ok": True,
-
-                "handled": True,
-
-                "command": "!disconnect",
-
-                "reply": f"@{handle}, you were not connected yet."
-
-            }
-
-
-
-        key_to_update = handle
-
-        for key in raw.keys():
-
-            if str(key).lower() == handle.lower():
-
-                key_to_update = key
-
-                break
-
-
-
-        raw[key_to_update]["status"] = "disconnected"
-
-        raw[key_to_update]["disconnected_at"] = _foxbot_connect_now_iso_v1()
-
-        _foxbot_connect_save_raw_v1(raw)
-
-
-
-        return {
-
-            "ok": True,
-
-            "handled": True,
-
-            "command": "!disconnect",
-
-            "reply": f"🦊 @{handle} has been disconnected from FoxBot Connect."
-
-        }
-
-
-
-    return {
-
-        "ok": True,
-
-        "handled": False,
-
-        "command": command,
-
-        "reply": None
-
-    }
 
 
 
@@ -18948,6 +18298,112 @@ def _foxbot_blaze_oauth_mask_v1(value):
 
 
 
+class FoxBotBlazeIdentityMismatch(Exception):
+    pass
+
+
+def _foxbot_blaze_oauth_verify_identity_v1(tokens):
+    import os
+
+    access_token = (tokens or {}).get("accessToken") or (tokens or {}).get("access_token") or ""
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+
+    expected_id = (
+        os.getenv("BLAZE_BOT_USER_ID", "")
+        or os.getenv("FOXBOT_BLAZE_USER_ID", "")
+    ).strip()
+
+    if not access_token or not client_id:
+        # Nothing to check the new token against -- let it through here and
+        # let the existing missing-config error paths handle it.
+        return
+
+    res = _foxbot_blaze_http_json_v1(
+        "GET",
+        "https://api.blaze.stream/v1/users/profile",
+        None,
+        {
+            "authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "accept": "application/json",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    data = ((res.get("body") or {}).get("data") or {}) if res.get("ok") else {}
+    actual_id = data.get("userId")
+
+    if not expected_id:
+        # Bootstrap case: on a fresh deploy BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID
+        # are not set yet, so there is nothing to gate against and this save is
+        # the only way to ever discover the bot's real Blaze userId. This must
+        # only fire once -- if it fired on every call, leaving the env var unset
+        # would make the gate a permanent no-op that lets any Blaze account
+        # keep overwriting the saved tokens forever. So only allow it through
+        # when nothing has been saved yet.
+        #
+        # Render's disk is ephemeral, so the local token file is gone after
+        # every redeploy even though the Neon row survives -- checking the
+        # file here would read already_saved=False on a fresh instance and
+        # reopen the gate on each deploy. Ask Postgres directly instead of
+        # going through storage_path()/_StateBackedPath: those only mirror
+        # writes and hydrate the file opportunistically (once per process,
+        # skipped for good on any transient DB error), so they cannot be
+        # trusted for this check.
+        import json
+        from services.postgres_state import is_configured as _pg_is_configured
+        from services.postgres_state import load_json_state_strict as _pg_load_json_state_strict
+
+        already_saved = False
+        if _pg_is_configured():
+            # load_json_state_strict raises on a query failure instead of
+            # returning None like load_json_state does -- None here means the
+            # row is genuinely absent. A failure can't prove that, and since
+            # this gate exists to stop token clobbering, treat "can't tell"
+            # the same as "already saved": refuse rather than bootstrap.
+            try:
+                stored = _pg_load_json_state_strict("blaze_oauth_tokens")
+            except Exception as error:
+                raise FoxBotBlazeIdentityMismatch(
+                    f"Could not confirm from Postgres whether FoxBot tokens are already "
+                    f"saved ({error}); refusing to save Blaze account {actual_id!r}'s "
+                    f"tokens without BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID configured."
+                )
+            already_saved = bool(stored and (stored.get("accessToken") or stored.get("access_token")))
+        else:
+            path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+            if path.exists():
+                try:
+                    existing = json.loads(path.read_text(encoding="utf-8") or "{}")
+                    already_saved = bool(existing.get("accessToken") or existing.get("access_token"))
+                except Exception:
+                    already_saved = False
+
+        if already_saved:
+            raise FoxBotBlazeIdentityMismatch(
+                f"BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID is not set, and tokens are already "
+                f"saved -- refusing to let Blaze account {actual_id!r} overwrite them. Set "
+                f"BLAZE_BOT_USER_ID to the id printed by the first successful login to lock "
+                f"this down."
+            )
+
+        print(
+            f"[FoxBot Blaze OAuth] No BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID configured. "
+            f"Blaze account {actual_id!r} just completed OAuth and its tokens were saved. "
+            f"Set BLAZE_BOT_USER_ID={actual_id} in Render to stop future logins from any "
+            f"other Blaze account from overwriting these tokens."
+        )
+        return
+
+    # Blaze's profile API can return userId as an int while env vars are always
+    # strings -- normalize both sides so a real match isn't rejected on type.
+    if str(actual_id).strip() != str(expected_id).strip():
+        raise FoxBotBlazeIdentityMismatch(
+            f"Blaze account {actual_id!r} does not match the configured FoxBot identity "
+            f"({expected_id!r}); refusing to save its OAuth tokens."
+        )
+
+
 def _foxbot_blaze_oauth_save_tokens_v1(tokens):
 
     import json
@@ -18955,6 +18411,10 @@ def _foxbot_blaze_oauth_save_tokens_v1(tokens):
     from datetime import datetime, timezone
 
     from pathlib import Path
+
+
+
+    _foxbot_blaze_oauth_verify_identity_v1(tokens)
 
 
 
@@ -19294,7 +18754,18 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
     _foxbot_oauth_pop_pending_v2(state)
 
-    saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+    try:
+
+        saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+
+    except FoxBotBlazeIdentityMismatch as e:
+
+        return HTMLResponse(
+            f"<h1>FoxBot Blaze OAuth Rejected</h1>"
+            f"<p>This Blaze account is not the configured FoxBot bot account, so its "
+            f"tokens were not saved.</p><pre>{e}</pre>",
+            status_code=403
+        )
 
 
 
@@ -19728,7 +19199,19 @@ def foxbot_blaze_oauth_refresh_v1():
 
 
 
-    saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+    try:
+
+        saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+
+    except FoxBotBlazeIdentityMismatch as e:
+
+        return {
+
+            "ok": False,
+
+            "error": str(e)
+
+        }
 
 
 
@@ -19893,84 +19376,6 @@ def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes):
             "safe_payload": safe_payload,
 
         }
-
-
-
-
-
-@app.get("/auth/blaze/login-basic")
-
-def foxbot_blaze_oauth_login_basic_v1():
-
-    from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-
-
-
-    result = _foxbot_blaze_oauth_generate_auth_debug_v1([
-
-        "users.read",
-
-        "offline.access"
-
-    ])
-
-
-
-    if not result.get("ok"):
-
-        return HTMLResponse(
-
-            "<h1>FoxBot Blaze OAuth Basic Login Failed</h1>"
-
-            "<p>Blaze rejected the basic OAuth request. This usually means Client ID, Client Secret, or Redirect URI is wrong.</p>"
-
-            f"<pre>{result}</pre>",
-
-            status_code=500
-
-        )
-
-
-
-    body = result.get("body") or {}
-
-    state = body.get("state")
-
-    code_verifier = body.get("codeVerifier")
-
-    url = body.get("url")
-
-
-
-    if not state or not code_verifier or not url:
-
-        return HTMLResponse(
-
-            "<h1>FoxBot Blaze OAuth Basic Login Failed</h1>"
-
-            "<p>Blaze response did not include state/codeVerifier/url.</p>"
-
-            f"<pre>{result}</pre>",
-
-            status_code=500
-
-        )
-
-
-
-    _FOXBOT_BLAZE_OAUTH_PENDING[state] = {
-
-        "codeVerifier": code_verifier,
-
-        "redirectUri": result.get("safe_payload", {}).get("redirectUri"),
-
-        "created_at": __import__("time").time(),
-
-    }
-
-
-
-    return RedirectResponse(url)
 
 
 
@@ -20230,33 +19635,10 @@ def foxbot_blaze_oauth_reset_v2():
 
         "ok": True,
 
-        "message": "OAuth pending login state cleared. Open /auth/blaze/login-clean next."
+        "message": "OAuth pending login state cleared. Open /auth/blaze/login next."
 
     }
 
-
-
-
-
-@app.get("/auth/blaze/login-clean")
-
-def foxbot_blaze_oauth_login_clean_v2():
-
-    try:
-
-        _FOXBOT_BLAZE_OAUTH_PENDING.clear()
-
-    except Exception:
-
-        pass
-
-
-
-    _foxbot_oauth_write_pending_v2({})
-
-
-
-    return foxbot_blaze_oauth_login_v1()
 
 # === End FoxBot OAuth Clean State v2 ===
 
@@ -22415,6 +21797,98 @@ def foxbot_creator_onboarding_v1():
 # === FoxBot Blaze Creator Access v1 ===
 from services import creator_access as _foxbot_creator_access_v1
 
+
+def _foxbot_connect_process_command_v1(handle, message, display_name=None):
+    handle = _foxbot_connect_clean_handle_v1(handle)
+    message = str(message or "").strip()
+
+    if not handle:
+        return {
+            "ok": False,
+            "handled": False,
+            "error": "Missing Blaze handle."
+        }
+
+    if not message.startswith("!"):
+        return {
+            "ok": True,
+            "handled": False,
+            "reply": None
+        }
+
+    command = message.split()[0].lower()
+
+    if command == "!connect":
+        creator = _foxbot_connect_upsert_creator_v1(handle, display_name=display_name)
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!connect",
+            "creator": creator,
+            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
+        }
+
+    if command in ["!profile", "!rank"]:
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return {
+                "ok": True,
+                "handled": True,
+                "command": command,
+                "reply": f"🦊 @{handle}, you are not connected yet. Follow the FoxBot Blaze profile and type !connect."
+            }
+
+        foxcoins = creator.get("foxcoins", 0)
+        messages = creator.get("messages", 0)
+        stars = creator.get("stars", 0)
+        status = creator.get("status", "connected")
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": command,
+            "creator": creator,
+            "reply": f"🦊 @{handle} FoxBot Profile | Status: {status} | FoxCoins: {foxcoins} | Messages: {messages} | Stars: {stars}"
+        }
+
+    if command == "!disconnect":
+        raw = _foxbot_connect_load_raw_v1()
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return {
+                "ok": True,
+                "handled": True,
+                "command": "!disconnect",
+                "reply": f"@{handle}, you were not connected yet."
+            }
+
+        key_to_update = handle
+        for key in raw.keys():
+            if str(key).lower() == handle.lower():
+                key_to_update = key
+                break
+
+        raw[key_to_update]["status"] = "disconnected"
+        raw[key_to_update]["disconnected_at"] = _foxbot_connect_now_iso_v1()
+        _foxbot_connect_save_raw_v1(raw)
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!disconnect",
+            "reply": f"🦊 @{handle} has been disconnected from FoxBot Connect."
+        }
+
+    return {
+        "ok": True,
+        "handled": False,
+        "command": command,
+        "reply": None
+    }
+
+
 _foxbot_connect_process_command_without_access_v1 = _foxbot_connect_process_command_v1
 
 
@@ -22542,185 +22016,6 @@ _FOXBOT_MULTICHANNEL_STATE_V1 = {
 _FOXBOT_MULTICHANNEL_INITIALIZED_V1 = set()
 
 
-def _foxbot_multichannel_targets_v1():
-    try:
-        limit = int(os.getenv("FOXBOT_MULTI_CHANNEL_LIMIT", "25") or "25")
-    except Exception:
-        limit = 25
-
-    return _foxbot_multichannel_service_v1.build_targets(
-        client_id=os.getenv("BLAZE_CLIENT_ID", ""),
-        access_token=bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN", ""),
-        default_channel_id=os.getenv("BLAZE_CHANNEL_ID", ""),
-        default_channel_slug=os.getenv("BLAZE_CHANNEL_SLUG", ""),
-        limit=limit,
-    )
-
-
-def send_blaze_chat_message(text: str, channel_id=None):
-    """Send a Blaze reply to an explicit channel or the owner channel."""
-    import requests
-
-    client_id = os.getenv("BLAZE_CLIENT_ID")
-    target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token = bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN")
-
-    if not client_id or not target_channel_id or not access_token:
-        return {
-            "success": False,
-            "message": "Missing BLAZE_CLIENT_ID, target channel ID, or access token.",
-            "channel_id": target_channel_id or None,
-        }
-
-    try:
-        response = requests.post(
-            "https://api.blaze.stream/v1/chats/messages",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "client-id": client_id,
-                "Accept": "application/json",
-                "content-type": "application/json",
-            },
-            json={"channelId": target_channel_id, "message": str(text)},
-            timeout=20,
-        )
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {
-                "status_code": response.status_code,
-                "text": response.text[:500],
-            }
-        if isinstance(payload, dict):
-            payload.setdefault("success", response.ok)
-            payload.setdefault("channel_id", target_channel_id)
-        return payload
-    except Exception as error:
-        return {
-            "success": False,
-            "channel_id": target_channel_id,
-            "error": str(error),
-        }
-
-
-def get_recent_blaze_messages(channel_id=None):
-    """Fetch recent messages from an explicit channel or the owner channel."""
-    import requests
-
-    client_id = os.getenv("BLAZE_CLIENT_ID")
-    target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token = bot_tokens.get("accessToken") or os.getenv("BLAZE_ACCESS_TOKEN")
-
-    if not client_id or not target_channel_id or not access_token:
-        return {
-            "success": False,
-            "message": "Missing BLAZE_CLIENT_ID, target channel ID, or access token.",
-            "channel_id": target_channel_id or None,
-        }
-
-    try:
-        response = requests.get(
-            "https://api.blaze.stream/v1/chats/messages",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "client-id": client_id,
-                "Accept": "application/json",
-            },
-            params={"channelId": target_channel_id, "limit": 20},
-            timeout=20,
-        )
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {
-                "success": False,
-                "status_code": response.status_code,
-                "text": response.text[:500],
-            }
-        if isinstance(payload, dict):
-            payload.setdefault("success", response.ok)
-            payload.setdefault("channel_id", target_channel_id)
-        return payload
-    except Exception as error:
-        return {
-            "success": False,
-            "channel_id": target_channel_id,
-            "error": str(error),
-        }
-
-
-def _foxbot_process_channel_rows_v1(target, rows):
-    channel_id = str(target.get("channel_id") or "").strip()
-    channel_slug = str(target.get("channel_slug") or "").strip()
-    channel_key = channel_id or channel_slug
-
-    # The first successful fetch seeds IDs only. This prevents replies to old
-    # commands when FoxBot discovers a creator channel for the first time.
-    if channel_key not in _FOXBOT_MULTICHANNEL_INITIALIZED_V1:
-        for item in rows:
-            message_id = find_chat_message_id(item)
-            if message_id:
-                processed_polling_messages.add(f"{channel_key}:{message_id}")
-        _FOXBOT_MULTICHANNEL_INITIALIZED_V1.add(channel_key)
-        return 0
-
-    processed_count = 0
-    bot_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai"))
-    bot_handle = bot_handle.strip().lower().lstrip("@")
-
-    for item in reversed(rows):
-        message_id = find_chat_message_id(item)
-        message_text = find_chat_message_text(item)
-        username = find_chat_username(item)
-        message_key = f"{channel_key}:{message_id}"
-
-        polling_status["last_message"] = item
-        if not message_id or message_key in processed_polling_messages:
-            continue
-        processed_polling_messages.add(message_key)
-
-        if not message_text:
-            continue
-        if str(username or "").strip().lower().lstrip("@") == bot_handle:
-            continue
-
-        auto_event_result = None
-        try:
-            auto_event_result = handle_auto_chat_event(
-                message_key,
-                message_text,
-                username,
-            )
-        except Exception as auto_event_error:
-            polling_status["last_auto_event_error"] = str(auto_event_error)
-
-        if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
-            foxbot_reply = auto_event_result.get("message")
-            polling_status["last_auto_event"] = auto_event_result
-            if foxbot_reply:
-                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
-                processed_count += 1
-                proof_stats["last_command"] = message_text
-                proof_stats["last_reply"] = foxbot_reply
-                proof_stats["last_username"] = username
-                proof_stats["last_message"] = message_text
-                polling_status["last_reply"] = foxbot_reply
-            continue
-
-        if not str(message_text).startswith("!"):
-            continue
-
-        foxbot_result = chat(message=message_text, username=username)
-        foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
-        send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
-        processed_count += 1
-        proof_stats["last_command"] = message_text
-        proof_stats["last_reply"] = foxbot_reply
-        proof_stats["last_username"] = username
-        proof_stats["last_message"] = message_text
-        polling_status["last_reply"] = foxbot_reply
-
-    return processed_count
 
 
 def blaze_polling_worker():
@@ -22814,77 +22109,13 @@ def foxbot_multichannel_targets_v1():
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
 
 # === FoxBot OAuth Token Priority Fix v1 ===
-def _foxbot_oauth_token_value_v2(payload, possible_keys):
-    """Find a token in direct or nested OAuth response data."""
-    if isinstance(payload, dict):
-        for key in possible_keys:
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        for value in payload.values():
-            found = _foxbot_oauth_token_value_v2(value, possible_keys)
-            if found:
-                return found
-    elif isinstance(payload, list):
-        for value in payload:
-            found = _foxbot_oauth_token_value_v2(value, possible_keys)
-            if found:
-                return found
-    return ""
-
-
-def _foxbot_current_access_token_v2():
-    """Prefer the newest OAuth callback token over stale Render variables."""
-    import json
-    from pathlib import Path
-
-    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
-    if token_path.exists():
-        try:
-            saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
-            token = _foxbot_oauth_token_value_v2(
-                saved,
-                ["accessToken", "access_token", "token"],
-            )
-            if token:
-                return token, "saved_oauth_file"
-        except Exception:
-            pass
-
-    runtime_token = str(bot_tokens.get("accessToken") or "").strip()
-    if runtime_token:
-        return runtime_token, "runtime_oauth"
-
-    environment_token = str(os.getenv("BLAZE_ACCESS_TOKEN") or "").strip()
-    if environment_token:
-        return environment_token, "render_environment"
-
-    return "", "missing"
-
-
-def _foxbot_multichannel_targets_v1():
-    try:
-        limit = int(os.getenv("FOXBOT_MULTI_CHANNEL_LIMIT", "25") or "25")
-    except Exception:
-        limit = 25
-
-    access_token, _ = _foxbot_current_access_token_v2()
-    return _foxbot_multichannel_service_v1.build_targets(
-        client_id=os.getenv("BLAZE_CLIENT_ID", ""),
-        access_token=access_token,
-        default_channel_id=os.getenv("BLAZE_CHANNEL_ID", ""),
-        default_channel_slug=os.getenv("BLAZE_CHANNEL_SLUG", ""),
-        limit=limit,
-    )
-
-
 def send_blaze_chat_message(text: str, channel_id=None):
     """Send with the newest OAuth callback token."""
     import requests
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token, token_source = _foxbot_current_access_token_v2()
+    access_token, token_source = resolve_blaze_access_token()
 
     if not client_id or not target_channel_id or not access_token:
         return {
@@ -22933,7 +22164,7 @@ def get_recent_blaze_messages(channel_id=None):
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token, token_source = _foxbot_current_access_token_v2()
+    access_token, token_source = resolve_blaze_access_token()
 
     if not client_id or not target_channel_id or not access_token:
         return {
@@ -22980,7 +22211,7 @@ def get_recent_blaze_messages(channel_id=None):
 def foxbot_token_source_v2():
     from pathlib import Path
 
-    token, source = _foxbot_current_access_token_v2()
+    token, source = resolve_blaze_access_token()
     return {
         "ok": True,
         "has_token": bool(token),
@@ -23056,7 +22287,7 @@ def _foxbot_multichannel_targets_v1():
     except Exception:
         limit = 25
 
-    access_token, _ = _foxbot_current_access_token_v2()
+    access_token, _ = resolve_blaze_access_token()
     return _foxbot_multichannel_service_v1.build_targets(
         client_id=os.getenv("BLAZE_CLIENT_ID", ""),
         access_token=access_token,
