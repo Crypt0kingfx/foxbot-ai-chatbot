@@ -18298,6 +18298,112 @@ def _foxbot_blaze_oauth_mask_v1(value):
 
 
 
+class FoxBotBlazeIdentityMismatch(Exception):
+    pass
+
+
+def _foxbot_blaze_oauth_verify_identity_v1(tokens):
+    import os
+
+    access_token = (tokens or {}).get("accessToken") or (tokens or {}).get("access_token") or ""
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+
+    expected_id = (
+        os.getenv("BLAZE_BOT_USER_ID", "")
+        or os.getenv("FOXBOT_BLAZE_USER_ID", "")
+    ).strip()
+
+    if not access_token or not client_id:
+        # Nothing to check the new token against -- let it through here and
+        # let the existing missing-config error paths handle it.
+        return
+
+    res = _foxbot_blaze_http_json_v1(
+        "GET",
+        "https://api.blaze.stream/v1/users/profile",
+        None,
+        {
+            "authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "accept": "application/json",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    data = ((res.get("body") or {}).get("data") or {}) if res.get("ok") else {}
+    actual_id = data.get("userId")
+
+    if not expected_id:
+        # Bootstrap case: on a fresh deploy BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID
+        # are not set yet, so there is nothing to gate against and this save is
+        # the only way to ever discover the bot's real Blaze userId. This must
+        # only fire once -- if it fired on every call, leaving the env var unset
+        # would make the gate a permanent no-op that lets any Blaze account
+        # keep overwriting the saved tokens forever. So only allow it through
+        # when nothing has been saved yet.
+        #
+        # Render's disk is ephemeral, so the local token file is gone after
+        # every redeploy even though the Neon row survives -- checking the
+        # file here would read already_saved=False on a fresh instance and
+        # reopen the gate on each deploy. Ask Postgres directly instead of
+        # going through storage_path()/_StateBackedPath: those only mirror
+        # writes and hydrate the file opportunistically (once per process,
+        # skipped for good on any transient DB error), so they cannot be
+        # trusted for this check.
+        import json
+        from services.postgres_state import is_configured as _pg_is_configured
+        from services.postgres_state import load_json_state_strict as _pg_load_json_state_strict
+
+        already_saved = False
+        if _pg_is_configured():
+            # load_json_state_strict raises on a query failure instead of
+            # returning None like load_json_state does -- None here means the
+            # row is genuinely absent. A failure can't prove that, and since
+            # this gate exists to stop token clobbering, treat "can't tell"
+            # the same as "already saved": refuse rather than bootstrap.
+            try:
+                stored = _pg_load_json_state_strict("blaze_oauth_tokens")
+            except Exception as error:
+                raise FoxBotBlazeIdentityMismatch(
+                    f"Could not confirm from Postgres whether FoxBot tokens are already "
+                    f"saved ({error}); refusing to save Blaze account {actual_id!r}'s "
+                    f"tokens without BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID configured."
+                )
+            already_saved = bool(stored and (stored.get("accessToken") or stored.get("access_token")))
+        else:
+            path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+            if path.exists():
+                try:
+                    existing = json.loads(path.read_text(encoding="utf-8") or "{}")
+                    already_saved = bool(existing.get("accessToken") or existing.get("access_token"))
+                except Exception:
+                    already_saved = False
+
+        if already_saved:
+            raise FoxBotBlazeIdentityMismatch(
+                f"BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID is not set, and tokens are already "
+                f"saved -- refusing to let Blaze account {actual_id!r} overwrite them. Set "
+                f"BLAZE_BOT_USER_ID to the id printed by the first successful login to lock "
+                f"this down."
+            )
+
+        print(
+            f"[FoxBot Blaze OAuth] No BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID configured. "
+            f"Blaze account {actual_id!r} just completed OAuth and its tokens were saved. "
+            f"Set BLAZE_BOT_USER_ID={actual_id} in Render to stop future logins from any "
+            f"other Blaze account from overwriting these tokens."
+        )
+        return
+
+    # Blaze's profile API can return userId as an int while env vars are always
+    # strings -- normalize both sides so a real match isn't rejected on type.
+    if str(actual_id).strip() != str(expected_id).strip():
+        raise FoxBotBlazeIdentityMismatch(
+            f"Blaze account {actual_id!r} does not match the configured FoxBot identity "
+            f"({expected_id!r}); refusing to save its OAuth tokens."
+        )
+
+
 def _foxbot_blaze_oauth_save_tokens_v1(tokens):
 
     import json
@@ -18305,6 +18411,10 @@ def _foxbot_blaze_oauth_save_tokens_v1(tokens):
     from datetime import datetime, timezone
 
     from pathlib import Path
+
+
+
+    _foxbot_blaze_oauth_verify_identity_v1(tokens)
 
 
 
@@ -18644,7 +18754,18 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
     _foxbot_oauth_pop_pending_v2(state)
 
-    saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+    try:
+
+        saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+
+    except FoxBotBlazeIdentityMismatch as e:
+
+        return HTMLResponse(
+            f"<h1>FoxBot Blaze OAuth Rejected</h1>"
+            f"<p>This Blaze account is not the configured FoxBot bot account, so its "
+            f"tokens were not saved.</p><pre>{e}</pre>",
+            status_code=403
+        )
 
 
 
@@ -19078,7 +19199,19 @@ def foxbot_blaze_oauth_refresh_v1():
 
 
 
-    saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+    try:
+
+        saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+
+    except FoxBotBlazeIdentityMismatch as e:
+
+        return {
+
+            "ok": False,
+
+            "error": str(e)
+
+        }
 
 
 
@@ -19243,84 +19376,6 @@ def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes):
             "safe_payload": safe_payload,
 
         }
-
-
-
-
-
-@app.get("/auth/blaze/login-basic")
-
-def foxbot_blaze_oauth_login_basic_v1():
-
-    from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-
-
-
-    result = _foxbot_blaze_oauth_generate_auth_debug_v1([
-
-        "users.read",
-
-        "offline.access"
-
-    ])
-
-
-
-    if not result.get("ok"):
-
-        return HTMLResponse(
-
-            "<h1>FoxBot Blaze OAuth Basic Login Failed</h1>"
-
-            "<p>Blaze rejected the basic OAuth request. This usually means Client ID, Client Secret, or Redirect URI is wrong.</p>"
-
-            f"<pre>{result}</pre>",
-
-            status_code=500
-
-        )
-
-
-
-    body = result.get("body") or {}
-
-    state = body.get("state")
-
-    code_verifier = body.get("codeVerifier")
-
-    url = body.get("url")
-
-
-
-    if not state or not code_verifier or not url:
-
-        return HTMLResponse(
-
-            "<h1>FoxBot Blaze OAuth Basic Login Failed</h1>"
-
-            "<p>Blaze response did not include state/codeVerifier/url.</p>"
-
-            f"<pre>{result}</pre>",
-
-            status_code=500
-
-        )
-
-
-
-    _FOXBOT_BLAZE_OAUTH_PENDING[state] = {
-
-        "codeVerifier": code_verifier,
-
-        "redirectUri": result.get("safe_payload", {}).get("redirectUri"),
-
-        "created_at": __import__("time").time(),
-
-    }
-
-
-
-    return RedirectResponse(url)
 
 
 
@@ -19580,33 +19635,10 @@ def foxbot_blaze_oauth_reset_v2():
 
         "ok": True,
 
-        "message": "OAuth pending login state cleared. Open /auth/blaze/login-clean next."
+        "message": "OAuth pending login state cleared. Open /auth/blaze/login next."
 
     }
 
-
-
-
-
-@app.get("/auth/blaze/login-clean")
-
-def foxbot_blaze_oauth_login_clean_v2():
-
-    try:
-
-        _FOXBOT_BLAZE_OAUTH_PENDING.clear()
-
-    except Exception:
-
-        pass
-
-
-
-    _foxbot_oauth_write_pending_v2({})
-
-
-
-    return foxbot_blaze_oauth_login_v1()
 
 # === End FoxBot OAuth Clean State v2 ===
 

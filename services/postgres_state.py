@@ -79,6 +79,24 @@ def load_json_state(state_key: str) -> Any | None:
         return None
 
 
+def load_json_state_strict(state_key: str) -> Any | None:
+    """Like ``load_json_state``, but let a query failure raise instead of
+    returning ``None``. ``None`` from this function means the row is
+    genuinely absent -- callers that must tell "nothing saved" apart from
+    "couldn't reach Postgres" (e.g. a security gate that has to fail closed
+    when it can't prove a negative) should use this instead. Assumes the
+    caller already checked ``is_configured()``.
+    """
+    with _connect() as connection:
+        _ensure_schema(connection)
+        row = connection.execute(
+            f"SELECT payload FROM {TABLE_NAME} WHERE state_key = %s",
+            (str(state_key),),
+        ).fetchone()
+    _set_error(None)
+    return row[0] if row else None
+
+
 def save_json_state(state_key: str, payload: Any) -> bool:
     """Atomically insert or replace one JSON-compatible state document."""
     if not is_configured():
