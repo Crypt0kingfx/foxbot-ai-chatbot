@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +25,29 @@ _STATE_KEYS = {
 }
 _hydrated_state_keys: set[str] = set()
 _failed_state_keys: set[str] = set()
+_last_failed_attempt_at: dict[str, float] = {}
 _initialization_lock = threading.Lock()
 _BasePath = type(Path())
+
+# Once a state_key's hydration has failed, storage_path() retries it on
+# every call by default (see below) -- fine at normal request volume, but
+# during a sustained Postgres outage that means every request pays a full
+# connect_timeout. Rate-limit retries per state_key instead: at most one
+# blocking attempt per this many seconds, independent per key (a dead
+# connected_creators row must not suppress retries for blaze_oauth_tokens
+# or foxbot_data -- they're independent stores with independent outage
+# windows). A successful hydration clears this immediately; only repeated
+# failure is throttled.
+RETRY_COOLDOWN_SECONDS = 30
+
+
+def _should_attempt_hydration(state_key: str) -> bool:
+    if state_key in _hydrated_state_keys:
+        return False
+    last_failed = _last_failed_attempt_at.get(state_key)
+    if last_failed is None:
+        return True
+    return (time.monotonic() - last_failed) >= RETRY_COOLDOWN_SECONDS
 
 
 class _StateBackedPath(_BasePath):
@@ -78,18 +100,25 @@ def storage_path(filename: str, env_key: str | None = None) -> Path:
 
     state_path = _StateBackedPath(str(path))
     state_key = _STATE_KEYS.get(filename)
-    if state_key and state_key not in _hydrated_state_keys:
+    if state_key and _should_attempt_hydration(state_key):
         with _initialization_lock:
-            if state_key not in _hydrated_state_keys:
+            if _should_attempt_hydration(state_key):
                 try:
                     load_or_migrate_json_state(state_key, state_path, {})
                     _hydrated_state_keys.add(state_key)
                     _failed_state_keys.discard(state_key)
+                    # Recovery is instant: don't let a stale failure
+                    # timestamp from this outage throttle a *future*,
+                    # unrelated outage of the same store.
+                    _last_failed_attempt_at.pop(state_key, None)
                 except Exception:
-                    # Leave state_key out of _hydrated_state_keys so the
-                    # next storage_path() call for this file retries the
-                    # hydration instead of treating this as done.
+                    # Leave state_key out of _hydrated_state_keys so a
+                    # later storage_path() call for this file retries the
+                    # hydration instead of treating this as done -- but
+                    # not on every call; _should_attempt_hydration() rate
+                    # limits it to once per RETRY_COOLDOWN_SECONDS.
                     _failed_state_keys.add(state_key)
+                    _last_failed_attempt_at[state_key] = time.monotonic()
 
     return state_path
 
