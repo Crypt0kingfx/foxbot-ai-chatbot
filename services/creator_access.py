@@ -376,10 +376,23 @@ def _save_document(document: dict[str, Any]) -> None:
     """
     import os
 
+    was_hydration_failed = _foxbot_access_hydration_failed_v1(
+        "connected_creators.json"
+    )
+
     _foxbot_access_storage_path_v1(
         "connected_creators.json",
         "FOXBOT_CONNECTED_CREATORS_FILE",
     )
+
+    if was_hydration_failed and not _foxbot_access_hydration_failed_v1(
+        "connected_creators.json"
+    ):
+        print(
+            "Creator access save skipped: Postgres hydration recovered during "
+            "the save; discarded a document built from pre-recovery state."
+        )
+        return
 
     DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = DATA_PATH.with_suffix(DATA_PATH.suffix + ".tmp")

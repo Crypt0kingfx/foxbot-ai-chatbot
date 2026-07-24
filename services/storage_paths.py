@@ -64,10 +64,15 @@ def storage_path(filename: str, env_key: str | None = None) -> Path:
     path = Path(explicit).expanduser() if explicit else data_directory() / filename
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    legacy = Path("data") / filename
+    legacy_candidates = [Path("data") / filename]
+    if filename == "foxbot_data.json":
+        legacy_candidates.insert(0, Path("foxbot_data.json"))
+
     try:
-        if not path.exists() and legacy.exists() and legacy.resolve() != path.resolve():
-            shutil.copy2(legacy, path)
+        for legacy in legacy_candidates:
+            if not path.exists() and legacy.exists() and legacy.resolve() != path.resolve():
+                shutil.copy2(legacy, path)
+                break
     except Exception:
         pass
 

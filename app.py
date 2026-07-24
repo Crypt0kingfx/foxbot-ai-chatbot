@@ -873,25 +873,6 @@ def load_persistent_data():
 
     path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
 
-    # foxbot_data.json historically defaulted to the bare working directory
-    # (DATA_FILE), not data/ like connected_creators.json/blaze_oauth_tokens.json.
-    # If nothing has been written to the new storage_path() location yet but
-    # the old default location has data, carry it forward once so this
-    # migration doesn't orphan whatever is currently live.
-    if not path.exists() and os.path.exists(DATA_FILE) and os.path.abspath(DATA_FILE) != os.path.abspath(str(path)):
-
-        try:
-
-            import shutil
-
-            shutil.copy2(DATA_FILE, str(path))
-
-        except Exception as exc:
-
-            print(f"FoxBot legacy data file copy failed: {exc}")
-
-
-
     if not path.exists():
 
         print("FoxBot data file not found. Starting fresh.")
