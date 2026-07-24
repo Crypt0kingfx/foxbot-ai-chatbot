@@ -20,6 +20,7 @@ from services.postgres_state import (
 _STATE_KEYS = {
     "connected_creators.json": "connected_creators",
     "blaze_oauth_tokens.json": "blaze_oauth_tokens",
+    "foxbot_data.json": "foxbot_data",
 }
 _initialized_paths: set[str] = set()
 _initialization_lock = threading.Lock()

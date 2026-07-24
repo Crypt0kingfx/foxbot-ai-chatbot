@@ -741,27 +741,28 @@ def apply_persistent_snapshot(data):
 
 
 
+_foxbot_last_saved_snapshot_json_v1 = None
+
+
 def save_persistent_data():
+
+    global _foxbot_last_saved_snapshot_json_v1
 
     try:
 
         data = get_persistent_snapshot()
 
+        serialized = json.dumps(data, indent=2)
 
+        if serialized == _foxbot_last_saved_snapshot_json_v1:
 
-        temp_file = DATA_FILE + ".tmp"
+            return True
 
+        path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
 
+        path.write_text(serialized, encoding="utf-8")
 
-        with open(temp_file, "w", encoding="utf-8") as file:
-
-            json.dump(data, file, indent=2)
-
-
-
-        os.replace(temp_file, DATA_FILE)
-
-
+        _foxbot_last_saved_snapshot_json_v1 = serialized
 
         return True
 
@@ -777,7 +778,30 @@ def save_persistent_data():
 
 def load_persistent_data():
 
-    if not os.path.exists(DATA_FILE):
+    global _foxbot_last_saved_snapshot_json_v1
+
+    path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
+
+    # foxbot_data.json historically defaulted to the bare working directory
+    # (DATA_FILE), not data/ like connected_creators.json/blaze_oauth_tokens.json.
+    # If nothing has been written to the new storage_path() location yet but
+    # the old default location has data, carry it forward once so this
+    # migration doesn't orphan whatever is currently live.
+    if not path.exists() and os.path.exists(DATA_FILE) and os.path.abspath(DATA_FILE) != os.path.abspath(str(path)):
+
+        try:
+
+            import shutil
+
+            shutil.copy2(DATA_FILE, str(path))
+
+        except Exception as exc:
+
+            print(f"FoxBot legacy data file copy failed: {exc}")
+
+
+
+    if not path.exists():
 
         print("FoxBot data file not found. Starting fresh.")
 
@@ -787,9 +811,7 @@ def load_persistent_data():
 
     try:
 
-        with open(DATA_FILE, "r", encoding="utf-8") as file:
-
-            data = json.load(file)
+        data = json.loads(path.read_text(encoding="utf-8"))
 
 
 
@@ -799,7 +821,9 @@ def load_persistent_data():
 
         if loaded:
 
-            print(f"FoxBot data loaded from {DATA_FILE}")
+            _foxbot_last_saved_snapshot_json_v1 = json.dumps(get_persistent_snapshot(), indent=2)
+
+            print(f"FoxBot data loaded from {path}")
 
 
 
