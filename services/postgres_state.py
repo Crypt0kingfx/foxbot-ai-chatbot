@@ -20,6 +20,16 @@ _schema_lock = threading.Lock()
 _schema_ready = False
 _last_error: str | None = None
 
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
+
+# For callers on the live chat path (storage_paths.py's hydration retry and
+# its actual writes, creator_access.py's Neon mirror) -- a live stream can't
+# eat a 10s stall. The OAuth identity gate (app.py) deliberately does NOT
+# use this: it wants the long default, since misjudging a slow-but-alive
+# connection as down during that security check is the worse failure mode
+# there. Different call sites, different tradeoffs -- not one shared value.
+CHAT_PATH_CONNECT_TIMEOUT_SECONDS = 2
+
 
 def database_url() -> str:
     return str(os.getenv("DATABASE_URL") or "").strip()
@@ -34,10 +44,10 @@ def _set_error(error: Exception | str | None) -> None:
     _last_error = str(error)[:500] if error else None
 
 
-def _connect():
+def _connect(timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS):
     import psycopg
 
-    return psycopg.connect(database_url(), connect_timeout=10)
+    return psycopg.connect(database_url(), connect_timeout=timeout)
 
 
 def _ensure_schema(connection) -> None:
@@ -60,13 +70,13 @@ def _ensure_schema(connection) -> None:
         _schema_ready = True
 
 
-def load_json_state(state_key: str) -> Any | None:
+def load_json_state(state_key: str, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) -> Any | None:
     """Load a JSON-compatible value, returning ``None`` when unavailable."""
     if not is_configured():
         return None
 
     try:
-        with _connect() as connection:
+        with _connect(timeout=timeout) as connection:
             _ensure_schema(connection)
             row = connection.execute(
                 f"SELECT payload FROM {TABLE_NAME} WHERE state_key = %s",
@@ -79,15 +89,19 @@ def load_json_state(state_key: str) -> Any | None:
         return None
 
 
-def load_json_state_strict(state_key: str) -> Any | None:
+def load_json_state_strict(state_key: str, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) -> Any | None:
     """Like ``load_json_state``, but let a query failure raise instead of
     returning ``None``. ``None`` from this function means the row is
     genuinely absent -- callers that must tell "nothing saved" apart from
     "couldn't reach Postgres" (e.g. a security gate that has to fail closed
     when it can't prove a negative) should use this instead. Assumes the
     caller already checked ``is_configured()``.
+
+    ``timeout`` defaults to the long timeout deliberately -- the OAuth
+    identity gate (app.py) calls this directly with no override, and it
+    wants that.
     """
-    with _connect() as connection:
+    with _connect(timeout=timeout) as connection:
         _ensure_schema(connection)
         row = connection.execute(
             f"SELECT payload FROM {TABLE_NAME} WHERE state_key = %s",
@@ -97,7 +111,7 @@ def load_json_state_strict(state_key: str) -> Any | None:
     return row[0] if row else None
 
 
-def save_json_state(state_key: str, payload: Any) -> bool:
+def save_json_state(state_key: str, payload: Any, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) -> bool:
     """Atomically insert or replace one JSON-compatible state document."""
     if not is_configured():
         return False
@@ -105,7 +119,7 @@ def save_json_state(state_key: str, payload: Any) -> bool:
     try:
         from psycopg.types.json import Jsonb
 
-        with _connect() as connection:
+        with _connect(timeout=timeout) as connection:
             _ensure_schema(connection)
             connection.execute(
                 f"""
@@ -144,7 +158,9 @@ def _write_local(path: Path, payload: Any) -> None:
     os.replace(temporary_path, local_path)
 
 
-def load_or_migrate_json_state(state_key: str, path: Path, default: Any) -> Any:
+def load_or_migrate_json_state(
+    state_key: str, path: Path, default: Any, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS
+) -> Any:
     """Prefer Postgres, migrating an existing local JSON document once.
 
     Raises on a genuine Postgres query failure rather than treating it the
@@ -155,7 +171,7 @@ def load_or_migrate_json_state(state_key: str, path: Path, default: Any) -> Any:
     the failure (skip a write, retry later); it is not hidden here.
     """
     if is_configured():
-        stored = load_json_state_strict(state_key)
+        stored = load_json_state_strict(state_key, timeout=timeout)
         if stored is not None:
             try:
                 _write_local(path, stored)
@@ -164,7 +180,7 @@ def load_or_migrate_json_state(state_key: str, path: Path, default: Any) -> Any:
             return stored
 
         local = _read_local(path, default)
-        save_json_state(state_key, local)
+        save_json_state(state_key, local, timeout=timeout)
         return local
 
     return _read_local(path, default)

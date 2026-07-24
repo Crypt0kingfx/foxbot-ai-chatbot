@@ -15,6 +15,7 @@ from services.postgres_state import (
     is_configured as database_is_configured,
     load_or_migrate_json_state,
     save_json_state,
+    CHAT_PATH_CONNECT_TIMEOUT_SECONDS,
 )
 
 
@@ -59,7 +60,7 @@ class _StateBackedPath(_BasePath):
         if state_key:
             try:
                 payload = json.loads(str(data) or "null")
-                save_json_state(state_key, payload)
+                save_json_state(state_key, payload, timeout=CHAT_PATH_CONNECT_TIMEOUT_SECONDS)
             except Exception:
                 pass
         return written
@@ -104,7 +105,9 @@ def storage_path(filename: str, env_key: str | None = None) -> Path:
         with _initialization_lock:
             if _should_attempt_hydration(state_key):
                 try:
-                    load_or_migrate_json_state(state_key, state_path, {})
+                    load_or_migrate_json_state(
+                        state_key, state_path, {}, timeout=CHAT_PATH_CONNECT_TIMEOUT_SECONDS
+                    )
                     _hydrated_state_keys.add(state_key)
                     _failed_state_keys.discard(state_key)
                     # Recovery is instant: don't let a stale failure
