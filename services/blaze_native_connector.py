@@ -7,6 +7,7 @@ import urllib.request
 
 from services.blaze_tokens import resolve_blaze_access_token, resolve_blaze_refresh_token
 from services.storage_paths import storage_path
+from services import foxbot_events as _foxbot_events_v1
 
 STATE = {
     "running": False,
@@ -509,6 +510,9 @@ def start_listener(event_handler=None):
 
     def run():
         STATE["running"] = True
+        _foxbot_events_v1.emit_event(
+            _foxbot_events_v1.resolve_owner_handle(), "listener", detail={"state": "connected"}
+        )
         STATE["started_at"] = time.time()
         STATE["stopped_at"] = None
 
@@ -545,6 +549,11 @@ def start_listener(event_handler=None):
             STATE["connected"] = False
             STATE["stopped_at"] = time.time()
             add_log("listener thread stopped")
+            _foxbot_events_v1.emit_event(
+                _foxbot_events_v1.resolve_owner_handle(),
+                "listener",
+                detail={"state": "disconnected", "reason": STATE.get("last_error")},
+            )
 
     _thread = threading.Thread(target=run, daemon=True)
     _thread.start()
@@ -562,6 +571,9 @@ def stop_listener():
 
     STATE["running"] = False
     STATE["connected"] = False
+    _foxbot_events_v1.emit_event(
+        _foxbot_events_v1.resolve_owner_handle(), "listener", detail={"state": "disconnected"}
+    )
 
     return {"ok": True, "stopped": True, "state": STATE}
 
@@ -1204,6 +1216,15 @@ def _foxbot_maybe_live_reply_v2(message):
             add_log(f"live reply skipped: {reason}")
             return preview
 
+        chat_message = str(chat.get("message") or "").strip()
+        if chat_message.startswith("!"):
+            _foxbot_events_v1.emit_event(
+                _foxbot_events_v1.resolve_owner_handle(),
+                "command",
+                actor=chat.get("username"),
+                detail={"command": chat_message.split()[0].lower()},
+            )
+
         reply = _foxbot_live_command_reply_v2(chat)
         preview["reply"] = reply
 
@@ -1228,6 +1249,11 @@ def _foxbot_maybe_live_reply_v2(message):
         if send_result.get("sent"):
             STATE["replies_sent"] = int(STATE.get("replies_sent") or 0) + 1
             add_log(f"live reply sent: {reply}")
+            _foxbot_events_v1.emit_event(
+                _foxbot_events_v1.resolve_owner_handle(),
+                "bot_reply",
+                detail={"in_reply_to": chat_message, "viewer": chat.get("username")},
+            )
         else:
             STATE["last_error"] = f"live reply send failed: {send_result}"
             add_log(STATE["last_error"])

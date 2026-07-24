@@ -98,6 +98,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from services.storage_paths import storage_path as _foxbot_storage_path_v1
 from services.storage_paths import hydration_failed as _foxbot_hydration_failed_v1
+from services import foxbot_events as _foxbot_events_v1
 from services.blaze_tokens import resolve_blaze_access_token
 
 from fastapi.staticfiles import StaticFiles
@@ -2669,7 +2670,7 @@ def add_points(name: str, amount: int, reason: str = "activity"):
 
 
 
-def add_redemption(username: str, reward_name: str, message: str, cost: int):
+def add_redemption(username: str, reward_name: str, message: str, cost: int, creator_handle: str = None):
 
     redemption = {
 
@@ -2692,6 +2693,15 @@ def add_redemption(username: str, reward_name: str, message: str, cost: int):
     # Keep the latest 10 redemptions
 
     del redemption_queue[10:]
+
+
+
+    _foxbot_events_v1.emit_event(
+        creator_handle or _foxbot_events_v1.resolve_owner_handle(),
+        "reward",
+        actor=redemption["username"],
+        detail={"reward": reward_name, "cost": int(cost)},
+    )
 
 
 
@@ -3501,7 +3511,7 @@ def is_admin(username: str):
 
 @app.get("/chat")
 
-def chat(message: str = "", username: str = "viewer"):
+def chat(message: str = "", username: str = "viewer", creator_handle: str = None):
 
     global giveaway_entries
 
@@ -3546,6 +3556,8 @@ def chat(message: str = "", username: str = "viewer"):
     lower_message = original_message.lower()
 
     username = username.strip() or "viewer"
+
+    creator_handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
 
     # === FoxBot Studio Giveaway Viewer Entry v3 ===
     # Real stream entry command for the Admin Hub Giveaway Center.
@@ -4030,6 +4042,13 @@ def chat(message: str = "", username: str = "viewer"):
         winner = random.choice(giveaway_entries)
 
         giveaway_overlay["winner"] = winner
+
+        _foxbot_events_v1.emit_event(
+            creator_handle,
+            "giveaway_complete",
+            actor=winner,
+            detail={},
+        )
 
 
 
@@ -5689,7 +5708,7 @@ def chat(message: str = "", username: str = "viewer"):
 
                 redeem_message = f"@{username} opened a mystery box and hit the JACKPOT! +{bonus} {currency}. Balance: {new_balance} {currency}."
 
-                add_redemption(username, reward_name, redeem_message, cost)
+                add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
                 add_quest_progress("redeem", 1)
 
@@ -5709,7 +5728,7 @@ def chat(message: str = "", username: str = "viewer"):
 
                 redeem_message = f"@{username} opened a mystery box and found {bonus} {currency}! Balance: {new_balance} {currency}."
 
-                add_redemption(username, reward_name, redeem_message, cost)
+                add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
                 add_quest_progress("redeem", 1)
 
@@ -5725,7 +5744,7 @@ def chat(message: str = "", username: str = "viewer"):
 
                 redeem_message = f"@{username} opened a mystery box and found bonus hype for the chat! Balance: {new_balance} {currency}."
 
-                add_redemption(username, reward_name, redeem_message, cost)
+                add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
                 add_quest_progress("redeem", 1)
 
@@ -5739,7 +5758,7 @@ def chat(message: str = "", username: str = "viewer"):
 
             redeem_message = f"@{username} opened a mystery box... and the fox ran away with the loot. Balance: {new_balance} {currency}."
 
-            add_redemption(username, reward_name, redeem_message, cost)
+            add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
             add_quest_progress("redeem", 1)
 
@@ -5753,7 +5772,7 @@ def chat(message: str = "", username: str = "viewer"):
 
         redeem_message = format_reward_response(response_template, username, cost, new_balance) + f" Balance: {new_balance} {currency}."
 
-        add_redemption(username, reward_name, redeem_message, cost)
+        add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
         add_quest_progress("redeem", 1)
 
@@ -7124,6 +7143,10 @@ def start_polling_listener():
 
     polling_thread.start()
 
+    _foxbot_events_v1.emit_event(
+        _foxbot_events_v1.resolve_owner_handle(), "listener", detail={"state": "connected"}
+    )
+
 
 
     return {
@@ -7147,6 +7170,10 @@ def stop_polling_listener():
     polling_status["running"] = False
 
     proof_stats["listener_running"] = False
+
+    _foxbot_events_v1.emit_event(
+        _foxbot_events_v1.resolve_owner_handle(), "listener", detail={"state": "disconnected"}
+    )
 
 
 
@@ -22405,6 +22432,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
     channel_slug = str(target.get("channel_slug") or "").strip()
     channel_key = channel_id or channel_slug
     is_subscription_channel = bool(target.get("is_subscription_channel"))
+    creator_handle = str(target.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
 
     # Seed existing message IDs on first discovery so old commands never run.
     if channel_key not in _FOXBOT_MULTICHANNEL_INITIALIZED_V1:
@@ -22451,6 +22479,10 @@ def _foxbot_process_channel_rows_v1(target, rows):
                 continue
 
             if command == "!verify":
+                _foxbot_events_v1.emit_event(
+                    creator_handle, "command", actor=clean_username, detail={"command": command}
+                )
+
                 if _foxbot_item_has_subscriber_role_v1(item):
                     access = _foxbot_creator_access_v1.verify_current_subscription(
                         clean_username
@@ -22468,6 +22500,9 @@ def _foxbot_process_channel_rows_v1(target, rows):
                     )
 
                 send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                _foxbot_events_v1.emit_event(
+                    creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
+                )
                 polling_status["last_reply"] = foxbot_reply
                 polling_status["last_subscription_verification"] = {
                     "handle": clean_username,
@@ -22477,9 +22512,15 @@ def _foxbot_process_channel_rows_v1(target, rows):
                 processed_count += 1
                 continue
 
-            foxbot_result = chat(message=message_text, username=clean_username)
+            _foxbot_events_v1.emit_event(
+                creator_handle, "command", actor=clean_username, detail={"command": command}
+            )
+            foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
             foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
             send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+            _foxbot_events_v1.emit_event(
+                creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
+            )
             polling_status["last_reply"] = foxbot_reply
             processed_count += 1
             continue
@@ -22497,8 +22538,20 @@ def _foxbot_process_channel_rows_v1(target, rows):
         if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
             foxbot_reply = auto_event_result.get("message")
             polling_status["last_auto_event"] = auto_event_result
+
+            auto_event = auto_event_result.get("event") or {}
+            if auto_event.get("event_type") == "follow":
+                _foxbot_events_v1.emit_event(
+                    creator_handle, "follow", actor=auto_event.get("username"), detail={}
+                )
+
             if foxbot_reply:
                 send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                _foxbot_events_v1.emit_event(
+                    creator_handle,
+                    "bot_reply",
+                    detail={"in_reply_to": auto_event.get("event_type"), "viewer": clean_username},
+                )
                 processed_count += 1
                 proof_stats["last_command"] = message_text
                 proof_stats["last_reply"] = foxbot_reply
@@ -22510,9 +22563,15 @@ def _foxbot_process_channel_rows_v1(target, rows):
         if not str(message_text).startswith("!"):
             continue
 
-        foxbot_result = chat(message=message_text, username=clean_username)
+        _foxbot_events_v1.emit_event(
+            creator_handle, "command", actor=clean_username, detail={"command": command}
+        )
+        foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
         foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
         send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+        _foxbot_events_v1.emit_event(
+            creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
+        )
         processed_count += 1
         proof_stats["last_command"] = message_text
         proof_stats["last_reply"] = foxbot_reply
