@@ -336,6 +336,7 @@ def _save_document(document: dict[str, Any]) -> None:
 
 # === FoxBot Neon Creator Storage v1 ===
 from services.postgres_state import save_json_state as _foxbot_save_creator_state_v1
+from services.postgres_state import CHAT_PATH_CONNECT_TIMEOUT_SECONDS as _foxbot_chat_timeout_v1
 
 
 def _load_document() -> dict[str, Any]:
@@ -405,7 +406,7 @@ def _save_document(document: dict[str, Any]) -> None:
     if _foxbot_access_hydration_failed_v1("connected_creators.json"):
         return
 
-    _foxbot_save_creator_state_v1("connected_creators", document)
+    _foxbot_save_creator_state_v1("connected_creators", document, timeout=_foxbot_chat_timeout_v1)
 
 
 # === End FoxBot Neon Creator Storage v1 ===
