@@ -7105,7 +7105,9 @@ def foxbot_auto_start_listener_v1():
 
 
 
-    if not get_blaze_access_token():
+    access_token, _token_source = resolve_blaze_access_token()
+
+    if not access_token:
 
         return
 
