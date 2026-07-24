@@ -21797,6 +21797,98 @@ def foxbot_creator_onboarding_v1():
 # === FoxBot Blaze Creator Access v1 ===
 from services import creator_access as _foxbot_creator_access_v1
 
+
+def _foxbot_connect_process_command_v1(handle, message, display_name=None):
+    handle = _foxbot_connect_clean_handle_v1(handle)
+    message = str(message or "").strip()
+
+    if not handle:
+        return {
+            "ok": False,
+            "handled": False,
+            "error": "Missing Blaze handle."
+        }
+
+    if not message.startswith("!"):
+        return {
+            "ok": True,
+            "handled": False,
+            "reply": None
+        }
+
+    command = message.split()[0].lower()
+
+    if command == "!connect":
+        creator = _foxbot_connect_upsert_creator_v1(handle, display_name=display_name)
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!connect",
+            "creator": creator,
+            "reply": f"🦊 @{handle} is now connected to FoxBot Connect! +25 FoxCoins. Use !profile to view your FoxBot profile."
+        }
+
+    if command in ["!profile", "!rank"]:
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return {
+                "ok": True,
+                "handled": True,
+                "command": command,
+                "reply": f"🦊 @{handle}, you are not connected yet. Follow the FoxBot Blaze profile and type !connect."
+            }
+
+        foxcoins = creator.get("foxcoins", 0)
+        messages = creator.get("messages", 0)
+        stars = creator.get("stars", 0)
+        status = creator.get("status", "connected")
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": command,
+            "creator": creator,
+            "reply": f"🦊 @{handle} FoxBot Profile | Status: {status} | FoxCoins: {foxcoins} | Messages: {messages} | Stars: {stars}"
+        }
+
+    if command == "!disconnect":
+        raw = _foxbot_connect_load_raw_v1()
+        creator = _foxbot_connect_get_creator_v1(handle)
+
+        if not creator:
+            return {
+                "ok": True,
+                "handled": True,
+                "command": "!disconnect",
+                "reply": f"@{handle}, you were not connected yet."
+            }
+
+        key_to_update = handle
+        for key in raw.keys():
+            if str(key).lower() == handle.lower():
+                key_to_update = key
+                break
+
+        raw[key_to_update]["status"] = "disconnected"
+        raw[key_to_update]["disconnected_at"] = _foxbot_connect_now_iso_v1()
+        _foxbot_connect_save_raw_v1(raw)
+
+        return {
+            "ok": True,
+            "handled": True,
+            "command": "!disconnect",
+            "reply": f"🦊 @{handle} has been disconnected from FoxBot Connect."
+        }
+
+    return {
+        "ok": True,
+        "handled": False,
+        "command": command,
+        "reply": None
+    }
+
+
 _foxbot_connect_process_command_without_access_v1 = _foxbot_connect_process_command_v1
 
 
