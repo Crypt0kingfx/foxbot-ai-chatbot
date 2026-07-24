@@ -130,11 +130,7 @@ BLAZE_CLIENT_ID = os.environ.get("BLAZE_CLIENT_ID", "")
 
 BLAZE_CLIENT_SECRET = os.environ.get("BLAZE_CLIENT_SECRET", "")
 
-BLAZE_REDIRECT_URI = "https://foxbot-ai-chatbot.onrender.com/oauth/blaze/callback"
 
-
-
-oauth_session = {}
 
 bot_tokens = {}
 
@@ -1793,8 +1789,6 @@ dashboard_html = """
 
 
         <div class="grid">
-
-            <a class="button" href="/login/blaze">Login with Blaze</a>
 
             <button onclick="callEndpoint('/blaze/start-polling-listener')">Start Listener</button>
 
@@ -6637,142 +6631,16 @@ def chat(message: str = "", username: str = "viewer", *, roles: str = ""):
 # ----------------------------
 
 # Blaze OAuth
+#
+# /login/blaze + /oauth/blaze/callback were removed: they wrote an
+# unkeyed OAuth token into the global bot_tokens dict with no check
+# that the visitor was an authorized creator, letting any visitor who
+# completed Blaze's consent screen clobber the token every channel's
+# live chat sender was using. Bot-owner setup goes through
+# /auth/blaze/login instead, which stays deliberately unlinked from
+# any UI so it can't be triggered by an anonymous visitor.
 
 # ----------------------------
-
-
-
-@app.get("/login/blaze")
-
-def login_blaze():
-
-    if not BLAZE_CLIENT_ID or not BLAZE_CLIENT_SECRET:
-
-        return {
-
-            "success": False,
-
-            "message": "Missing BLAZE_CLIENT_ID or BLAZE_CLIENT_SECRET in Render environment variables."
-
-        }
-
-
-
-    response = requests.post(
-
-        "https://blaze.stream/bapi/oauth2/generate-auth-url",
-
-        json={
-
-            "clientId": BLAZE_CLIENT_ID,
-
-            "clientSecret": BLAZE_CLIENT_SECRET,
-
-            "redirectUri": BLAZE_REDIRECT_URI,
-
-            "scopes": ["users.read", "offline.access", "channel.moderate", "users.bot"]
-
-        }
-
-    )
-
-
-
-    data = response.json()
-
-
-
-    oauth_session["state"] = data.get("state")
-
-    oauth_session["codeVerifier"] = data.get("codeVerifier")
-
-
-
-    if not data.get("url"):
-
-        return {
-
-            "success": False,
-
-            "message": "Blaze did not return a login URL.",
-
-            "response": data
-
-        }
-
-
-
-    return RedirectResponse(data.get("url"))
-
-
-
-
-
-@app.get("/oauth/blaze/callback")
-
-def blaze_oauth_callback(code: str = "", state: str = ""):
-
-    if not code:
-
-        return {"error": "Missing code from Blaze callback."}
-
-
-
-    if state != oauth_session.get("state"):
-
-        return {"error": "State did not match. Please try logging in again."}
-
-
-
-    token_response = requests.post(
-
-        "https://blaze.stream/bapi/oauth2/token",
-
-        json={
-
-            "clientId": BLAZE_CLIENT_ID,
-
-            "clientSecret": BLAZE_CLIENT_SECRET,
-
-            "code": code,
-
-            "codeVerifier": oauth_session.get("codeVerifier"),
-
-            "redirectUri": BLAZE_REDIRECT_URI,
-
-            "grantType": "authorization_code"
-
-        }
-
-    )
-
-
-
-    token_data = token_response.json()
-
-
-
-    bot_tokens["accessToken"] = token_data.get("accessToken")
-
-    bot_tokens["refreshToken"] = token_data.get("refreshToken")
-
-
-
-    proof_stats["blaze_connected"] = bool(bot_tokens.get("accessToken"))
-
-    proof_stats["channel_id"] = os.getenv("BLAZE_CHANNEL_ID")
-
-    proof_stats["channel_slug"] = os.getenv("BLAZE_CHANNEL_SLUG")
-
-
-
-    return {
-
-        "message": "Blaze login successful! FoxBot is now connected to your account.",
-
-        "scopes": token_data.get("scopes")
-
-    }
 
 
 
@@ -6788,7 +6656,7 @@ def get_my_profile():
 
     if not access_token:
 
-        return {"error": "Not logged in yet. Visit /login/blaze first."}
+        return {"error": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -6844,7 +6712,7 @@ def find_blaze_channel():
 
     if not access_token:
 
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+        return {"success": False, "message": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -6926,7 +6794,7 @@ def get_blaze_access_token():
 
     The listener and chat sender use this so they keep working after a redeploy
 
-    without needing a fresh /login/blaze visit."""
+    without needing a fresh /auth/blaze/login visit."""
 
     token = bot_tokens.get("accessToken")
 
@@ -6977,7 +6845,7 @@ def send_blaze_chat_message(text: str):
 
             "success": False,
 
-            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /login/blaze."
+            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /auth/blaze/login."
 
         }
 
@@ -7055,7 +6923,7 @@ def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
 
     if not bot_tokens.get("accessToken"):
 
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+        return {"success": False, "message": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -7199,7 +7067,7 @@ def get_recent_blaze_messages():
 
             "success": False,
 
-            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /login/blaze."
+            "message": "Missing BLAZE_CLIENT_ID, BLAZE_CHANNEL_ID, or access token. Set BLAZE_ACCESS_TOKEN in Render or visit /auth/blaze/login."
 
         }
 
@@ -7766,7 +7634,7 @@ def judge_demo():
 
     if not bot_tokens.get("accessToken"):
 
-        return {"success": False, "message": "Not logged in yet. Visit /login/blaze first."}
+        return {"success": False, "message": "Not logged in yet. Visit /auth/blaze/login first."}
 
 
 
@@ -13683,8 +13551,6 @@ button.secondary:hover {
 
 
             <div class="row">
-
-                <button class="action" onclick="openPage('/login/blaze')">Login With Blaze</button>
 
                 <button class="secondary" onclick="callEndpoint('/blaze/start-polling-listener')">Start Chat Listener</button>
 
