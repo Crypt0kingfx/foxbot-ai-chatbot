@@ -22876,48 +22876,6 @@ def foxbot_storage_status_v1():
 
 # === End FoxBot Persistent Storage v1 ===
 
-# === FoxBot TEMP Debug Economy Cleanup v1 (one-shot -- revert after use) ===
-_FOXBOT_ECONOMY_CLEANUP_KEY_V1 = "6o5qTSWoy21Em-jQNyXoBAAZPV8mPEg0"
-
-
-@app.post("/api/foxbot/debug/economy-cleanup")
-async def foxbot_debug_economy_cleanup_v1(payload: dict):
-    from fastapi.responses import JSONResponse
-    import hmac
-
-    key = str((payload or {}).get("key") or "")
-    if not key or not hmac.compare_digest(key, _FOXBOT_ECONOMY_CLEANUP_KEY_V1):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-
-    delete_keys = (payload or {}).get("delete_keys") or []
-    set_balances = (payload or {}).get("set_balances") or {}
-
-    deleted = []
-    not_found = []
-    for raw_key in delete_keys:
-        wallet_key = str(raw_key)
-        if wallet_key in foxcoin_economy["balances"]:
-            del foxcoin_economy["balances"][wallet_key]
-            deleted.append(wallet_key)
-        else:
-            not_found.append(wallet_key)
-
-    updated = {}
-    for raw_key, new_value in set_balances.items():
-        wallet_key = str(raw_key)
-        old_value = foxcoin_economy["balances"].get(wallet_key)
-        foxcoin_economy["balances"][wallet_key] = int(new_value)
-        updated[wallet_key] = {"old": old_value, "new": int(new_value)}
-
-    return {
-        "ok": True,
-        "deleted": deleted,
-        "not_found": not_found,
-        "updated": updated,
-        "remaining_balances": foxcoin_economy["balances"],
-    }
-# === End FoxBot TEMP Debug Economy Cleanup v1 ===
-
 # === FoxBot Studio v2 Read Endpoints v1 ===
 
 @app.get("/api/foxbot/events")
