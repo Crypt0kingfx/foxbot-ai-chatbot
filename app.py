@@ -15084,6 +15084,24 @@ async def foxbot_studio_clean():
 
 
 
+# ==============================
+
+# FoxBot Studio v2 (Phase 1 — static shell)
+
+# ==============================
+
+
+
+@app.get("/studio-v2", response_class=HTMLResponse)
+
+async def foxbot_studio_v2():
+
+    with open("templates/foxbot_studio_v2.html", "r", encoding="utf-8") as f:
+
+        return f.read()
+
+
+
 
 
 
