@@ -271,6 +271,21 @@ body::before {
   100% { transform: scale(1.6); opacity: 0; }
 }
 
+.beacon.down {
+  background: var(--magenta);
+  box-shadow: 0 0 12px rgba(255,0,127,.7);
+}
+
+.beacon.down::after { border-color: var(--magenta); }
+
+.beacon.loading {
+  background: var(--ink-mute);
+  box-shadow: none;
+  animation: none;
+}
+
+.beacon.loading::after { display: none; }
+
 .vitals-line1 { font-size: 15px; font-weight: 600; }
 .vitals-line1 b { color: var(--pulse); font-weight: 600; }
 
@@ -606,12 +621,12 @@ body::before {
     <!-- ═══ THE PULSE ═══ -->
     <section class="vitals" aria-label="FoxBot live status">
       <div class="vitals-head">
-        <span class="beacon" aria-hidden="true"></span>
+        <span class="beacon loading" id="beacon" aria-hidden="true"></span>
         <div>
-          <div class="vitals-line1">FoxBot is <b>alive</b> in crypt0k1ng96</div>
-          <div class="vitals-line2">Last reply <span class="bot">12s ago</span> · answering !help</div>
+          <div class="vitals-line1" id="vitalsLine1">Checking FoxBot status…</div>
+          <div class="vitals-line2" id="vitalsLine2">&nbsp;</div>
         </div>
-        <div class="vitals-clock" id="clock">checked 00:04 ago</div>
+        <div class="vitals-clock" id="clock">checking…</div>
       </div>
 
       <div class="trace-wrap">
@@ -625,23 +640,23 @@ body::before {
       <div class="checks">
         <div class="check">
           <div class="check-label">Blaze token</div>
-          <div class="check-value ok"><span class="led"></span>Valid</div>
-          <div class="check-note">verified 4s ago</div>
+          <div class="check-value warn" id="checkTokenValue"><span class="led"></span>Checking…</div>
+          <div class="check-note" id="checkTokenNote">&nbsp;</div>
         </div>
         <div class="check">
           <div class="check-label">Posting as</div>
-          <div class="check-value ok"><span class="led"></span>@foxbotai</div>
-          <div class="check-note">matches bot profile</div>
+          <div class="check-value warn" id="checkPostingValue"><span class="led"></span>Checking…</div>
+          <div class="check-note" id="checkPostingNote">&nbsp;</div>
         </div>
         <div class="check">
           <div class="check-label">Chat listener</div>
-          <div class="check-value ok"><span class="led"></span>Connected</div>
-          <div class="check-note">8/8 subscriptions</div>
+          <div class="check-value warn" id="checkListenerValue"><span class="led"></span>Checking…</div>
+          <div class="check-note" id="checkListenerNote">&nbsp;</div>
         </div>
         <div class="check">
           <div class="check-label">Last reply</div>
-          <div class="check-value ok"><span class="led"></span>12s ago</div>
-          <div class="check-note">!help → viewer</div>
+          <div class="check-value warn" id="checkReplyValue"><span class="led"></span>Checking…</div>
+          <div class="check-note" id="checkReplyNote">&nbsp;</div>
         </div>
       </div>
     </section>
@@ -757,23 +772,52 @@ document.querySelectorAll('.item').forEach(function (item) {
 });
 
 /* ═══ THE PULSE ═══
-   Renders 60s of activity. In production this reads from a
-   rolling buffer fed by the diagnostics/state endpoint; here
-   it's seeded with plausible data and drifts live so the
-   prototype demonstrates the motion. Flat = dead. */
+   Polls /api/blaze/native/diagnostics every 10s and renders real
+   state. The trace is real messages_seen deltas from the legacy
+   polling worker (NOT the native connector's chat_messages_received
+   — that counter belongs to a different pipeline and stays flat
+   even when the bot is genuinely alive via legacy polling, which
+   defeats the point of this element). A 10s delta is spread evenly
+   across the elapsed seconds so the line doesn't look like a single
+   spike, but a zero delta always renders as an exact flatline —
+   smoothing never invents activity that didn't happen. If the
+   fetch itself fails, everything switches to an explicit "can't
+   reach bot" state; nothing is left showing stale green values. */
 (function () {
+  var POLL_MS = 10000;
+  var HISTORY_SECONDS = 60;
   var canvas = document.getElementById('trace');
   var ctx = canvas.getContext('2d');
-  var chat = [];   /* messages per second, last 60s */
-  var bot  = [];   /* bot replies per second */
+  var chat = [];   /* real per-second message deltas, oldest first */
+  var bot  = [];   /* 1 where a new bot_reply landed in that second, else 0 */
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  for (var i = 0; i < 60; i++) {
-    var burst = (i % 17 < 3) ? 2 : 0;
-    chat.push(Math.max(0, Math.round(Math.random() * 2 + burst - 0.6)));
-    bot.push((i % 9 === 0 && chat[i] > 0) ? 1 : 0);
+  var beacon = document.getElementById('beacon');
+  var vitalsLine1 = document.getElementById('vitalsLine1');
+  var vitalsLine2 = document.getElementById('vitalsLine2');
+  var vitalsClock = document.getElementById('clock');
+  var checkToken = { value: document.getElementById('checkTokenValue'), note: document.getElementById('checkTokenNote') };
+  var checkPosting = { value: document.getElementById('checkPostingValue'), note: document.getElementById('checkPostingNote') };
+  var checkListener = { value: document.getElementById('checkListenerValue'), note: document.getElementById('checkListenerNote') };
+  var checkReply = { value: document.getElementById('checkReplyValue'), note: document.getElementById('checkReplyNote') };
+
+  var reachable = null;        /* null = never checked yet */
+  var lastPoll = null;         /* { t: Date.now() at poll, messagesSeen, lastReplyAtSec } */
+  var lastCheckedAt = null;    /* Date.now() of most recent poll attempt, success or fail */
+  var lastReplyAtMs = null;    /* wall-clock ms of most recent known bot reply */
+
+  function setCheck(check, cls, valueText, noteText) {
+    check.value.className = 'check-value ' + cls;
+    check.value.innerHTML = '<span class="led"></span>' + valueText;
+    check.note.textContent = noteText;
   }
 
-  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function relTime(ms) {
+    var s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
 
   function size() {
     var dpr = window.devicePixelRatio || 1;
@@ -786,10 +830,10 @@ document.querySelectorAll('.item').forEach(function (item) {
   function draw() {
     var w = canvas.clientWidth, h = 64;
     var baseline = h - 16;
-    var stepX = w / 59;
+    var n = chat.length;
     ctx.clearRect(0, 0, w, h);
+    canvas.style.opacity = reachable === false ? '0.35' : '1';
 
-    /* baseline */
     ctx.strokeStyle = 'rgba(110,92,138,.35)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -797,28 +841,30 @@ document.querySelectorAll('.item').forEach(function (item) {
     ctx.lineTo(w, baseline);
     ctx.stroke();
 
-    /* chat trace — cyan */
+    if (n < 2) return;
+    var stepX = w / (HISTORY_SECONDS - 1);
+    var offset = HISTORY_SECONDS - n;
+
     ctx.strokeStyle = '#2DE2FF';
     ctx.lineWidth = 1.5;
     ctx.shadowColor = 'rgba(45,226,255,.55)';
     ctx.shadowBlur = 6;
     ctx.beginPath();
-    for (var i = 0; i < 60; i++) {
-      var x = i * stepX;
-      var y = baseline - chat[i] * 12;
+    for (var i = 0; i < n; i++) {
+      var x = (offset + i) * stepX;
+      var y = baseline - Math.min(chat[i], 4) * 12;
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    /* bot replies — magenta ticks below the line */
     ctx.strokeStyle = '#FF007F';
     ctx.lineWidth = 2;
     ctx.shadowColor = 'rgba(255,0,127,.55)';
     ctx.shadowBlur = 5;
-    for (var j = 0; j < 60; j++) {
+    for (var j = 0; j < n; j++) {
       if (bot[j]) {
-        var bx = j * stepX;
+        var bx = (offset + j) * stepX;
         ctx.beginPath();
         ctx.moveTo(bx, baseline + 4);
         ctx.lineTo(bx, baseline + 11);
@@ -828,18 +874,128 @@ document.querySelectorAll('.item').forEach(function (item) {
     ctx.shadowBlur = 0;
   }
 
-  function tick() {
-    chat.shift(); bot.shift();
-    var v = Math.max(0, Math.round(Math.random() * 2.4 - 0.5));
-    chat.push(v);
-    bot.push(v > 0 && Math.random() < 0.18 ? 1 : 0);
+  /* Spreads a real delta evenly across elapsed seconds. A delta of
+     0 pushes exactly `elapsed` zero-value samples — a true flatline,
+     never a fabricated bump. */
+  function pushDelta(elapsedSeconds, delta, replyLanded) {
+    var n = Math.max(1, Math.min(elapsedSeconds, HISTORY_SECONDS));
+    var per = delta > 0 ? delta / n : 0;
+    for (var i = 0; i < n; i++) {
+      chat.push(per);
+      bot.push(replyLanded && i === n - 1 ? 1 : 0);
+    }
+    while (chat.length > HISTORY_SECONDS) { chat.shift(); bot.shift(); }
+  }
+
+  function markUnreachable() {
+    reachable = false;
+    lastCheckedAt = Date.now();
+    beacon.className = 'beacon down';
+    vitalsLine1.innerHTML = "Can't reach FoxBot — diagnostics endpoint unreachable";
+    vitalsLine2.textContent = 'Not showing stale data — status is unknown until the next successful check.';
+    setCheck(checkToken, 'bad', 'Unknown', 'diagnostics unreachable');
+    setCheck(checkPosting, 'bad', 'Unknown', 'diagnostics unreachable');
+    setCheck(checkListener, 'bad', 'Unknown', 'diagnostics unreachable');
+    setCheck(checkReply, 'bad', 'Unknown', 'diagnostics unreachable');
     draw();
+  }
+
+  function markReachable(data) {
+    reachable = true;
+    lastCheckedAt = Date.now();
+    beacon.className = 'beacon';
+
+    var legacy = data.legacy_listener || {};
+    var running = legacy.running === true;
+    var profileOk = !!(data.profile && data.profile.ok === true);
+
+    var profileBody = (data.profile && data.profile.body) || {};
+    var profileData = (profileBody && typeof profileBody.data === 'object' && profileBody.data) || profileBody;
+    var actualUsername = (profileData && (profileData.username || profileData.handle || profileData.slug)) || null;
+    var expectedHandle = data.bot_profile_handle ? String(data.bot_profile_handle).replace(/^@/, '') : null;
+
+    /* Blaze token — real API call result, not just "a token string exists" */
+    if (profileOk) {
+      setCheck(checkToken, 'ok', 'Valid', 'verified ' + relTime(lastCheckedAt));
+    } else {
+      var reason = (data.profile && (data.profile.reason || data.profile.error)) || 'profile check failed';
+      setCheck(checkToken, 'bad', 'Invalid', String(reason));
+    }
+
+    /* Posting as */
+    if (!profileOk || !actualUsername) {
+      setCheck(checkPosting, 'bad', 'Unknown', 'profile unavailable');
+    } else if (expectedHandle && actualUsername.toLowerCase() !== expectedHandle.toLowerCase()) {
+      setCheck(checkPosting, 'warn', '@' + actualUsername, 'expected @' + expectedHandle);
+    } else {
+      setCheck(checkPosting, 'ok', '@' + actualUsername, 'matches bot profile');
+    }
+
+    /* Chat listener — the legacy polling worker, not native connector STATE.running */
+    var seenCount = typeof legacy.messages_seen === 'number' ? legacy.messages_seen : null;
+    var listenerNote = seenCount === null ? 'legacy polling worker' : seenCount.toLocaleString() + ' messages seen';
+    setCheck(checkListener, running ? 'ok' : 'bad', running ? 'Connected' : 'Disconnected', listenerNote);
+
+    /* Last reply */
+    var replyAtSec = legacy.last_reply_at || null;
+    if (replyAtSec) {
+      lastReplyAtMs = replyAtSec * 1000;
+      var replyNote = legacy.last_command ? ('!' + legacy.last_command + ' → ' + (legacy.last_username || 'viewer')) : '';
+      setCheck(checkReply, 'ok', relTime(lastReplyAtMs), replyNote);
+    } else {
+      lastReplyAtMs = null;
+      setCheck(checkReply, 'warn', 'No replies yet', 'waiting for first message');
+    }
+
+    /* Headline */
+    var channel = data.configured_channel_slug || data.configured_channel_id || '';
+    if (running) {
+      vitalsLine1.innerHTML = 'FoxBot is <b>alive</b>' + (channel ? ' in ' + channel : '');
+    } else {
+      vitalsLine1.innerHTML = 'FoxBot listener is <b>down</b>' + (channel ? ' in ' + channel : '');
+    }
+    vitalsLine2.innerHTML = lastReplyAtMs
+      ? 'Last reply <span class="bot">' + relTime(lastReplyAtMs) + '</span>' + (legacy.last_command ? ' · answering !' + legacy.last_command : '')
+      : 'No replies recorded yet this session';
+
+    /* Trace: real messages_seen delta since the previous poll, spread evenly. */
+    var nowMessages = seenCount === null ? 0 : seenCount;
+    var replyLanded = !!(replyAtSec && lastPoll && replyAtSec !== lastPoll.lastReplyAtSec) || !!(replyAtSec && !lastPoll);
+    if (lastPoll) {
+      var elapsedSeconds = Math.round((Date.now() - lastPoll.t) / 1000) || 1;
+      var delta = Math.max(0, nowMessages - lastPoll.messagesSeen); /* clamp counter resets to 0, never negative motion */
+      pushDelta(elapsedSeconds, delta, replyLanded);
+    }
+    lastPoll = { t: Date.now(), messagesSeen: nowMessages, lastReplyAtSec: replyAtSec };
+
+    draw();
+  }
+
+  async function poll() {
+    try {
+      var res = await fetch('/api/blaze/native/diagnostics', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      markReachable(data);
+    } catch (err) {
+      markUnreachable();
+    }
+  }
+
+  function tickClock() {
+    if (lastCheckedAt) vitalsClock.textContent = (reachable === false ? 'poll failed ' : 'checked ') + relTime(lastCheckedAt);
+    if (reachable && lastReplyAtMs) {
+      var legacyNote = checkReply.note.textContent;
+      setCheck(checkReply, 'ok', relTime(lastReplyAtMs), legacyNote);
+    }
   }
 
   size();
   draw();
   window.addEventListener('resize', function () { size(); draw(); });
-  if (!reduced) setInterval(tick, 1000);
+  poll();
+  setInterval(poll, POLL_MS);
+  if (!reduced) setInterval(tickClock, 1000);
 })();
 </script>
 

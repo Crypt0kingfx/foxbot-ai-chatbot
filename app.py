@@ -966,7 +966,9 @@ proof_stats = {
 
     "last_username": None,
 
-    "last_message": None
+    "last_message": None,
+
+    "last_reply_at": None
 
 }
 
@@ -6951,6 +6953,8 @@ def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
     proof_stats["last_username"] = username
 
     proof_stats["last_message"] = message
+
+    proof_stats["last_reply_at"] = time.time()
 
 
 
@@ -19680,11 +19684,23 @@ def foxbot_blaze_native_diagnostics_route_v1():
 
     from services import blaze_native_connector as native
 
-
+    legacy_listener = {
+        "running": polling_status.get("running", False),
+        "messages_seen": polling_status.get("messages_seen", proof_stats.get("messages_seen", 0)),
+        "commands_processed": polling_status.get("commands_processed", proof_stats.get("commands_processed", 0)),
+        "last_command": proof_stats.get("last_command"),
+        "last_reply": proof_stats.get("last_reply"),
+        "last_username": proof_stats.get("last_username"),
+        "last_reply_at": proof_stats.get("last_reply_at"),
+    }
 
     if hasattr(native, "blaze_native_diagnostics_v1"):
 
-        return native.blaze_native_diagnostics_v1()
+        result = native.blaze_native_diagnostics_v1()
+
+        result["legacy_listener"] = legacy_listener
+
+        return result
 
 
 
@@ -22682,6 +22698,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
                 proof_stats["last_reply"] = foxbot_reply
                 proof_stats["last_username"] = clean_username
                 proof_stats["last_message"] = message_text
+                proof_stats["last_reply_at"] = time.time()
                 polling_status["last_reply"] = foxbot_reply
             continue
 
@@ -22702,6 +22719,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
         proof_stats["last_reply"] = foxbot_reply
         proof_stats["last_username"] = clean_username
         proof_stats["last_message"] = message_text
+        proof_stats["last_reply_at"] = time.time()
         polling_status["last_reply"] = foxbot_reply
 
     return processed_count
