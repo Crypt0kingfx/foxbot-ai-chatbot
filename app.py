@@ -22620,6 +22620,18 @@ def _foxbot_process_channel_rows_v1(target, rows):
                 continue
 
             if command == "!verify":
+                # Preserve the exact subscription-channel payload for diagnosis.
+                polling_status["last_subscription_verify_payload"] = item
+                polling_status["last_subscription_verify_channel"] = {
+                    "channel_id": channel_id,
+                    "channel_slug": channel_slug,
+                    "is_subscription_channel": is_subscription_channel,
+                    "username": clean_username,
+                }
+                polling_status["last_subscription_verify_detected"] = (
+                    _foxbot_item_has_subscriber_role_v1(item)
+                )
+
                 _foxbot_events_v1.emit_event(
                     creator_handle, "command", actor=clean_username, detail={"command": command}
                 )
