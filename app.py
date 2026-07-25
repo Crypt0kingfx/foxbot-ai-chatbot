@@ -22233,49 +22233,6 @@ def foxbot_multichannel_targets_v1():
 
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
 
-# === FoxBot TEMP Debug Raw Row v1 (diagnostic only — revert after use) ===
-_FOXBOT_DEBUG_ROW_KEY_V1 = "cTakPSTukr5xMbcN-Qr134Hm_ngmIzHU"
-_FOXBOT_DEBUG_ROW_CHANNEL_ID_V1 = "d3dbe2aa-daf7-4879-8074-9ed6793166bc"  # favigal1
-
-
-def _foxbot_debug_strip_text_v1(value, depth=0):
-    text_keys = {"text", "content", "body", "message"}
-    if depth > 8:
-        return "...truncated..."
-    if isinstance(value, dict):
-        result = {}
-        for k, v in value.items():
-            if isinstance(k, str) and k.lower() in text_keys:
-                result[k] = f"<redacted:{len(str(v))}chars>" if v else v
-            else:
-                result[k] = _foxbot_debug_strip_text_v1(v, depth + 1)
-        return result
-    if isinstance(value, list):
-        return [_foxbot_debug_strip_text_v1(v, depth + 1) for v in value]
-    return value
-
-
-@app.get("/api/foxbot/debug/raw-row")
-def foxbot_debug_raw_row_v1(key: str = ""):
-    from fastapi.responses import JSONResponse
-
-    if not key or key != _FOXBOT_DEBUG_ROW_KEY_V1:
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-
-    data = get_recent_blaze_messages(channel_id=_FOXBOT_DEBUG_ROW_CHANNEL_ID_V1)
-    rows = extract_rows_from_blaze_response(data)
-
-    if not rows:
-        return {
-            "ok": True,
-            "row_count": 0,
-            "response_success": data.get("success") if isinstance(data, dict) else None,
-            "response_keys": list(data.keys()) if isinstance(data, dict) else None,
-        }
-
-    return {"ok": True, "row_count": len(rows), "row": _foxbot_debug_strip_text_v1(rows[0])}
-# === End FoxBot TEMP Debug Raw Row v1 ===
-
 # === FoxBot OAuth Token Priority Fix v1 ===
 def send_blaze_chat_message(text: str, channel_id=None):
     """Send with the newest OAuth callback token."""
