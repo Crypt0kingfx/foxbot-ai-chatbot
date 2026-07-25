@@ -22617,7 +22617,15 @@ def _foxbot_process_channel_rows_v1(target, rows):
 
         if is_subscription_channel:
             if command not in subscription_commands:
-                continue
+                access = _foxbot_creator_access_v1.get_access(clean_username)
+
+                if not access.get("has_access"):
+                    send_blaze_chat_message(
+                        f"@{clean_username}, start your free 7-day FoxBot trial by typing !join.",
+                        channel_id=channel_id,
+                    )
+                    processed_count += 1
+                    continue
 
             if command == "!verify":
                 # Preserve the exact subscription-channel payload for diagnosis.
