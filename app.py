@@ -22760,3 +22760,67 @@ def foxbot_storage_status_v1():
 
 
 # === End FoxBot Persistent Storage v1 ===
+
+# === FoxBot Studio v2 Read Endpoints v1 ===
+
+@app.get("/api/foxbot/events")
+def foxbot_events_read_v1(creator_handle: str = "", limit: int = 20):
+    from datetime import timezone
+
+    handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+    rows = _foxbot_events_v1.fetch_events(handle, limit)
+
+    if rows is None:
+        return {"ok": False, "error": "events unavailable"}
+
+    now = datetime.now(timezone.utc)
+    events = []
+    for kind, actor, detail, created_at in rows:
+        age_seconds = int((now - created_at).total_seconds()) if created_at else None
+        events.append({
+            "kind": kind,
+            "actor": actor,
+            "detail": detail,
+            "created_at": created_at.isoformat() if created_at else None,
+            "age_seconds": age_seconds,
+        })
+
+    return {"ok": True, "creator_handle": handle, "events": events}
+
+
+@app.get("/api/foxbot/onboarding")
+def foxbot_onboarding_read_v1(creator_handle: str = ""):
+    handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+
+    access = _foxbot_creator_access_v1.get_access(handle)
+    registered = access.get("status") != "not_started"
+
+    posted = _foxbot_events_v1.event_exists(handle, "bot_reply")
+    giveaway_done = _foxbot_events_v1.event_exists(handle, "giveaway_complete")
+    dismissal = _foxbot_events_v1.fetch_onboarding_dismissal(handle)
+
+    if posted is None or giveaway_done is None or dismissal is None:
+        return {"ok": False, "error": "onboarding data unavailable"}
+
+    command_added = bool(custom_commands)
+    reward_added = bool(set(reward_shop.keys()) - {"hug", "hype", "flex", "mysterybox", "sponsor"})
+
+    items = [
+        {"key": "register", "label": "Register your channel", "done": registered},
+        {"key": "posted", "label": "FoxBot posted in your chat", "done": bool(posted)},
+        {"key": "command", "label": "Added a custom command", "done": command_added},
+        {"key": "reward", "label": "Set up a reward", "done": reward_added},
+        {"key": "giveaway", "label": "Run your first giveaway", "done": bool(giveaway_done)},
+    ]
+    completed = sum(1 for item in items if item["done"])
+
+    return {
+        "ok": True,
+        "creator_handle": handle,
+        "dismissed": dismissal["dismissed"],
+        "completed": completed,
+        "total": len(items),
+        "items": items,
+    }
+
+# === End FoxBot Studio v2 Read Endpoints v1 ===
