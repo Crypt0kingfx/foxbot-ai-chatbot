@@ -15645,11 +15645,6 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer"):
 
     words = text.replace("@", "").replace("!", "").split()
 
-    if words:
-
-        event_user = normalize_viewer_name(words[0])
-
-
 
     if "followed" in lower or "new follower" in lower:
 
