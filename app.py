@@ -22618,6 +22618,12 @@ def _foxbot_process_channel_rows_v1(target, rows):
     processed_count = 0
     bot_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai"))
     bot_handle = bot_handle.strip().lower().lstrip("@")
+    # Known bot accounts to exclude from command dispatch and auto-recognition,
+    # independent of FOXBOT_BLAZE_PROFILE_HANDLE. blazeian_bot_ai was observed
+    # live posting vote-shaped chat text that triggered FoxCoin awards before
+    # the identity fix; foxbotai is listed defensively even though bot_handle
+    # already covers it, so this still holds if that env var is ever misconfigured.
+    known_bot_handles = {"foxbotai", "blazeian_bot_ai"}
     subscription_commands = {
         "!join",
         "!connect",
@@ -22641,7 +22647,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
         if not message_text:
             continue
         clean_username = str(username or "").strip().lstrip("@")
-        if clean_username.lower() == bot_handle:
+        if clean_username.lower() == bot_handle or clean_username.lower() in known_bot_handles:
             continue
 
         command = str(message_text).strip().split()[0].lower()
