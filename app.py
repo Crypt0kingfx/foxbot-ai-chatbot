@@ -22723,9 +22723,79 @@ def _foxbot_process_channel_rows_v1(target, rows):
         _foxbot_events_v1.emit_event(
             creator_handle, "command", actor=clean_username, detail={"command": command}
         )
-        foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
+        foxbot_result = chat(
+            message=message_text,
+            username=clean_username,
+            creator_handle=creator_handle,
+        )
         foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
-        send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+
+        send_result = send_blaze_chat_message(
+            foxbot_reply,
+            channel_id=channel_id,
+        )
+
+        polling_status["last_multichannel_send"] = {
+            "channel_id": channel_id,
+            "channel_slug": channel_slug,
+            "creator_handle": creator_handle,
+            "viewer": clean_username,
+            "command": command,
+            "reply": foxbot_reply,
+            "send_result": send_result,
+        }
+
+        send_success = bool(
+            isinstance(send_result, dict)
+            and send_result.get("success")
+        )
+        send_message = (
+            str(send_result.get("message") or "")
+            if isinstance(send_result, dict)
+            else "Unknown Blaze send response."
+        )
+        follower_required = (
+            not send_success
+            and "only followers can send messages" in send_message.lower()
+        )
+
+        if follower_required:
+            polling_status["multichannel_connection_health"] = {
+                "chat_ready": False,
+                "setup_issue": "foxbot_not_following_creator",
+                "action_required": (
+                    f"Follow @{channel_slug} from the FoxBot Blaze account, "
+                    "then test !help again."
+                ),
+                "channel_id": channel_id,
+                "channel_slug": channel_slug,
+                "creator_handle": creator_handle,
+                "last_error": send_message,
+                "checked_at": time.time(),
+            }
+        elif send_success:
+            polling_status["multichannel_connection_health"] = {
+                "chat_ready": True,
+                "setup_issue": None,
+                "action_required": None,
+                "channel_id": channel_id,
+                "channel_slug": channel_slug,
+                "creator_handle": creator_handle,
+                "last_error": None,
+                "checked_at": time.time(),
+            }
+        else:
+            polling_status["multichannel_connection_health"] = {
+                "chat_ready": False,
+                "setup_issue": "blaze_send_failed",
+                "action_required": "Review the latest Blaze send response.",
+                "channel_id": channel_id,
+                "channel_slug": channel_slug,
+                "creator_handle": creator_handle,
+                "last_error": send_message,
+                "checked_at": time.time(),
+            }
+
         _foxbot_events_v1.emit_event(
             creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
         )
