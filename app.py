@@ -263,6 +263,26 @@ support_rewards = {
 
 
 
+# Ceilings on auto-detected recognition awards. RECOGNITION_UNIT_CAPS
+# bounds the parsed count/amount before multiplying -- a chat-inferred
+# "gifted 999999 subs" is not a real gift-sub burst. RECOGNITION_MAX_REWARD
+# bounds the final computed reward regardless of multiplier or per-unit
+# config, so a large support_rewards value can't slip a huge award through
+# the per-unit cap alone.
+RECOGNITION_UNIT_CAPS = {
+
+    "giftsub": 50,
+
+    "vote": 50,
+
+    "tip": 500,
+
+}
+
+RECOGNITION_MAX_REWARD = 5000
+
+
+
 recognition_settings = {
 
     "enabled": True,
@@ -2817,6 +2837,8 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = int(support_rewards.get("follow", 100))
 
+        reward = min(reward, RECOGNITION_MAX_REWARD)
+
         new_balance = add_points(target, reward, "auto follow recognition")
 
         msg = f"Welcome @{target} to the Fox Spirits pack! Thanks for the follow. +{reward} {currency}. Balance: {new_balance} {currency}."
@@ -2833,6 +2855,8 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = int(support_rewards.get("new_sub", 500))
 
+        reward = min(reward, RECOGNITION_MAX_REWARD)
+
         new_balance = add_points(target, reward, "auto sub recognition")
 
         msg = f"HUGE THANK YOU @{target} for subscribing! Welcome to the Fox Spirits family. +{reward} {currency}. Balance: {new_balance} {currency}."
@@ -2847,9 +2871,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
     if event_type == "giftsub":
 
-        count = int(amount or 1)
+        count = min(int(amount or 1), RECOGNITION_UNIT_CAPS["giftsub"])
 
         reward = int(support_rewards.get("gift_sub", 500)) * count
+
+        reward = min(reward, RECOGNITION_MAX_REWARD)
 
         new_balance = add_points(target, reward, f"auto gifted subs x{count}")
 
@@ -2865,9 +2891,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
     if event_type == "vote":
 
-        votes = int(amount or 1)
+        votes = min(int(amount or 1), RECOGNITION_UNIT_CAPS["vote"])
 
         reward = int(support_rewards.get("vote_token", 3)) * votes
+
+        reward = min(reward, RECOGNITION_MAX_REWARD)
 
         new_balance = add_points(target, reward, f"auto vote recognition x{votes}")
 
@@ -2883,9 +2911,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
     if event_type == "tip":
 
-        dollars = float(amount or 1)
+        dollars = min(float(amount or 1), RECOGNITION_UNIT_CAPS["tip"])
 
         reward = int(dollars * int(support_rewards.get("tip_per_dollar", 200)))
+
+        reward = min(reward, RECOGNITION_MAX_REWARD)
 
         new_balance = add_points(target, reward, f"auto tip recognition ${dollars}")
 
@@ -2903,6 +2933,8 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = int(support_rewards.get("raid", 250))
 
+        reward = min(reward, RECOGNITION_MAX_REWARD)
+
         new_balance = add_points(target, reward, "auto raid recognition")
 
         msg = f"RAID LOVE! Huge thanks to @{target} for bringing the community over. +{reward} {currency}. Balance: {new_balance} {currency}."
@@ -2919,6 +2951,8 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = 250
 
+        reward = min(reward, RECOGNITION_MAX_REWARD)
+
         new_balance = add_points(target, reward, "MVP recognition")
 
         msg = f"MVP SHOUTOUT: @{target} is carrying the stream today! +{reward} {currency}. Balance: {new_balance} {currency}."
@@ -2932,6 +2966,8 @@ def recognition_response(event_type: str, target: str, amount=None):
     if event_type == "og":
 
         reward = 500
+
+        reward = min(reward, RECOGNITION_MAX_REWARD)
 
         new_balance = add_points(target, reward, "OG recognition")
 
