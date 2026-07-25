@@ -149,6 +149,100 @@ def _emit_event_blocking(
             print(f"FoxBot event retention cleanup failed: {error}")
 
 
+def fetch_events(creator_handle: str, limit: int = 20) -> list[tuple] | None:
+    """Most recent events for a creator, newest first. Returns None on a
+    database failure -- the query never ran -- which is distinct from an
+    empty list, a legitimate "no events yet" result for a fresh channel.
+    Callers must not conflate the two.
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+    capped_limit = max(1, min(int(limit or 20), 100))
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            cursor = connection.execute(
+                """
+                SELECT kind, actor, detail, created_at
+                FROM foxbot_events
+                WHERE creator_handle = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (handle, capped_limit),
+            )
+            rows = cursor.fetchall()
+        _set_error(None)
+        return rows
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot events read failed: {error}")
+        return None
+
+
+def event_exists(creator_handle: str, kind: str) -> bool | None:
+    """Whether at least one event of `kind` has ever landed for this
+    creator. Returns None (not False) on a database failure so callers
+    can tell "checked, and no" apart from "couldn't check."
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            cursor = connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM foxbot_events WHERE creator_handle = %s AND kind = %s)",
+                (handle, kind),
+            )
+            row = cursor.fetchone()
+        _set_error(None)
+        return bool(row[0]) if row else False
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot event-exists check failed (kind={kind}): {error}")
+        return None
+
+
+def fetch_onboarding_dismissal(creator_handle: str) -> dict[str, Any] | None:
+    """Dismissal/completion row for a creator. Returns None on a database
+    failure; a missing row (never dismissed, never completed) is a valid
+    default, not a failure.
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            cursor = connection.execute(
+                "SELECT dismissed, completed_at FROM onboarding_progress WHERE creator_handle = %s",
+                (handle,),
+            )
+            row = cursor.fetchone()
+        _set_error(None)
+        if row is None:
+            return {"dismissed": False, "completed_at": None}
+        return {"dismissed": bool(row[0]), "completed_at": row[1]}
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot onboarding-progress read failed: {error}")
+        return None
+
+
 def emit_event(
     creator_handle: str,
     kind: str,
