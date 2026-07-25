@@ -7055,6 +7055,100 @@ def find_chat_message_id(payload):
 
 
 
+def _foxbot_parse_iso8601_v1(value):
+    from datetime import datetime, timezone
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    if text.endswith("Z") or text.endswith("z"):
+        text = text[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.timestamp()
+
+
+def _foxbot_normalize_epoch_v1(value):
+    try:
+        epoch = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    # Blaze/most APIs send seconds (~1.7e9 today); some send milliseconds
+    # (~1.7e12 today). Anything above 1e12 can only be milliseconds.
+    if epoch > 1e12:
+        epoch = epoch / 1000.0
+
+    return epoch
+
+
+def _foxbot_find_first_numeric_v1(payload, possible_keys):
+    if isinstance(payload, dict):
+        for key in possible_keys:
+            value = payload.get(key)
+
+            if isinstance(value, bool):
+                continue
+
+            if isinstance(value, (int, float)):
+                return value
+
+            if isinstance(value, str) and value.strip():
+                try:
+                    return float(value.strip())
+                except ValueError:
+                    pass
+
+            if isinstance(value, (dict, list)):
+                nested = _foxbot_find_first_numeric_v1(value, possible_keys)
+                if nested is not None:
+                    return nested
+
+        for value in payload.values():
+            nested = _foxbot_find_first_numeric_v1(value, possible_keys)
+            if nested is not None:
+                return nested
+
+    if isinstance(payload, list):
+        for item in payload:
+            nested = _foxbot_find_first_numeric_v1(item, possible_keys)
+            if nested is not None:
+                return nested
+
+    return None
+
+
+def find_chat_message_created_at(payload):
+    """Return a message's creation time as a UTC epoch float, or None.
+
+    Pinned to Blaze's confirmed "createdAt" ISO8601 field (e.g.
+    "2026-07-25T06:32:05.000Z"), with a few plausible key/format
+    fallbacks kept defensive in case a row shape ever differs.
+    """
+
+    timestamp_keys = ["createdAt", "created_at", "timestamp", "sentAt", "sent_at"]
+
+    raw_value = find_first_string(payload, timestamp_keys)
+    if raw_value:
+        parsed = _foxbot_parse_iso8601_v1(raw_value)
+        if parsed is not None:
+            return parsed
+
+    numeric_value = _foxbot_find_first_numeric_v1(payload, timestamp_keys + ["ts", "time"])
+    if numeric_value is not None:
+        return _foxbot_normalize_epoch_v1(numeric_value)
+
+    return None
+
+
 
 def extract_rows_from_blaze_response(data):
 
@@ -22434,14 +22528,27 @@ def _foxbot_process_channel_rows_v1(target, rows):
     is_subscription_channel = bool(target.get("is_subscription_channel"))
     creator_handle = str(target.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
 
-    # Seed existing message IDs on first discovery so old commands never run.
+    # On first discovery of a channel, seed only messages older than the
+    # discovery moment (minus a small clock-skew grace window) so a redeploy
+    # never replays the backlog. Messages at/after the cutoff are left
+    # unseeded and fall through into the normal loop below, so a creator's
+    # very first message right after connecting still gets a reply instead
+    # of being silently absorbed into the seed set.
     if channel_key not in _FOXBOT_MULTICHANNEL_INITIALIZED_V1:
+        try:
+            grace_seconds = float(os.getenv("FOXBOT_DISCOVERY_GRACE_SECONDS", "15") or "15")
+        except (TypeError, ValueError):
+            grace_seconds = 15.0
+        discovery_cutoff = time.time() - max(0.0, grace_seconds)
+
         for item in rows:
             message_id = find_chat_message_id(item)
-            if message_id:
+            if not message_id:
+                continue
+            created_at = find_chat_message_created_at(item)
+            if created_at is None or created_at < discovery_cutoff:
                 processed_polling_messages.add(f"{channel_key}:{message_id}")
         _FOXBOT_MULTICHANNEL_INITIALIZED_V1.add(channel_key)
-        return 0
 
     processed_count = 0
     bot_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai"))

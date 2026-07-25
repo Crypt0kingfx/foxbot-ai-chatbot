@@ -23,6 +23,8 @@ blaze_listener_response_check.txt
 inspect_*.py
 patch_*.py
 test_*.py
+# ...except tracked regression tests under tests/
+!tests/test_*.py
 
 # FoxBot backup files
 app_backup_*.py
