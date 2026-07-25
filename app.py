@@ -15645,11 +15645,6 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer"):
 
     words = text.replace("@", "").replace("!", "").split()
 
-    if words:
-
-        event_user = normalize_viewer_name(words[0])
-
-
 
     if "followed" in lower or "new follower" in lower:
 
@@ -22728,32 +22723,11 @@ def _foxbot_process_channel_rows_v1(target, rows):
         _foxbot_events_v1.emit_event(
             creator_handle, "command", actor=clean_username, detail={"command": command}
         )
-        foxbot_result = chat(
-            message=message_text,
-            username=clean_username,
-            creator_handle=creator_handle,
-        )
+        foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
         foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
-
-        send_result = send_blaze_chat_message(
-            foxbot_reply,
-            channel_id=channel_id,
-        )
-
-        polling_status["last_multichannel_send"] = {
-            "channel_id": channel_id,
-            "channel_slug": channel_slug,
-            "creator_handle": creator_handle,
-            "viewer": clean_username,
-            "command": command,
-            "reply": foxbot_reply,
-            "send_result": send_result,
-        }
-
+        send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
         _foxbot_events_v1.emit_event(
-            creator_handle,
-            "bot_reply",
-            detail={"in_reply_to": command, "viewer": clean_username},
+            creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
         )
         processed_count += 1
         proof_stats["last_command"] = message_text
