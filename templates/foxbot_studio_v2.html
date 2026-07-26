@@ -562,6 +562,8 @@ body::before {
   margin-bottom: 8px;
 }
 
+.subhead-spaced { margin-top: 20px; }
+
 /* ═══ RESPONSIVE + A11Y ═════════════════════════════════════ */
 
 @media (max-width: 980px) {
@@ -607,7 +609,7 @@ body::before {
           <button class="item">Boss Battle</button>
           <button class="item">Giveaways</button>
           <button class="item">Economy</button>
-          <button class="item">Recognition</button>
+          <button class="item" data-target="page-recognition">Recognition</button>
         </div>
       </div>
 
@@ -819,6 +821,42 @@ body::before {
           <div id="analyticsTransactions"></div>
         </div>
       </div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-recognition" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Recognition</h1>
+      <p class="page-sub">Auto-thank settings and recent recognition activity.</p>
+    </div>
+
+    <section class="card" aria-label="Recognition">
+      <div class="card-head">
+        <h2 class="card-title">Settings</h2>
+      </div>
+      <div class="checks">
+        <div class="check">
+          <div class="check-label">Recognition</div>
+          <div class="check-value warn" id="recognitionEnabledValue"><span class="led"></span>Checking…</div>
+          <div class="check-note" id="recognitionEnabledNote">&nbsp;</div>
+        </div>
+        <div class="check">
+          <div class="check-label">Surprise bonus</div>
+          <div class="check-value warn" id="recognitionBonusValue"><span class="led"></span>Checking…</div>
+          <div class="check-note" id="recognitionBonusNote">&nbsp;</div>
+        </div>
+        <div class="check">
+          <div class="check-label">Bonus chance</div>
+          <div class="check-value warn" id="recognitionChanceValue"><span class="led"></span>—</div>
+          <div class="check-note" id="recognitionChanceNote">&nbsp;</div>
+        </div>
+      </div>
+      <p class="dismiss-error" id="recognitionSettingsError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">Recent activity</h3>
+      <div id="recognitionActivity"></div>
     </section>
 
     </section>
@@ -1403,6 +1441,83 @@ document.querySelectorAll('.item').forEach(function (item) {
   setInterval(pollViewers, POLL_MS);
   setInterval(pollArcade, POLL_MS);
   setInterval(pollEconomy, POLL_MS);
+})();
+</script>
+
+<script>
+/* ═══ RECOGNITION ═══
+   One card, one endpoint (GET /recognition), per the tab pattern.
+   Settings shown here (recognition_settings.enabled/surprise_bonus_*)
+   are a DIFFERENT variable from STUDIO_STATE.recognitionEnabled --
+   that one gates a separate auto-event system and is never read here.
+   These are real, load-bearing gates for the exact same system
+   (recognition_response()) that produces the recent_log rows shown
+   below them, traced field-by-field before this was built. */
+(function () {
+  var POLL_MS = 20000;
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function setCheck(valueEl, noteEl, cls, valueText, noteText) {
+    valueEl.className = 'check-value ' + cls;
+    valueEl.innerHTML = '<span class="led"></span>' + escapeHtml(valueText);
+    noteEl.textContent = noteText;
+  }
+
+  var enabledValue = document.getElementById('recognitionEnabledValue');
+  var enabledNote = document.getElementById('recognitionEnabledNote');
+  var bonusValue = document.getElementById('recognitionBonusValue');
+  var bonusNote = document.getElementById('recognitionBonusNote');
+  var chanceValue = document.getElementById('recognitionChanceValue');
+  var chanceNote = document.getElementById('recognitionChanceNote');
+  var settingsError = document.getElementById('recognitionSettingsError');
+  var activityEl = document.getElementById('recognitionActivity');
+
+  function unreachable() {
+    setCheck(enabledValue, enabledNote, 'bad', 'Unknown', 'unreachable');
+    setCheck(bonusValue, bonusNote, 'bad', 'Unknown', 'unreachable');
+    setCheck(chanceValue, chanceNote, 'bad', '—', 'unreachable');
+    settingsError.textContent = "Can't load recognition settings — unreachable.";
+    settingsError.hidden = false;
+    activityEl.innerHTML = '<div class="feed-item"><span class="feed-body feed-error">Can\'t load recognition activity — unreachable.</span></div>';
+  }
+
+  async function pollRecognition() {
+    try {
+      var res = await fetch('/recognition', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var settings = data.settings || {};
+
+      settingsError.hidden = true;
+      setCheck(enabledValue, enabledNote, settings.enabled ? 'ok' : 'warn',
+        settings.enabled ? 'On' : 'Off', 'gates !thankfollow / !thanksub / etc.');
+      setCheck(bonusValue, bonusNote, settings.surprise_bonus_enabled ? 'ok' : 'warn',
+        settings.surprise_bonus_enabled ? 'On' : 'Off', 'random bonus on recognition');
+      setCheck(chanceValue, chanceNote, 'ok',
+        (settings.surprise_bonus_chance != null ? settings.surprise_bonus_chance : '—') + '%', 'configured chance');
+
+      var rows = (data.recent_log || []).slice(0, 10).map(function (entry) {
+        return '<div class="feed-item"><span class="feed-time">' + escapeHtml(entry.event_type || '') + '</span>' +
+          '<span class="feed-body"><b>' + escapeHtml(entry.username || 'viewer') + '</b> — ' +
+          escapeHtml(entry.message || '') + '</span></div>';
+      });
+      if (!rows.length) {
+        activityEl.innerHTML = '<div class="feed-item"><span class="feed-body">No recognition activity yet.</span></div>';
+      } else {
+        activityEl.innerHTML = rows.join('');
+      }
+    } catch (err) {
+      unreachable();
+    }
+  }
+
+  pollRecognition();
+  setInterval(pollRecognition, POLL_MS);
 })();
 </script>
 
