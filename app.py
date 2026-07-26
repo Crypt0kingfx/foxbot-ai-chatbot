@@ -2899,7 +2899,7 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         new_balance = add_points(target, reward, f"auto vote recognition x{votes}")
 
-        msg = f"Thank you @{target} for voting with {votes} votes! Fox Spirits appreciates the support. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg = f"Thank you @{target} for voting with {votes} votes! FoxBot AI appreciates your support! +{reward} {currency}. Balance: {new_balance} {currency}."
 
         msg += surprise_bonus(target)
 
@@ -14172,7 +14172,7 @@ def recognition_endpoint():
 
 @app.get("/auto-event/{event_type}")
 
-def auto_event_endpoint(event_type: str, username: str = "viewer", amount: float = 1):
+def auto_event_endpoint(event_type: str, username: str, amount: float = 1):
 
     message = recognition_response(event_type.lower(), username, amount)
 
@@ -22643,6 +22643,8 @@ def _foxbot_process_channel_rows_v1(target, rows):
         message_id = find_chat_message_id(item)
         message_text = find_chat_message_text(item)
         username = find_chat_username(item)
+        if username == "viewer":
+            print(f"[DEBUG] find_chat_username fell back to 'viewer' for raw item: {item!r}")
         message_key = f"{channel_key}:{message_id}"
 
         polling_status["last_message"] = item
