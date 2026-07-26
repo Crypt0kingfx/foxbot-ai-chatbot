@@ -470,6 +470,28 @@ body::before {
 .step-go:hover { background: rgba(176,38,255,.24); border-color: var(--violet); }
 .step-go:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
 
+.dismiss-link {
+  margin-top: 14px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--ink-mute);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dismiss-link:hover { color: var(--ink-dim); }
+.dismiss-link:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+.dismiss-link[disabled] { cursor: default; opacity: .6; }
+
+.dismiss-error {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--magenta);
+}
+
 /* ═══ ACTIVITY FEED ═════════════════════════════════════════ */
 
 .feed-item {
@@ -673,6 +695,8 @@ body::before {
         <div class="track"><div class="fill" id="onboardingFill" style="width:0%"></div></div>
 
         <div id="onboardingSteps"></div>
+        <button type="button" id="onboardingDismiss" class="dismiss-link" hidden>Hide this</button>
+        <p class="dismiss-error" id="onboardingDismissError" hidden></p>
       </section>
 
       <section class="card" aria-label="Recent activity">
@@ -1047,6 +1071,8 @@ document.querySelectorAll('.item').forEach(function (item) {
   var subEl = document.getElementById('onboardingSub');
   var fillEl = document.getElementById('onboardingFill');
   var stepsEl = document.getElementById('onboardingSteps');
+  var dismissBtn = document.getElementById('onboardingDismiss');
+  var dismissErrorEl = document.getElementById('onboardingDismissError');
 
   function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
@@ -1059,6 +1085,8 @@ document.querySelectorAll('.item').forEach(function (item) {
     subEl.textContent = 'Checklist unavailable — could not load setup progress.';
     fillEl.style.width = '0%';
     stepsEl.innerHTML = '';
+    dismissBtn.hidden = true;
+    dismissErrorEl.hidden = true;
   }
 
   function renderItems(data) {
@@ -1073,7 +1101,30 @@ document.querySelectorAll('.item').forEach(function (item) {
         '<span class="step-label">' + escapeHtml(item.label) + '</span>' +
         '</div>';
     }).join('');
+
+    /* Register must be done before the control even appears -- burying
+       the one item that tells a brand-new creator how to connect is
+       exactly what this gate exists to prevent. Client side is a
+       convenience; the server enforces this independently. */
+    var registerItem = items.filter(function (item) { return item.key === 'register'; })[0];
+    dismissBtn.hidden = !(registerItem && registerItem.done);
+    dismissErrorEl.hidden = true;
   }
+
+  dismissBtn.addEventListener('click', async function () {
+    dismissBtn.disabled = true;
+    dismissErrorEl.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/onboarding/dismiss', { method: 'POST', cache: 'no-store' });
+      var data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      card.style.display = 'none';
+    } catch (err) {
+      dismissErrorEl.textContent = "Couldn't hide this — try again.";
+      dismissErrorEl.hidden = false;
+      dismissBtn.disabled = false;
+    }
+  });
 
   async function loadOnboarding() {
     try {
