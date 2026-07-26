@@ -2841,7 +2841,7 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         new_balance = add_points(target, reward, "auto follow recognition")
 
-        msg = f"Welcome @{target} to the Fox Spirits pack! Thanks for the follow. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg = f"Welcome @{target} to the FoxBot AI pack! Thanks for the follow. +{reward} {currency}. Balance: {new_balance} {currency}."
 
         msg += surprise_bonus(target)
 
@@ -2859,7 +2859,7 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         new_balance = add_points(target, reward, "auto sub recognition")
 
-        msg = f"HUGE THANK YOU @{target} for subscribing! Welcome to the Fox Spirits family. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg = f"HUGE THANK YOU @{target} for subscribing! Welcome to the FoxBot AI family. +{reward} {currency}. Balance: {new_balance} {currency}."
 
         msg += surprise_bonus(target)
 
@@ -3915,7 +3915,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": "BLAZE COMMUNITY SPIN RULES | $25 USDC Giveaway | +100 Votes Sponsored by Fox Spirits | Tag 3 Friends | Like + Repost | Be Active in Fox Spirits Discord | Up to 1.50x Multiplier | 1-5 Gifted Subs = Bonus Entries | Sunday 5 PM PST | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
+            "response": "BLAZE COMMUNITY SPIN RULES | $25 USDC Giveaway | +100 Votes Sponsored by FoxBot AI | Tag 3 Friends | Like + Repost | Be Active in FoxBot AI Discord | Up to 1.50x Multiplier | 1-5 Gifted Subs = Bonus Entries | Sunday 5 PM PST | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
 
         }
 
@@ -3925,7 +3925,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": "$25 USDC Giveaway + 100 Votes Sponsored by Fox Spirits | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
+            "response": "$25 USDC Giveaway + 100 Votes Sponsored by FoxBot AI | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
 
         }
 
@@ -13836,7 +13836,7 @@ button.secondary:hover {
 
             <input id="customName" value="discord">
 
-            <input id="customMsg" value="Join the Fox Spirits Discord!">
+            <input id="customMsg" value="Join the FoxBot AI Discord!">
 
             <button class="action" onclick="runCommand('!addcmd '+v('customName')+' '+v('customMsg'))">Add</button>
 
