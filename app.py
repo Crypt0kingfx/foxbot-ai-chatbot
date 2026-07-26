@@ -17099,6 +17099,8 @@ async def foxbot_connect_public_route_v2(request, call_next):
 
                     <a href='/admin'>Studio</a>
 
+                    <a href='/studio-v2'>Studio v2</a>
+
                 </nav>
 
             </header>
@@ -17172,6 +17174,8 @@ async def foxbot_connect_public_route_v2(request, call_next):
                         <div class='hero-actions'>
 
                             <a href='/admin' class='button'>Open FoxBot Studio</a>
+
+                            <a href='/studio-v2' class='button secondary'>Open Studio v2</a>
 
                             <a href='/demo-chat' class='button secondary'>Try the live demo</a>
 
@@ -17881,6 +17885,8 @@ def foxbot_connect_test_panel_v1():
                     <a class="button secondary" href="/connected-creators">Connected Creators</a>
 
                     <a class="button secondary" href="/admin">FoxBot Studio</a>
+
+                    <a class="button secondary" href="/studio-v2">Studio v2</a>
 
                 </div>
 
@@ -22936,5 +22942,18 @@ def foxbot_onboarding_read_v1(creator_handle: str = ""):
         "total": len(items),
         "items": items,
     }
+
+
+@app.post("/api/foxbot/onboarding/dismiss")
+def foxbot_onboarding_dismiss_v1(creator_handle: str = ""):
+    handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+
+    if not _foxbot_creator_access_v1.is_registered(handle):
+        return {"ok": False, "error": "register your channel before dismissing the checklist"}
+
+    if _foxbot_events_v1.set_onboarding_dismissed(handle) is None:
+        return {"ok": False, "error": "dismiss write failed"}
+
+    return {"ok": True, "creator_handle": handle, "dismissed": True}
 
 # === End FoxBot Studio v2 Read Endpoints v1 ===

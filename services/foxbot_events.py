@@ -243,6 +243,41 @@ def fetch_onboarding_dismissal(creator_handle: str) -> dict[str, Any] | None:
         return None
 
 
+def set_onboarding_dismissed(creator_handle: str, dismissed: bool = True) -> bool | None:
+    """Persist the checklist dismiss state for a creator. Returns None on
+    a database failure so the caller can tell "didn't write" apart from
+    a legitimate write of False -- mirrors every other function here.
+
+    Callers must enforce the register-complete gate themselves before
+    calling this; it performs no such check on its own.
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            connection.execute(
+                """
+                INSERT INTO onboarding_progress (creator_handle, dismissed, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (creator_handle) DO UPDATE
+                    SET dismissed = EXCLUDED.dismissed, updated_at = NOW()
+                """,
+                (handle, bool(dismissed)),
+            )
+        _set_error(None)
+        return True
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot onboarding-dismiss write failed: {error}")
+        return None
+
+
 def emit_event(
     creator_handle: str,
     kind: str,
