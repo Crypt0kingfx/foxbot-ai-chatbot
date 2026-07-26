@@ -117,7 +117,7 @@
 
     var greeting = greetingForHour(new Date().getHours());
     if (justConnected) {
-      setText("meGreeting", "You're in! Welcome to the Fox Spirits pack 🎉");
+      setText("meGreeting", "You're in! Welcome to the FoxBot AI pack 🎉");
     } else {
       setText("meGreeting", greeting + ", welcome back to your den 🦊");
     }
