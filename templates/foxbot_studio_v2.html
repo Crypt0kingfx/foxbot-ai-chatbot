@@ -552,6 +552,16 @@ body::before {
 .stat-delta { font-size: 11.5px; color: var(--ink-mute); margin-top: 3px; }
 .stat-delta.up { color: var(--pulse); }
 
+.stats-compact { grid-template-columns: repeat(2, 1fr); margin-top: 12px; }
+
+.subhead {
+  font-size: 12px;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 8px;
+}
+
 /* ═══ RESPONSIVE + A11Y ═════════════════════════════════════ */
 
 @media (max-width: 980px) {
@@ -583,7 +593,7 @@ body::before {
       <div class="group" data-group>
         <button class="group-head" data-toggle><span class="caret"></span>Home</button>
         <div class="group-items">
-          <button class="item active">Overview</button>
+          <button class="item active" data-target="page-overview">Overview</button>
           <button class="item">Connections</button>
         </div>
       </div>
@@ -622,7 +632,7 @@ body::before {
         <button class="group-head" data-toggle><span class="caret"></span>Settings</button>
         <div class="group-items">
           <button class="item">Bot Profile</button>
-          <button class="item">Analytics</button>
+          <button class="item" data-target="page-analytics">Analytics</button>
           <button class="item">Advanced</button>
         </div>
       </div>
@@ -635,6 +645,8 @@ body::before {
   </aside>
 
   <main class="main">
+
+    <section class="page active" id="page-overview">
 
     <div class="page-head">
       <h1 class="page-title">Overview</h1>
@@ -731,6 +743,86 @@ body::before {
       </div>
     </section>
 
+    </section>
+
+    <section class="page" id="page-analytics" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Analytics</h1>
+      <p class="page-sub">Today's numbers, top viewers, economy, and arcade activity.</p>
+    </div>
+
+    <section class="card" aria-label="Today's numbers">
+      <div class="card-head">
+        <h2 class="card-title">Today</h2>
+      </div>
+      <div class="stats" id="analyticsToday">
+        <div class="stat">
+          <div class="stat-label">Followers</div>
+          <div class="stat-num" id="analyticsFollowers">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Votes</div>
+          <div class="stat-num" id="analyticsVotes">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Subs</div>
+          <div class="stat-num" id="analyticsSubs">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Tips</div>
+          <div class="stat-num" id="analyticsTips">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">FoxCoins issued</div>
+          <div class="stat-num" id="analyticsFoxcoins">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Current event</div>
+          <div class="stat-num" id="analyticsEvent">—</div>
+        </div>
+      </div>
+      <p class="dismiss-error" id="analyticsTodayError" hidden></p>
+    </section>
+
+    <div class="grid-2">
+
+      <section class="card" aria-label="Top viewers">
+        <div class="card-head">
+          <h2 class="card-title">Top Viewers</h2>
+        </div>
+        <div id="analyticsViewers"></div>
+      </section>
+
+      <section class="card" aria-label="Arcade activity">
+        <div class="card-head">
+          <h2 class="card-title">Arcade</h2>
+        </div>
+        <div class="stats stats-compact" id="analyticsArcade"></div>
+        <p class="dismiss-error" id="analyticsArcadeError" hidden></p>
+      </section>
+
+    </div>
+
+    <section class="card" aria-label="Economy">
+      <div class="card-head">
+        <h2 class="card-title">Economy</h2>
+      </div>
+      <p class="card-sub">Top balances and the most recent transactions.</p>
+      <div class="grid-2">
+        <div>
+          <h3 class="subhead">Top balances</h3>
+          <div id="analyticsBalances"></div>
+        </div>
+        <div>
+          <h3 class="subhead">Recent transactions</h3>
+          <div id="analyticsTransactions"></div>
+        </div>
+      </div>
+    </section>
+
+    </section>
+
   </main>
 </div>
 
@@ -742,11 +834,24 @@ document.querySelectorAll('[data-toggle]').forEach(function (btn) {
   });
 });
 
+/* Swaps which .page section is visible. Tabs without a data-target
+   (not built yet) just take the active nav highlight and leave
+   whatever page is currently shown untouched -- no relabeling a real
+   page's own title over content that hasn't actually changed. */
+function showPage(id) {
+  var target = document.getElementById(id);
+  if (!target || !target.classList.contains('page')) return false;
+  document.querySelectorAll('.page').forEach(function (p) { p.hidden = (p !== target); });
+  return true;
+}
+
 document.querySelectorAll('.item').forEach(function (item) {
   item.addEventListener('click', function () {
     document.querySelectorAll('.item').forEach(function (i) { i.classList.remove('active'); });
     item.classList.add('active');
-    document.querySelector('.page-title').textContent = item.childNodes[0].textContent.trim();
+
+    var target = item.getAttribute('data-target');
+    if (target) showPage(target);
   });
 });
 
@@ -1143,6 +1248,161 @@ document.querySelectorAll('.item').forEach(function (item) {
   }
 
   loadOnboarding();
+})();
+</script>
+
+<script>
+/* ═══ ANALYTICS ═══
+   One card per data source, per the studio-v2 tab pattern (see
+   docs/studio-v2-tab-pattern.md). Each card fetches and renders
+   independently -- a failure in one never blanks the others. No
+   action buttons here; this is a read-only tab. Confirmed none of
+   these four endpoints can ever reflect native-connector state
+   (services/blaze_native_connector.py touches none of their backing
+   globals) -- so unlike the old admin's Bot Control tab, there's no
+   legacy-vs-native ambiguity to worry about here. botOnline and
+   recognitionEnabled are deliberately NOT shown: they're manual
+   toggles with no tie to real listener state, and displaying either
+   as a status would be exactly the fake-status trap this page exists
+   to avoid. */
+(function () {
+  var POLL_MS = 20000;
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderRows(container, rows, emptyText) {
+    if (!rows.length) {
+      container.innerHTML = '<div class="feed-item"><span class="feed-body">' + escapeHtml(emptyText) + '</span></div>';
+      return;
+    }
+    container.innerHTML = rows.join('');
+  }
+
+  /* ── Today (STUDIO_STATE) ── */
+  var todayEls = {
+    followers: document.getElementById('analyticsFollowers'),
+    votes: document.getElementById('analyticsVotes'),
+    subs: document.getElementById('analyticsSubs'),
+    tips: document.getElementById('analyticsTips'),
+    foxcoins: document.getElementById('analyticsFoxcoins'),
+    event: document.getElementById('analyticsEvent')
+  };
+  var todayError = document.getElementById('analyticsTodayError');
+
+  async function pollToday() {
+    try {
+      var res = await fetch('/api/studio/stats/live', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+
+      todayError.hidden = true;
+      todayEls.followers.textContent = (data.followersToday || 0).toLocaleString();
+      todayEls.votes.textContent = (data.votesToday || 0).toLocaleString();
+      todayEls.subs.textContent = (data.subsToday || 0).toLocaleString();
+      todayEls.tips.textContent = data.tipsToday || '$0';
+      todayEls.foxcoins.textContent = (data.foxcoinsToday || 0).toLocaleString();
+      todayEls.event.textContent = data.currentEvent || 'None';
+    } catch (err) {
+      Object.values(todayEls).forEach(function (el) { el.textContent = '—'; });
+      todayError.textContent = "Can't load today's numbers — unreachable.";
+      todayError.hidden = false;
+    }
+  }
+
+  /* ── Top Viewers (/viewer-stats) ── */
+  var viewersEl = document.getElementById('analyticsViewers');
+
+  async function pollViewers() {
+    try {
+      var res = await fetch('/viewer-stats', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var rows = (data.leaderboard || []).slice(0, 10).map(function (v) {
+        return '<div class="feed-item"><span class="feed-time">' + escapeHtml(v.commands || 0) + '×</span>' +
+          '<span class="feed-body"><b>' + escapeHtml(v.display_name || 'viewer') + '</b>' +
+          (v.last_command ? ' — last: ' + escapeHtml(v.last_command) : '') + '</span></div>';
+      });
+      renderRows(viewersEl, rows, 'No viewer activity yet.');
+    } catch (err) {
+      viewersEl.innerHTML = '<div class="feed-item"><span class="feed-body feed-error">Can\'t load viewer stats — unreachable.</span></div>';
+    }
+  }
+
+  /* ── Arcade (/arcade-stats) ── */
+  var arcadeEl = document.getElementById('analyticsArcade');
+  var arcadeError = document.getElementById('analyticsArcadeError');
+
+  function arcadeTile(label, value) {
+    return '<div class="stat"><div class="stat-label">' + escapeHtml(label) + '</div>' +
+      '<div class="stat-num">' + escapeHtml(value) + '</div></div>';
+  }
+
+  async function pollArcade() {
+    try {
+      var res = await fetch('/arcade-stats', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var s = data.stats || {};
+      arcadeError.hidden = true;
+      arcadeEl.innerHTML = [
+        arcadeTile('Plays', (s.plays || 0).toLocaleString()),
+        arcadeTile('Coin flips', (s.coinflip || 0).toLocaleString()),
+        arcadeTile('Rolls', (s.roll || 0).toLocaleString()),
+        arcadeTile('8-balls', (s.eightball || 0).toLocaleString()),
+        arcadeTile('RPS games', (s.rps || 0).toLocaleString()),
+        arcadeTile('RPS W-L-T', (s.rps_wins || 0) + '-' + (s.rps_losses || 0) + '-' + (s.rps_ties || 0))
+      ].join('');
+    } catch (err) {
+      arcadeEl.innerHTML = '';
+      arcadeError.textContent = "Can't load arcade stats — unreachable.";
+      arcadeError.hidden = false;
+    }
+  }
+
+  /* ── Economy (/foxcoins) ── */
+  var balancesEl = document.getElementById('analyticsBalances');
+  var transactionsEl = document.getElementById('analyticsTransactions');
+
+  async function pollEconomy() {
+    try {
+      var res = await fetch('/foxcoins', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+
+      var balances = Object.entries(data.balances || {}).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 8);
+      var balanceRows = balances.map(function (entry) {
+        return '<div class="feed-item"><span class="feed-time">' + escapeHtml(entry[1]) + '</span>' +
+          '<span class="feed-body"><b>' + escapeHtml(entry[0]) + '</b></span></div>';
+      });
+      renderRows(balancesEl, balanceRows, 'No balances yet.');
+
+      /* recent_transactions is oldest-first within its last-10 slice -- reverse for newest-first display */
+      var transactions = (data.recent_transactions || []).slice().reverse();
+      var transactionRows = transactions.map(function (t) {
+        var amount = Number(t.amount) || 0;
+        var sign = amount > 0 ? '+' : '';
+        return '<div class="feed-item"><span class="feed-time">' + sign + escapeHtml(amount) + '</span>' +
+          '<span class="feed-body"><b>' + escapeHtml(t.viewer || 'viewer') + '</b> — ' + escapeHtml(t.reason || '') + '</span></div>';
+      });
+      renderRows(transactionsEl, transactionRows, 'No transactions yet.');
+    } catch (err) {
+      balancesEl.innerHTML = '<div class="feed-item"><span class="feed-body feed-error">Can\'t load — unreachable.</span></div>';
+      transactionsEl.innerHTML = '<div class="feed-item"><span class="feed-body feed-error">Can\'t load — unreachable.</span></div>';
+    }
+  }
+
+  pollToday();
+  pollViewers();
+  pollArcade();
+  pollEconomy();
+  setInterval(pollToday, POLL_MS);
+  setInterval(pollViewers, POLL_MS);
+  setInterval(pollArcade, POLL_MS);
+  setInterval(pollEconomy, POLL_MS);
 })();
 </script>
 
