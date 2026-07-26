@@ -22907,8 +22907,7 @@ def foxbot_events_read_v1(creator_handle: str = "", limit: int = 20):
 def foxbot_onboarding_read_v1(creator_handle: str = ""):
     handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
 
-    access = _foxbot_creator_access_v1.get_access(handle)
-    registered = access.get("status") != "not_started"
+    registered = _foxbot_creator_access_v1.is_registered(handle)
 
     posted = _foxbot_events_v1.event_exists(handle, "bot_reply")
     giveaway_done = _foxbot_events_v1.event_exists(handle, "giveaway_complete")

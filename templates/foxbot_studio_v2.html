@@ -494,6 +494,7 @@ body::before {
 .feed-body { color: var(--ink-dim); }
 .feed-body b { color: var(--ink); font-weight: 600; }
 .feed-body .bot-said { color: var(--magenta); }
+.feed-body.feed-error { color: var(--magenta); }
 
 /* ═══ STATS ═════════════════════════════════════════════════ */
 
@@ -663,68 +664,22 @@ body::before {
 
     <div class="grid-2">
 
-      <section class="card" aria-label="Setup checklist">
+      <section class="card" aria-label="Setup checklist" id="onboardingCard">
         <div class="card-head">
           <h2 class="card-title">Finish setting up</h2>
-          <span class="card-count">3 / 5</span>
+          <span class="card-count" id="onboardingCount"></span>
         </div>
-        <p class="card-sub">Each step unlocks something viewers can see in your chat.</p>
-        <div class="track"><div class="fill"></div></div>
+        <p class="card-sub" id="onboardingSub">Loading setup progress…</p>
+        <div class="track"><div class="fill" id="onboardingFill" style="width:0%"></div></div>
 
-        <div class="step done">
-          <span class="box">✓</span>
-          <span class="step-label">Register your channel</span>
-        </div>
-        <div class="step done">
-          <span class="box">✓</span>
-          <span class="step-label">Add FoxBot as a moderator</span>
-        </div>
-        <div class="step done">
-          <span class="box">✓</span>
-          <span class="step-label">Turn on your first command</span>
-        </div>
-        <div class="step">
-          <span class="box"></span>
-          <span>
-            <span class="step-label">Set up a reward viewers can claim</span>
-            <span class="step-why">Viewers spend FoxCoins on it — your first loop.</span>
-          </span>
-          <button class="step-go">Set up</button>
-        </div>
-        <div class="step">
-          <span class="box"></span>
-          <span>
-            <span class="step-label">Run your first giveaway</span>
-            <span class="step-why">The fastest way to teach chat that FoxBot exists.</span>
-          </span>
-          <button class="step-go">Set up</button>
-        </div>
+        <div id="onboardingSteps"></div>
       </section>
 
       <section class="card" aria-label="Recent activity">
         <div class="card-head">
           <h2 class="card-title">Just happened</h2>
         </div>
-        <div class="feed-item">
-          <span class="feed-time">12s</span>
-          <span class="feed-body"><b>viewer_88</b> ran !help — <span class="bot-said">FoxBot replied</span></span>
-        </div>
-        <div class="feed-item">
-          <span class="feed-time">1m</span>
-          <span class="feed-body"><b>nightdrive_x</b> followed the channel</span>
-        </div>
-        <div class="feed-item">
-          <span class="feed-time">3m</span>
-          <span class="feed-body"><b>viewer_88</b> earned 40 FoxCoins</span>
-        </div>
-        <div class="feed-item">
-          <span class="feed-time">7m</span>
-          <span class="feed-body"><b>gta6_countdown</b> ran !discord — <span class="bot-said">FoxBot replied</span></span>
-        </div>
-        <div class="feed-item">
-          <span class="feed-time">11m</span>
-          <span class="feed-body">Stream went live — listener connected</span>
-        </div>
+        <div id="feedList"></div>
       </section>
 
     </div>
@@ -996,6 +951,147 @@ document.querySelectorAll('.item').forEach(function (item) {
   poll();
   setInterval(poll, POLL_MS);
   if (!reduced) setInterval(tickClock, 1000);
+})();
+</script>
+
+<script>
+/* ═══ JUST HAPPENED ═══
+   Polls /api/foxbot/events and renders whatever comes back. A fetch
+   failure or ok:false renders an explicit error row -- never leaves
+   the last-good list sitting there looking current. A zero-length
+   result renders the empty-state invitation, which is not an error.
+   bot_reply/listener events carry actor:null by design (the spec's
+   schema, not a bug) -- those kinds render without a name instead of
+   falling back to a fabricated one. */
+(function () {
+  var POLL_MS = 15000;
+  var feedList = document.getElementById('feedList');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function feedTime(ageSeconds) {
+    if (typeof ageSeconds !== 'number') return '';
+    var s = Math.max(0, ageSeconds);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    return Math.floor(s / 3600) + 'h';
+  }
+
+  function feedBody(evt) {
+    var actor = evt.actor ? '<b>' + escapeHtml(evt.actor) + '</b>' : null;
+    var detail = evt.detail || {};
+    switch (evt.kind) {
+      case 'command':
+        return (actor || 'a viewer') + ' ran ' + escapeHtml(detail.command || 'a command');
+      case 'bot_reply':
+        return '<span class="bot-said">FoxBot replied</span>' +
+          (detail.in_reply_to ? ' to ' + escapeHtml(detail.in_reply_to) : '');
+      case 'follow':
+        return (actor || 'someone') + ' followed the channel';
+      case 'reward':
+        return (actor || 'someone') + ' claimed ' + escapeHtml(detail.reward || 'a reward');
+      case 'listener':
+        return 'Listener ' + escapeHtml(detail.state || 'changed') +
+          (detail.reason ? ' — ' + escapeHtml(detail.reason) : '');
+      default:
+        return escapeHtml(evt.kind);
+    }
+  }
+
+  function renderMessage(text, cls) {
+    feedList.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderEvents(events) {
+    if (!events.length) {
+      renderMessage('Nothing yet. FoxBot logs activity here once your stream starts.');
+      return;
+    }
+    feedList.innerHTML = events.map(function (evt) {
+      return '<div class="feed-item"><span class="feed-time">' + escapeHtml(feedTime(evt.age_seconds)) +
+        '</span><span class="feed-body">' + feedBody(evt) + '</span></div>';
+    }).join('');
+  }
+
+  async function pollEvents() {
+    try {
+      var res = await fetch('/api/foxbot/events?limit=20', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'events unavailable');
+      renderEvents(data.events || []);
+    } catch (err) {
+      renderMessage("Can't load activity — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollEvents();
+  setInterval(pollEvents, POLL_MS);
+})();
+</script>
+
+<script>
+/* ═══ FINISH SETTING UP ═══
+   Computed fresh from /api/foxbot/onboarding on each page load (no
+   client-side caching, per spec). ok:false renders one explicit
+   "unavailable" line -- never five empty boxes, which would tell a
+   fully-configured creator they've done nothing. */
+(function () {
+  var card = document.getElementById('onboardingCard');
+  var countEl = document.getElementById('onboardingCount');
+  var subEl = document.getElementById('onboardingSub');
+  var fillEl = document.getElementById('onboardingFill');
+  var stepsEl = document.getElementById('onboardingSteps');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderUnavailable() {
+    countEl.textContent = '';
+    subEl.textContent = 'Checklist unavailable — could not load setup progress.';
+    fillEl.style.width = '0%';
+    stepsEl.innerHTML = '';
+  }
+
+  function renderItems(data) {
+    var items = data.items || [];
+    var total = data.total || items.length;
+    countEl.textContent = data.completed + ' / ' + total;
+    subEl.textContent = 'Each step unlocks something viewers can see in your chat.';
+    fillEl.style.width = (total ? Math.round((data.completed / total) * 100) : 0) + '%';
+    stepsEl.innerHTML = items.map(function (item) {
+      return '<div class="step' + (item.done ? ' done' : '') + '">' +
+        '<span class="box">' + (item.done ? '✓' : '') + '</span>' +
+        '<span class="step-label">' + escapeHtml(item.label) + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  async function loadOnboarding() {
+    try {
+      var res = await fetch('/api/foxbot/onboarding', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'onboarding unavailable');
+      if (data.dismissed) {
+        card.style.display = 'none';
+        return;
+      }
+      renderItems(data);
+    } catch (err) {
+      renderUnavailable();
+    }
+  }
+
+  loadOnboarding();
 })();
 </script>
 

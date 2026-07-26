@@ -169,6 +169,22 @@ def get_access(handle: str) -> dict[str, Any]:
     return result
 
 
+def is_registered(handle: str) -> bool:
+    """Whether a creator record exists at all, independent of trial/
+    subscription funnel status. True the moment a channel is connected --
+    the owner's own channel included -- even if it never starts a trial.
+
+    Assumes the owner's channel has run !connect (or otherwise gone
+    through _ensure_creator) at least once, which is how it currently
+    gets a row. An owner who never has would read false here -- if
+    that's reachable in this setup, it needs its own signal, but nothing
+    observed so far shows it actually happening.
+    """
+    document = _load_document()
+    _, creator = _get_creator(document, handle)
+    return creator is not None
+
+
 def start_trial(handle: str, display_name: str | None = None) -> dict[str, Any]:
     document = _load_document()
     _, creator = _ensure_creator(document, handle, display_name)
