@@ -976,8 +976,8 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     "/api/blaze/test-auto-chat-event", "/api/blaze/event",
     "/api/foxbot/events", "/api/foxbot/onboarding",
 
-    "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards", "/redemptions",
-    "/recognition", "/boss", "/community-quest", "/streaks", "/custom-commands",
+    "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards",
+    "/recognition", "/community-quest", "/streaks", "/custom-commands",
 
 }
 
@@ -989,10 +989,24 @@ FOXBOT_ADMIN_GATED_PREFIXES = (
 
 )
 
+# Paths that would otherwise match a gated prefix above, but are fetched
+# directly by a public /overlay/* page (OBS browser source — can't answer
+# a Basic Auth prompt). Carved out of /api/studio/ specifically so the
+# rest of that prefix (action dispatch, activity clear/demo, the other
+# /api/studio/giveaways/* admin writes) stays gated.
+FOXBOT_ADMIN_PUBLIC_EXCEPTIONS = {
+
+    "/api/studio/giveaways/status",
+
+}
+
 
 def _foxbot_studio_path_is_gated(path: str) -> bool:
 
     normalized = path.rstrip("/") or "/"
+
+    if normalized in FOXBOT_ADMIN_PUBLIC_EXCEPTIONS:
+        return False
 
     if normalized in FOXBOT_ADMIN_GATED_EXACT_PATHS:
         return True
