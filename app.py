@@ -962,6 +962,89 @@ async def foxbot_auto_save_middleware(request, call_next):
 
 
 
+# === FoxBot Studio Admin Auth Gate v1 ===
+
+FOXBOT_ADMIN_GATED_EXACT_PATHS = {
+
+    "/studio", "/studio-v2", "/admin", "/legacy-admin", "/foxbot-control",
+    "/admin-giveaways", "/dashboard",
+
+    "/api/foxbot/admin-command", "/chat", "/save-data", "/data-status",
+    "/project-status", "/smoke-test", "/proof",
+
+    "/api/blaze/event-bridge", "/api/blaze/parse-auto-event",
+    "/api/blaze/test-auto-chat-event", "/api/blaze/event",
+    "/api/foxbot/events", "/api/foxbot/onboarding",
+
+    "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards", "/redemptions",
+    "/recognition", "/boss", "/community-quest", "/streaks", "/custom-commands",
+
+}
+
+FOXBOT_ADMIN_GATED_PREFIXES = (
+
+    "/api/studio/", "/api/automation/", "/api/giveaways/",
+    "/api/blaze/native/", "/api/blaze/oauth/", "/api/blaze/service/",
+    "/api/blaze/listener/", "/api/recognition/", "/blaze/",
+
+)
+
+
+def _foxbot_studio_path_is_gated(path: str) -> bool:
+
+    normalized = path.rstrip("/") or "/"
+
+    if normalized in FOXBOT_ADMIN_GATED_EXACT_PATHS:
+        return True
+
+    return any(normalized.startswith(prefix.rstrip("/")) for prefix in FOXBOT_ADMIN_GATED_PREFIXES)
+
+
+@app.middleware("http")
+async def foxbot_studio_admin_auth_gate_v1(request, call_next):
+
+    if _foxbot_studio_path_is_gated(request.url.path):
+
+        import base64
+        import secrets
+        from fastapi.responses import JSONResponse, Response
+
+        expected_user = os.getenv("STUDIO_ADMIN_USER")
+        expected_password = os.getenv("STUDIO_ADMIN_PASSWORD")
+
+        if not expected_user or not expected_password:
+            return JSONResponse(
+                {"ok": False, "error": "Studio admin auth is not configured (STUDIO_ADMIN_USER / STUDIO_ADMIN_PASSWORD unset)."},
+                status_code=503,
+            )
+
+        auth_header = request.headers.get("authorization", "")
+        authorized = False
+
+        if auth_header.lower().startswith("basic "):
+            try:
+                decoded = base64.b64decode(auth_header.split(" ", 1)[1]).decode("utf-8")
+                supplied_user, _, supplied_password = decoded.partition(":")
+            except Exception:
+                supplied_user, supplied_password = "", ""
+
+            authorized = (
+                secrets.compare_digest(supplied_user, expected_user)
+                and secrets.compare_digest(supplied_password, expected_password)
+            )
+
+        if not authorized:
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="FoxBot Studio Admin"'},
+            )
+
+    return await call_next(request)
+
+# === End FoxBot Studio Admin Auth Gate v1 ===
+
+
+
 
 
 proof_stats = {
