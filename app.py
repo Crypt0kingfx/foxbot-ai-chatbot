@@ -2899,7 +2899,7 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         new_balance = add_points(target, reward, f"auto vote recognition x{votes}")
 
-        msg = f"Thank you @{target} for voting with {votes} votes! Fox Spirits appreciates the support. +{reward} {currency}. Balance: {new_balance} {currency}."
+        msg = f"Thank you @{target} for voting with {votes} votes! FoxBot AI appreciates your support! +{reward} {currency}. Balance: {new_balance} {currency}."
 
         msg += surprise_bonus(target)
 
