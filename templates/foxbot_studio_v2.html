@@ -492,6 +492,26 @@ body::before {
   color: var(--magenta);
 }
 
+/* ═══ FORM CONTROLS ═════════════════════════════════════════ */
+
+.field-row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 160px; }
+.field-wide { flex: 1 1 320px; }
+.field-label { font-size: 11.5px; color: var(--ink-mute); }
+
+.field-input {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
+}
+.field-input:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; border-color: var(--line-hot); }
+
+.action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
 /* ═══ ACTIVITY FEED ═════════════════════════════════════════ */
 
 .feed-item {
@@ -608,7 +628,7 @@ body::before {
           <button class="item">Quests</button>
           <button class="item">Boss Battle</button>
           <button class="item">Giveaways</button>
-          <button class="item">Economy</button>
+          <button class="item" data-target="page-economy">Economy</button>
           <button class="item" data-target="page-recognition">Recognition</button>
         </div>
       </div>
@@ -860,6 +880,53 @@ body::before {
 
       <h3 class="subhead subhead-spaced">Recent activity</h3>
       <div id="recognitionActivity"></div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-economy" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Economy</h1>
+      <p class="page-sub">Admin actions against FoxCoin balances — runs the live command engine and posts to chat.</p>
+    </div>
+
+    <section class="card" aria-label="Balance actions">
+      <div class="card-head">
+        <h2 class="card-title">Balance actions</h2>
+      </div>
+      <p class="card-sub">Give, take, check, and rank FoxCoin balances. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Viewer username</span>
+          <input type="text" id="ecoViewer" class="field-input" placeholder="testviewer">
+        </label>
+        <label class="field">
+          <span class="field-label">Amount</span>
+          <input type="text" id="ecoAmount" class="field-input" value="100">
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button type="button" id="ecoBalanceBtn" class="step-go">Check balance</button>
+        <button type="button" id="ecoGiveBtn" class="step-go">Give FoxCoins</button>
+        <button type="button" id="ecoTakeBtn" class="step-go">Take FoxCoins</button>
+        <button type="button" id="ecoLeaderboardBtn" class="step-go">Leaderboard</button>
+      </div>
+
+      <div class="field-row">
+        <label class="field field-wide">
+          <span class="field-label">Custom command</span>
+          <input type="text" id="ecoCommand" class="field-input" value="!balance">
+        </label>
+        <button type="button" id="ecoRunBtn" class="step-go" style="align-self:flex-end;">Run</button>
+      </div>
+
+      <p class="dismiss-error" id="ecoActionError" hidden></p>
+      <div class="feed-item" id="ecoActionResult" hidden>
+        <span class="feed-body" id="ecoActionResultText"></span>
+      </div>
     </section>
 
     </section>
@@ -1546,6 +1613,82 @@ document.querySelectorAll('.item').forEach(function (item) {
 
   pollRecognition();
   setInterval(pollRecognition, POLL_MS);
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('ecoActionError');
+  var resultBox = document.getElementById('ecoActionResult');
+  var resultText = document.getElementById('ecoActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('ecoBalanceBtn', function () {
+    var viewer = val('ecoViewer', 'testviewer');
+    return runAdminCommand(viewer, '!balance', 'Balance — ' + viewer);
+  });
+
+  bindAction('ecoGiveBtn', function () {
+    var viewer = val('ecoViewer', 'testviewer');
+    var amount = val('ecoAmount', '100');
+    return runAdminCommand(ADMIN_USER, '!givepoints ' + viewer + ' ' + amount, 'Give ' + amount + ' to ' + viewer);
+  });
+
+  bindAction('ecoTakeBtn', function () {
+    var viewer = val('ecoViewer', 'testviewer');
+    var amount = val('ecoAmount', '100');
+    return runAdminCommand(ADMIN_USER, '!givepoints ' + viewer + ' -' + amount, 'Take ' + amount + ' from ' + viewer);
+  });
+
+  bindAction('ecoLeaderboardBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!leaderboard', 'Leaderboard');
+  });
+
+  bindAction('ecoRunBtn', function () {
+    var command = val('ecoCommand', '!balance');
+    var viewer = val('ecoViewer', 'testviewer');
+    var username = /^!(givepoints|addreward|reset)/.test(command) ? ADMIN_USER : viewer;
+    return runAdminCommand(username, command, 'Custom: ' + command);
+  });
 })();
 </script>
 
