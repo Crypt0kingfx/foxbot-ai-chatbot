@@ -22643,6 +22643,8 @@ def _foxbot_process_channel_rows_v1(target, rows):
         message_id = find_chat_message_id(item)
         message_text = find_chat_message_text(item)
         username = find_chat_username(item)
+        if username == "viewer":
+            print(f"[DEBUG] find_chat_username fell back to 'viewer' for raw item: {item!r}")
         message_key = f"{channel_key}:{message_id}"
 
         polling_status["last_message"] = item
