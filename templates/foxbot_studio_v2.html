@@ -855,6 +855,9 @@ body::before {
       </div>
       <p class="dismiss-error" id="recognitionSettingsError" hidden></p>
 
+      <button type="button" id="recognitionToggleBtn" class="step-go" hidden>Turn recognition off</button>
+      <p class="dismiss-error" id="recognitionToggleError" hidden></p>
+
       <h3 class="subhead subhead-spaced">Recent activity</h3>
       <div id="recognitionActivity"></div>
     </section>
@@ -1476,6 +1479,9 @@ document.querySelectorAll('.item').forEach(function (item) {
   var chanceNote = document.getElementById('recognitionChanceNote');
   var settingsError = document.getElementById('recognitionSettingsError');
   var activityEl = document.getElementById('recognitionActivity');
+  var toggleBtn = document.getElementById('recognitionToggleBtn');
+  var toggleError = document.getElementById('recognitionToggleError');
+  var currentEnabled = null;
 
   function unreachable() {
     setCheck(enabledValue, enabledNote, 'bad', 'Unknown', 'unreachable');
@@ -1484,6 +1490,7 @@ document.querySelectorAll('.item').forEach(function (item) {
     settingsError.textContent = "Can't load recognition settings — unreachable.";
     settingsError.hidden = false;
     activityEl.innerHTML = '<div class="feed-item"><span class="feed-body feed-error">Can\'t load recognition activity — unreachable.</span></div>';
+    toggleBtn.hidden = true;
   }
 
   async function pollRecognition() {
@@ -1501,6 +1508,10 @@ document.querySelectorAll('.item').forEach(function (item) {
       setCheck(chanceValue, chanceNote, 'ok',
         (settings.surprise_bonus_chance != null ? settings.surprise_bonus_chance : '—') + '%', 'configured chance');
 
+      currentEnabled = !!settings.enabled;
+      toggleBtn.hidden = false;
+      toggleBtn.textContent = currentEnabled ? 'Turn recognition off' : 'Turn recognition on';
+
       var rows = (data.recent_log || []).slice(0, 10).map(function (entry) {
         return '<div class="feed-item"><span class="feed-time">' + escapeHtml(entry.event_type || '') + '</span>' +
           '<span class="feed-body"><b>' + escapeHtml(entry.username || 'viewer') + '</b> — ' +
@@ -1515,6 +1526,23 @@ document.querySelectorAll('.item').forEach(function (item) {
       unreachable();
     }
   }
+
+  toggleBtn.addEventListener('click', async function () {
+    if (currentEnabled === null) return;
+    var nextState = currentEnabled ? 'off' : 'on';
+    toggleBtn.disabled = true;
+    toggleError.hidden = true;
+    try {
+      var res = await fetch('/api/automation/recognition/' + nextState, { method: 'POST', cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      await pollRecognition();
+    } catch (err) {
+      toggleError.textContent = 'Action failed — try again.';
+      toggleError.hidden = false;
+    } finally {
+      toggleBtn.disabled = false;
+    }
+  });
 
   pollRecognition();
   setInterval(pollRecognition, POLL_MS);
