@@ -14172,7 +14172,7 @@ def recognition_endpoint():
 
 @app.get("/auto-event/{event_type}")
 
-def auto_event_endpoint(event_type: str, username: str = "viewer", amount: float = 1):
+def auto_event_endpoint(event_type: str, username: str, amount: float = 1):
 
     message = recognition_response(event_type.lower(), username, amount)
 
