@@ -16539,7 +16539,7 @@ async def foxbot_connected_creators_connect(payload: _FoxDict[str, _FoxAny]):
 
 async def foxbot_connected_creators_demo():
 
-    demo_names = ["brachial513", "der_bruder", "mistersupercool", "vroski55", "jt_squared2", "agent00zani", "hollowgames"]
+    demo_names = ["demo_creator", "der_bruder", "mistersupercool", "vroski55", "jt_squared2", "agent00zani", "hollowgames"]
 
     data = _foxbot_load_connected_creators()
 
