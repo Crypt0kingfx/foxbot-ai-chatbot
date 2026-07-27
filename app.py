@@ -952,6 +952,8 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards",
     "/recognition", "/community-quest", "/streaks", "/custom-commands",
 
+    "/api/connected-creators/demo",
+
 }
 
 FOXBOT_ADMIN_GATED_PREFIXES = (
@@ -982,6 +984,16 @@ def _foxbot_studio_path_is_gated(path: str) -> bool:
         return False
 
     if normalized in FOXBOT_ADMIN_GATED_EXACT_PATHS:
+        return True
+
+    # /api/connected-creators/{handle}/foxcoins mints FoxCoins for an
+    # arbitrary handle and has no admin check of its own. The handle
+    # segment is dynamic, so it can't go in the exact-path set above --
+    # matched by suffix instead. Everything else under
+    # /api/connected-creators/ (list, connect, message, chat-test, me)
+    # stays public; connect is the creator self-registration path and
+    # must never be gated.
+    if normalized.startswith("/api/connected-creators/") and normalized.endswith("/foxcoins"):
         return True
 
     return any(normalized.startswith(prefix.rstrip("/")) for prefix in FOXBOT_ADMIN_GATED_PREFIXES)
