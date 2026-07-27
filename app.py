@@ -1,32 +1,5 @@
 
 
-# === FoxBot Shop Emoji Normalizer v2 ===
-def foxbot_shop_emoji_response_v2():
-    return (
-        "FoxBot Reward Shop: "
-        "hug 10 | "
-        "hype 25 | "
-        "flex 50 | "
-        "mysterybox 75 | "
-        "sponsor 150 | "
-        "Use !redeem rewardname"
-    )
-
-def foxbot_fix_shop_reply_v2(message, reply):
-    msg = str(message or "").strip().lower()
-    rep = str(reply or "")
-
-    if msg in {"!shop", "!rewards", "!rewardshop"}:
-        return foxbot_shop_emoji_response_v2()
-
-    if "FoxBot Reward Shop" in rep:
-        return foxbot_shop_emoji_response_v2()
-
-    return rep
-# === End FoxBot Shop Emoji Normalizer v2 ===
-
-
-
 # === FoxBot Force Shop Emoji Response v1 ===
 def foxbot_clean_shop_response_v1():
     return (
@@ -21203,11 +21176,7 @@ async def foxbot_admin_command_send_v1(payload: dict):
         return {"ok": False, "error": "Missing message"}
 
     try:
-        safe_rewards_reply = foxbot_safe_rewards21_reply_v1(username, message)
-        if safe_rewards_reply is not None:
-            result = {"response": safe_rewards_reply, "source": "safe_rewards_2_1"}
-        else:
-            result = chat(message=message, username=username)
+        result = chat(message=message, username=username)
     except Exception as e:
         return {
             "ok": False,
@@ -21224,12 +21193,6 @@ async def foxbot_admin_command_send_v1(payload: dict):
         reply = result
 
     reply = str(reply or "").strip()
-
-    fixed_reply = foxbot_fix_shop_reply_v2(message, reply)
-    if fixed_reply != reply:
-        reply = fixed_reply
-        if isinstance(result, dict):
-            result["response"] = reply
 
     send_result = None
 
@@ -21528,57 +21491,6 @@ def foxbot_safe_rewards21_find_v1(name):
             return r
     return None
 
-def foxbot_safe_rewards21_redeem_text_v1(username, reward_name):
-    username = str(username or "viewer").strip().lstrip("@")
-    reward = foxbot_safe_rewards21_find_v1(reward_name)
-
-    if not reward:
-        examples = ", ".join([r["id"] for r in FOXBOT_SAFE_REWARDS_21[:10]])
-        return f"\U0001F98A\u2753 @{username}, reward not found. Try: {examples}. Use !shop for categories."
-
-    data_dir = _foxbot_safe_rewards_Path("data")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    path = data_dir / "foxbot_safe_rewards21_redemptions.json"
-
-    try:
-        redemptions = _foxbot_safe_rewards_json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-    except Exception:
-        redemptions = []
-
-    redemptions.append({
-        "id": f"redemption-{int(_foxbot_safe_rewards_time.time())}-{len(redemptions)+1}",
-        "username": username,
-        "reward_id": reward["id"],
-        "reward_name": reward["name"],
-        "emoji": reward["emoji"],
-        "cost": reward["cost"],
-        "category": reward["category"],
-        "description": reward["description"],
-        "status": "pending",
-        "created_at": int(_foxbot_safe_rewards_time.time())
-    })
-
-    path.write_text(_foxbot_safe_rewards_json.dumps(redemptions, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    return (
-        f"{reward['emoji']} REDEEMED! @{username} claimed {reward['name']} for {reward['cost']} FoxCoins! "
-        f"\u2728 Pending streamer approval \U0001F9E1 | {reward['description']}"
-    )
-
-def foxbot_safe_rewards21_reply_v1(username, message):
-    msg = str(message or "").strip()
-    lower = msg.lower()
-
-    if lower in {"!shop", "!rewards", "!rewardshop"} or lower.startswith("!shop ") or lower.startswith("!rewards "):
-        parts = msg.split()
-        page = parts[1] if len(parts) > 1 else "main"
-        return foxbot_safe_rewards21_shop_text_v1(page)
-
-    if lower.startswith("!redeem"):
-        reward_name = msg.split(" ", 1)[1].strip() if " " in msg else ""
-        return foxbot_safe_rewards21_redeem_text_v1(username, reward_name)
-
-    return None
 # === End FoxBot Safe Rewards 2.1 Admin Command Hook v1 ===
 
 
