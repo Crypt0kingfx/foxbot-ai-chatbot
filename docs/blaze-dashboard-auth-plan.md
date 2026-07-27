@@ -4,6 +4,29 @@ Status: scoped only, no code written. Not scheduled for this session or the
 current branch. Written so a future session can pick this up cold without
 re-deriving the analysis.
 
+## Getting started next session
+
+1. Verify the `/oauth/blaze/callback` (registered with Blaze) vs
+   `/auth/blaze/callback` (in app.py) path discrepancy — see "Blocker —
+   RESOLVED" below.
+2. Add the dashboard redirect URI in Blaze's OAuth app config (5 slots
+   available, 1 currently used).
+3. Build the separate OAuth flow (`/auth/dashboard/login` +
+   `/auth/dashboard/callback`, minimal `users.read` scope, distinct PKCE
+   cookie names).
+4. Build the allowlist, with **brachi8a as the first approved user** (see
+   "First user to approve" below).
+5. Build the dual-mode gate (Basic Auth AND Blaze-auth both work); verify
+   the full login round-trip from a second browser before ever dropping
+   Basic Auth.
+
+## First user to approve
+
+**brachi8a** is a real person already waiting for dashboard access — they
+are the test case for the allowlist once it's built. Use them to verify the
+end-to-end flow (login, allowlist match, dashboard access granted) before
+onboarding anyone else.
+
 ## Goal
 
 Replace the shared Basic Auth password on the Studio dashboard with
