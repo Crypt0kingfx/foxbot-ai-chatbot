@@ -623,7 +623,7 @@ body::before {
       <div class="group collapsed" data-group>
         <button class="group-head" data-toggle><span class="caret"></span>Engagement</button>
         <div class="group-items">
-          <button class="item">Rewards<span class="flag warn" title="Needs attention"></span></button>
+          <button class="item" data-target="page-rewards">Rewards</button>
           <button class="item">Streaks<span class="flag down" title="Not working"></span></button>
           <button class="item">Quests</button>
           <button class="item">Boss Battle</button>
@@ -927,6 +927,59 @@ body::before {
       <div class="feed-item" id="ecoActionResult" hidden>
         <span class="feed-body" id="ecoActionResultText"></span>
       </div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-rewards" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Rewards</h1>
+      <p class="page-sub">Reward shop, redemptions, and admin actions — runs the live command engine and posts to chat.</p>
+    </div>
+
+    <section class="card" aria-label="Reward actions">
+      <div class="card-head">
+        <h2 class="card-title">Reward actions</h2>
+      </div>
+      <p class="card-sub">Post the shop, test a redemption, and add new rewards. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Viewer username</span>
+          <input type="text" id="rwViewer" class="field-input" placeholder="testviewer">
+        </label>
+        <label class="field">
+          <span class="field-label">Reward name</span>
+          <input type="text" id="rwRewardName" class="field-input" value="shoutout">
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button type="button" id="rwShopBtn" class="step-go">Send !shop</button>
+        <button type="button" id="rwRedeemBtn" class="step-go">Test redeem</button>
+      </div>
+
+      <div class="field-row">
+        <label class="field field-wide">
+          <span class="field-label">Add reward command</span>
+          <input type="text" id="rwAddRewardCommand" class="field-input" value="!addreward shoutout 500">
+        </label>
+        <button type="button" id="rwAddBtn" class="step-go" style="align-self:flex-end;">Run</button>
+      </div>
+
+      <p class="dismiss-error" id="rwActionError" hidden></p>
+      <div class="feed-item" id="rwActionResult" hidden>
+        <span class="feed-body" id="rwActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Redemption queue">
+      <div class="card-head">
+        <h2 class="card-title">Redemption queue</h2>
+      </div>
+      <p class="card-sub">Latest reward redemptions from Blaze chat.</p>
+      <div id="redemptionList"></div>
     </section>
 
     </section>
@@ -1688,6 +1741,119 @@ document.querySelectorAll('.item').forEach(function (item) {
     var viewer = val('ecoViewer', 'testviewer');
     var username = /^!(givepoints|addreward|reset)/.test(command) ? ADMIN_USER : viewer;
     return runAdminCommand(username, command, 'Custom: ' + command);
+  });
+})();
+</script>
+
+<script>
+/* ═══ REDEMPTION QUEUE ═══
+   Same honest-render pattern as Just Happened: explicit error row on
+   fetch failure, explicit empty state on a zero-length queue. */
+(function () {
+  var POLL_MS = 15000;
+  var redemptionList = document.getElementById('redemptionList');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(text, cls) {
+    redemptionList.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderRedemptions(redemptions) {
+    if (!redemptions.length) {
+      renderMessage('No redemptions yet.');
+      return;
+    }
+    redemptionList.innerHTML = redemptions.map(function (r) {
+      var body = escapeHtml(r.username || 'someone') + ' redeemed ' + escapeHtml(r.reward || 'a reward') +
+        (typeof r.cost === 'number' ? ' (' + r.cost + ' FoxCoins)' : '');
+      return '<div class="feed-item"><span class="feed-body">' + body + '</span></div>';
+    }).join('');
+  }
+
+  async function pollRedemptions() {
+    try {
+      var res = await fetch('/redemptions', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderRedemptions(data.redemptions || []);
+    } catch (err) {
+      renderMessage("Can't load redemption queue — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollRedemptions();
+  setInterval(pollRedemptions, POLL_MS);
+
+  window.foxbotPollRedemptions = pollRedemptions;
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('rwActionError');
+  var resultBox = document.getElementById('rwActionResult');
+  var resultText = document.getElementById('rwActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollRedemptions === 'function') window.foxbotPollRedemptions();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('rwShopBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!shop', 'Shop');
+  });
+
+  bindAction('rwRedeemBtn', function () {
+    var viewer = val('rwViewer', 'testviewer');
+    var rewardName = val('rwRewardName', 'shoutout');
+    return runAdminCommand(viewer, '!redeem ' + rewardName, 'Redeem — ' + viewer + ' -> ' + rewardName);
+  });
+
+  bindAction('rwAddBtn', function () {
+    var command = val('rwAddRewardCommand', '!addreward shoutout 500');
+    return runAdminCommand(ADMIN_USER, command, 'Add reward');
   });
 })();
 </script>
