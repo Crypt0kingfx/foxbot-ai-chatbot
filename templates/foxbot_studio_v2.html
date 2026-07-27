@@ -765,28 +765,36 @@ body::before {
 
     </div>
 
-    <section class="stats" aria-label="Today's numbers">
+    <section class="stats" aria-label="Real-time numbers">
       <div class="stat">
-        <div class="stat-label">Followers</div>
-        <div class="stat-num">208</div>
-        <div class="stat-delta up">+12 this stream</div>
+        <div class="stat-label">FoxCoins in circulation</div>
+        <div class="stat-num" id="overviewFoxcoins">—</div>
       </div>
       <div class="stat">
         <div class="stat-label">Commands run</div>
-        <div class="stat-num">47</div>
-        <div class="stat-delta">today</div>
+        <div class="stat-num" id="overviewCommands">—</div>
+        <div class="stat-delta">since last restart</div>
       </div>
       <div class="stat">
-        <div class="stat-label">FoxCoins issued</div>
-        <div class="stat-num">1,240</div>
-        <div class="stat-delta">today</div>
+        <div class="stat-label">Known viewers</div>
+        <div class="stat-num" id="overviewViewers">—</div>
+        <div class="stat-delta">since last restart</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Current event</div>
+        <div class="stat-num" id="overviewEvent">—</div>
       </div>
       <div class="stat">
         <div class="stat-label">Bot uptime</div>
-        <div class="stat-num">2h 14m</div>
-        <div class="stat-delta">since restart</div>
+        <div class="stat-num" id="overviewUptime">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Follows</div>
+        <div class="stat-num" id="overviewFollows">—</div>
+        <div class="stat-delta">all-time</div>
       </div>
     </section>
+    <p class="dismiss-error" id="overviewStatsError" hidden></p>
 
     </section>
 
@@ -797,34 +805,34 @@ body::before {
       <p class="page-sub">Today's numbers, top viewers, economy, and arcade activity.</p>
     </div>
 
-    <section class="card" aria-label="Today's numbers">
+    <section class="card" aria-label="Real-time numbers">
       <div class="card-head">
-        <h2 class="card-title">Today</h2>
+        <h2 class="card-title">Live stats</h2>
       </div>
       <div class="stats" id="analyticsToday">
         <div class="stat">
-          <div class="stat-label">Followers</div>
-          <div class="stat-num" id="analyticsFollowers">—</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Votes</div>
-          <div class="stat-num" id="analyticsVotes">—</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Subs</div>
-          <div class="stat-num" id="analyticsSubs">—</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Tips</div>
-          <div class="stat-num" id="analyticsTips">—</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">FoxCoins issued</div>
+          <div class="stat-label">FoxCoins in circulation</div>
           <div class="stat-num" id="analyticsFoxcoins">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Commands run</div>
+          <div class="stat-num" id="analyticsCommands">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Known viewers</div>
+          <div class="stat-num" id="analyticsKnownViewers">—</div>
         </div>
         <div class="stat">
           <div class="stat-label">Current event</div>
           <div class="stat-num" id="analyticsEvent">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Bot uptime</div>
+          <div class="stat-num" id="analyticsUptime">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Follows</div>
+          <div class="stat-num" id="analyticsFollows">—</div>
         </div>
       </div>
       <p class="dismiss-error" id="analyticsTodayError" hidden></p>
@@ -1810,16 +1818,39 @@ document.querySelectorAll('.item').forEach(function (item) {
     container.innerHTML = rows.join('');
   }
 
-  /* ── Today (STUDIO_STATE) ── */
+  /* ── Real-time stats (/api/studio/stats/live) ──
+     Same endpoint drives Overview's KPI row and Analytics' Live stats
+     card -- both are always in the DOM (just hidden by the page
+     switcher), so one poll updates whichever the viewer has open.
+     Individual null fields (follows_total with no DATABASE_URL,
+     uptime_seconds while the native connector isn't connected) render
+     as "—", not 0 -- 0 would falsely claim a verified zero. A fetch
+     failure is a separate, explicit "can't reach" state that blanks
+     every tile rather than leaving stale numbers on screen. */
+  function formatUptime(seconds) {
+    if (seconds == null) return null;
+    var s = Math.max(0, Math.floor(seconds));
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
+  }
+
   var todayEls = {
-    followers: document.getElementById('analyticsFollowers'),
-    votes: document.getElementById('analyticsVotes'),
-    subs: document.getElementById('analyticsSubs'),
-    tips: document.getElementById('analyticsTips'),
-    foxcoins: document.getElementById('analyticsFoxcoins'),
-    event: document.getElementById('analyticsEvent')
+    overviewFoxcoins: document.getElementById('overviewFoxcoins'),
+    overviewCommands: document.getElementById('overviewCommands'),
+    overviewViewers: document.getElementById('overviewViewers'),
+    overviewEvent: document.getElementById('overviewEvent'),
+    overviewUptime: document.getElementById('overviewUptime'),
+    overviewFollows: document.getElementById('overviewFollows'),
+    analyticsFoxcoins: document.getElementById('analyticsFoxcoins'),
+    analyticsCommands: document.getElementById('analyticsCommands'),
+    analyticsKnownViewers: document.getElementById('analyticsKnownViewers'),
+    analyticsEvent: document.getElementById('analyticsEvent'),
+    analyticsUptime: document.getElementById('analyticsUptime'),
+    analyticsFollows: document.getElementById('analyticsFollows')
   };
   var todayError = document.getElementById('analyticsTodayError');
+  var overviewStatsError = document.getElementById('overviewStatsError');
 
   async function pollToday() {
     try {
@@ -1827,17 +1858,37 @@ document.querySelectorAll('.item').forEach(function (item) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var data = await res.json();
 
+      var foxcoinsText = Number(data.foxcoins_total || 0).toLocaleString();
+      var commandsText = Number(data.commands_total || 0).toLocaleString();
+      var viewersText = Number(data.viewers_total || 0).toLocaleString();
+      var eventText = data.current_event || 'None';
+      var uptimeText = data.bot_online ? (formatUptime(data.uptime_seconds) || '—') : 'Offline';
+      var followsText = (data.follows_total == null) ? '—' : Number(data.follows_total).toLocaleString();
+
       todayError.hidden = true;
-      todayEls.followers.textContent = (data.followersToday || 0).toLocaleString();
-      todayEls.votes.textContent = (data.votesToday || 0).toLocaleString();
-      todayEls.subs.textContent = (data.subsToday || 0).toLocaleString();
-      todayEls.tips.textContent = data.tipsToday || '$0';
-      todayEls.foxcoins.textContent = (data.foxcoinsToday || 0).toLocaleString();
-      todayEls.event.textContent = data.currentEvent || 'None';
+      overviewStatsError.hidden = true;
+
+      todayEls.overviewFoxcoins.textContent = foxcoinsText;
+      todayEls.overviewCommands.textContent = commandsText;
+      todayEls.overviewViewers.textContent = viewersText;
+      todayEls.overviewEvent.textContent = eventText;
+      todayEls.overviewUptime.textContent = uptimeText;
+      todayEls.overviewFollows.textContent = followsText;
+
+      todayEls.analyticsFoxcoins.textContent = foxcoinsText;
+      todayEls.analyticsCommands.textContent = commandsText;
+      todayEls.analyticsKnownViewers.textContent = viewersText;
+      todayEls.analyticsEvent.textContent = eventText;
+      todayEls.analyticsUptime.textContent = uptimeText;
+      todayEls.analyticsFollows.textContent = followsText;
     } catch (err) {
-      Object.values(todayEls).forEach(function (el) { el.textContent = '—'; });
-      todayError.textContent = "Can't load today's numbers — unreachable.";
+      Object.keys(todayEls).forEach(function (key) {
+        if (todayEls[key]) todayEls[key].textContent = '—';
+      });
+      todayError.textContent = "Can't load live stats — unreachable.";
       todayError.hidden = false;
+      overviewStatsError.textContent = "Can't load stats — unreachable.";
+      overviewStatsError.hidden = false;
     }
   }
 
