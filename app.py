@@ -120,6 +120,8 @@ polling_status = {
 
     "running": False,
 
+    "started_at": None,
+
     "checks": 0,
 
     "messages_seen": 0,
@@ -7388,6 +7390,8 @@ def stop_polling_listener():
 
     polling_status["running"] = False
 
+    polling_status["started_at"] = None
+
     proof_stats["listener_running"] = False
 
     _foxbot_events_v1.emit_event(
@@ -14514,14 +14518,15 @@ async def foxbot_studio_stats_live():
     native_connected = bool(native.STATE.get("connected"))
     native_started_at = native.STATE.get("started_at")
 
-    # uptime_seconds only comes from the native connector's own started_at --
-    # the legacy polling worker (polling_status) has no start-time field at
-    # all, so there is nothing to derive uptime from on that path. Left None
-    # (not 0, not a stale number) whenever the native socket isn't the one
-    # confirmed connected right now.
+    # uptime_seconds prefers the native connector's started_at when it's the
+    # one confirmed connected; otherwise fall back to the legacy polling
+    # worker's own started_at (set when blaze_polling_worker actually begins
+    # its loop). Left None (not 0, not a stale number) when neither is running.
     uptime_seconds = None
     if native_connected and native_started_at:
         uptime_seconds = max(0, int(time.time() - native_started_at))
+    elif polling_status.get("running") and polling_status.get("started_at"):
+        uptime_seconds = max(0, int(time.time() - polling_status["started_at"]))
 
     bot_online = bool(polling_status.get("running")) or native_connected
 
@@ -22390,6 +22395,7 @@ def blaze_polling_worker():
     import time
 
     polling_status["running"] = True
+    polling_status["started_at"] = time.time()
     polling_status["last_error"] = None
     proof_stats["listener_running"] = True
     _FOXBOT_MULTICHANNEL_STATE_V1["running"] = True
