@@ -4008,23 +4008,26 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-    if lower_message == "!rules":
+    # !rules and !giveawaylink used to be hardcoded here, short-circuiting
+    # before the custom_commands dispatch further down. Seeding them once
+    # via setdefault (never overwrites an existing entry, so a prior or
+    # future !addcmd edit sticks) and falling through instead of
+    # returning lets !addcmd actually take effect for these two.
+    custom_commands.setdefault("!rules", {
 
-        return {
+        "response": "BLAZE COMMUNITY SPIN RULES | $25 USDC Giveaway | +100 Votes Sponsored by FoxBot AI | Tag 3 Friends | Like + Repost | Be Active in FoxBot AI Discord | Up to 1.50x Multiplier | 1-5 Gifted Subs = Bonus Entries | Sunday 5 PM PST | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20",
 
-            "response": "BLAZE COMMUNITY SPIN RULES | $25 USDC Giveaway | +100 Votes Sponsored by FoxBot AI | Tag 3 Friends | Like + Repost | Be Active in FoxBot AI Discord | Up to 1.50x Multiplier | 1-5 Gifted Subs = Bonus Entries | Sunday 5 PM PST | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
+        "created_by": "system-default"
 
-        }
+    })
 
+    custom_commands.setdefault("!giveawaylink", {
 
+        "response": "$25 USDC Giveaway + 100 Votes Sponsored by FoxBot AI | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20",
 
-    if lower_message == "!giveawaylink":
+        "created_by": "system-default"
 
-        return {
-
-            "response": "$25 USDC Giveaway + 100 Votes Sponsored by FoxBot AI | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20"
-
-        }
+    })
 
 
 
