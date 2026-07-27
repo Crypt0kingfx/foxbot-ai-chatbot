@@ -14,17 +14,17 @@ re-deriving the analysis.
 3. Build the separate OAuth flow (`/auth/dashboard/login` +
    `/auth/dashboard/callback`, minimal `users.read` scope, distinct PKCE
    cookie names).
-4. Build the allowlist, with **brachi8a as the first approved user** (see
-   "First user to approve" below).
+4. Build the allowlist, with **a real Blaze account as the first approved
+   user** (see "First user to approve" below).
 5. Build the dual-mode gate (Basic Auth AND Blaze-auth both work); verify
    the full login round-trip from a second browser before ever dropping
    Basic Auth.
 
 ## First user to approve
 
-**brachi8a** is a real person already waiting for dashboard access — they
-are the test case for the allowlist once it's built. Use them to verify the
-end-to-end flow (login, allowlist match, dashboard access granted) before
+A real Blaze account belonging to a person already waiting for dashboard
+access is the test case for the allowlist once it's built. Use them to
+verify the end-to-end flow (login, allowlist match, dashboard access granted) before
 onboarding anyone else.
 
 ## Goal
