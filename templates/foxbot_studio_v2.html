@@ -627,7 +627,7 @@ body::before {
           <button class="item">Streaks<span class="flag down" title="Not working"></span></button>
           <button class="item">Quests</button>
           <button class="item">Boss Battle</button>
-          <button class="item">Giveaways</button>
+          <button class="item" data-target="page-giveaways">Giveaways</button>
           <button class="item" data-target="page-economy">Economy</button>
           <button class="item" data-target="page-recognition">Recognition</button>
         </div>
@@ -1032,6 +1032,62 @@ body::before {
         <h2 class="card-title">Active event</h2>
       </div>
       <div id="eventStatus"></div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-giveaways" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Giveaways</h1>
+      <p class="page-sub">Run giveaways, track entries, and pick winners — runs the live command engine and posts to chat.</p>
+    </div>
+
+    <section class="card" aria-label="Giveaway actions">
+      <div class="card-head">
+        <h2 class="card-title">Giveaway actions</h2>
+      </div>
+      <p class="card-sub">Start, enter, list, and close out a giveaway. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Viewer username</span>
+          <input type="text" id="ggViewer" class="field-input" placeholder="testviewer">
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button type="button" id="ggStartBtn" class="step-go">Start giveaway</button>
+        <button type="button" id="ggEnterBtn" class="step-go">Enter viewer</button>
+        <button type="button" id="ggEntriesBtn" class="step-go">Show entries</button>
+        <button type="button" id="ggPickBtn" class="step-go">Pick winner</button>
+        <button type="button" id="ggRulesBtn" class="step-go">Show rules</button>
+        <button type="button" id="ggLinkBtn" class="step-go">Giveaway link</button>
+      </div>
+
+      <p class="dismiss-error" id="ggActionError" hidden></p>
+      <div class="feed-item" id="ggActionResult" hidden>
+        <span class="feed-body" id="ggActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Entries">
+      <div class="card-head">
+        <h2 class="card-title">Entries</h2>
+      </div>
+      <div id="giveawayStatus"></div>
+    </section>
+
+    <section class="card" aria-label="OBS overlay">
+      <div class="card-head">
+        <h2 class="card-title">OBS overlay</h2>
+      </div>
+      <p class="card-sub">/overlay/giveaway — add as a browser source in OBS.</p>
+      <div class="action-row">
+        <button type="button" id="ggOpenOverlayBtn" class="step-go">Open overlay</button>
+        <button type="button" id="ggCopyOverlayBtn" class="step-go">Copy URL</button>
+        <span class="card-sub" id="ggCopyStatus"></span>
+      </div>
     </section>
 
     </section>
@@ -2023,6 +2079,177 @@ document.querySelectorAll('.item').forEach(function (item) {
 
   bindAction('seEndBtn', function () {
     return runAdminCommand(ADMIN_USER, '!endevent', 'End event');
+  });
+})();
+</script>
+
+<script>
+/* ═══ GIVEAWAY ENTRIES ═══
+   Same honest-render pattern as the other status polls: explicit error
+   row on fetch failure, explicit empty state when no giveaway is
+   running. Reads /overlay/giveaway-data -- the same public endpoint the
+   OBS overlay itself polls, so this is always in sync with what's on
+   screen for viewers. */
+(function () {
+  var POLL_MS = 15000;
+  var giveawayStatus = document.getElementById('giveawayStatus');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(text, cls) {
+    giveawayStatus.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderGiveaway(data) {
+    if (!data.active && !data.entry_count) {
+      renderMessage('No giveaway running. Start one above.');
+      return;
+    }
+    var names = (data.entries || []).join(', ') || 'none yet';
+    var winner = data.winner ? ('winner: ' + escapeHtml(data.winner)) : 'winner not picked yet';
+    var body = (data.active ? 'Active' : 'Closed') + ' — ' + (data.entry_count || 0) + ' entries (' +
+      escapeHtml(names) + ') | latest: ' + escapeHtml(data.latest_entry || 'none') + ' | ' + winner +
+      ' | prize: ' + escapeHtml(data.prize || 'TBD');
+    giveawayStatus.innerHTML = '<div class="feed-item"><span class="feed-body">' + body + '</span></div>';
+  }
+
+  async function pollGiveaway() {
+    try {
+      var res = await fetch('/overlay/giveaway-data', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderGiveaway(data);
+    } catch (err) {
+      renderMessage("Can't load giveaway entries — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollGiveaway();
+  setInterval(pollGiveaway, POLL_MS);
+
+  window.foxbotPollGiveaway = pollGiveaway;
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('ggActionError');
+  var resultBox = document.getElementById('ggActionResult');
+  var resultText = document.getElementById('ggActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollGiveaway === 'function') window.foxbotPollGiveaway();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  /* !giveaway and !enter are dead-ended by an earlier chat() intercept
+     that gates on a third state store nothing chat-reachable ever
+     activates -- see the giveaway-state-split memory. These two hit the
+     REST v3 endpoints instead, which reliably touch the same shared
+     giveaway_entries list the display reads. Known gap: they don't
+     update the overlay's active/latest_entry fields (separate dict) --
+     entries count/list and pickwinner's winner stay correct regardless. */
+  async function runGiveawayApi(path, payload, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || data.message || 'Request failed');
+      resultText.textContent = label + ': ' + (data.message || 'Done.');
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollGiveaway === 'function') window.foxbotPollGiveaway();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('ggStartBtn', function () {
+    return runGiveawayApi('/api/studio/giveaways/start', {}, 'Start giveaway');
+  });
+
+  bindAction('ggEnterBtn', function () {
+    var viewer = val('ggViewer', 'testviewer');
+    return runGiveawayApi('/api/studio/giveaways/add', { username: viewer }, 'Enter — ' + viewer);
+  });
+
+  bindAction('ggEntriesBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!entries', 'Entries');
+  });
+
+  bindAction('ggPickBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!pickwinner', 'Pick winner');
+  });
+
+  bindAction('ggRulesBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!rules', 'Rules');
+  });
+
+  bindAction('ggLinkBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!giveawaylink', 'Giveaway link');
+  });
+
+  var copyBtn = document.getElementById('ggCopyOverlayBtn');
+  var copyStatus = document.getElementById('ggCopyStatus');
+  document.getElementById('ggOpenOverlayBtn').addEventListener('click', function () {
+    window.open('/overlay/giveaway', '_blank');
+  });
+  copyBtn.addEventListener('click', async function () {
+    var url = window.location.origin + '/overlay/giveaway';
+    try {
+      await navigator.clipboard.writeText(url);
+      copyStatus.textContent = 'Copied!';
+    } catch (err) {
+      copyStatus.textContent = url;
+    }
+    setTimeout(function () { copyStatus.textContent = ''; }, 3000);
   });
 })();
 </script>
