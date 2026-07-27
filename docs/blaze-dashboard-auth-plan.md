@@ -117,15 +117,24 @@ Blaze user ID is on the allowlist) succeeds.
 - **Cookie-name collisions** with the bot's existing OAuth PKCE cookies if
   not distinctly named (see above).
 
-## Blocker to resolve first (external, unverified)
+## Blocker — RESOLVED
 
-Confirm whether Blaze's OAuth app configuration allows a **second redirect
-URI** for the same client ID, or whether a second registered client ID is
-needed for `/auth/dashboard/callback`. This determines how the new flow's
-app registration is set up and should be checked on Blaze's developer
-console before further scoping the code. A second client ID is arguably
-cleaner separation anyway (bot-posting credentials and user-login are
-different trust domains) if the first option isn't available.
+Confirmed on Blaze's developer console: Blaze supports up to **5 OAuth
+redirect URIs** per client ID, with an Add button. Currently only 1 slot is
+used (`https://foxbot-ai-chatbot.onrender.com/oauth/blaze/callback`), so
+there's room to register the dashboard callback on the same client ID —
+no second app registration needed. The dashboard-login project is viable;
+no external blocker remains.
+
+**Verify at build time:** the registered redirect URI above is
+`/oauth/blaze/callback`, but the existing code registers the route at
+`/auth/blaze/callback` (app.py:19050 — `@app.get("/auth/blaze/callback")`).
+Confirm which path is actually correct/live before wiring the new
+`/auth/dashboard/callback` flow alongside it — if the registered URI and
+the code's route path don't match, the *existing* bot OAuth flow may
+already be broken (or there's a proxy/redirect making up the difference
+that isn't visible in the code), and that should be understood first so
+the new flow doesn't get built next to a similarly-mismatched path.
 
 ## Effort estimate
 
@@ -137,5 +146,6 @@ Roughly 2-4 days of focused work:
   paths: ~0.5-1 day
 - Manual verification (including the second-browser check above): ~0.5 day
 
-The Blaze-side redirect-URI/app-registration question (blocker above) is
-the main wildcard on timeline — resolve that first.
+The Blaze-side redirect-URI/app-registration blocker is resolved (see
+above); the `/oauth/` vs `/auth/` path check is now the main thing to
+confirm before starting.
