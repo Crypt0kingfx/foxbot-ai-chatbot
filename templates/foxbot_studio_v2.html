@@ -636,7 +636,7 @@ body::before {
       <div class="group collapsed" data-group>
         <button class="group-head" data-toggle><span class="caret"></span>Stream Tools</button>
         <div class="group-items">
-          <button class="item">Stream Events</button>
+          <button class="item" data-target="page-events">Stream Events</button>
           <button class="item">Commands</button>
           <button class="item">Moderation</button>
         </div>
@@ -980,6 +980,58 @@ body::before {
       </div>
       <p class="card-sub">Latest reward redemptions from Blaze chat.</p>
       <div id="redemptionList"></div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-events" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Stream Events</h1>
+      <p class="page-sub">Trigger hype events and check status — runs the live command engine and posts to chat.</p>
+    </div>
+
+    <section class="card" aria-label="Event actions">
+      <div class="card-head">
+        <h2 class="card-title">Event actions</h2>
+      </div>
+      <p class="card-sub">Start, claim, list, or end a stream event. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Event</span>
+          <select id="seEventKey" class="field-input">
+            <option value="goldenfox">Golden Fox</option>
+            <option value="spiritstorm">Spirit Storm</option>
+            <option value="treasuredrop">Treasure Drop</option>
+            <option value="foxfrenzy">Fox Frenzy</option>
+            <option value="random">Random</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Viewer username</span>
+          <input type="text" id="seViewer" class="field-input" placeholder="testviewer">
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button type="button" id="seStartBtn" class="step-go">Start event</button>
+        <button type="button" id="seClaimBtn" class="step-go">Claim / check</button>
+        <button type="button" id="seListBtn" class="step-go">List events</button>
+        <button type="button" id="seEndBtn" class="step-go">End event</button>
+      </div>
+
+      <p class="dismiss-error" id="seActionError" hidden></p>
+      <div class="feed-item" id="seActionResult" hidden>
+        <span class="feed-body" id="seActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Active event">
+      <div class="card-head">
+        <h2 class="card-title">Active event</h2>
+      </div>
+      <div id="eventStatus"></div>
     </section>
 
     </section>
@@ -1854,6 +1906,123 @@ document.querySelectorAll('.item').forEach(function (item) {
   bindAction('rwAddBtn', function () {
     var command = val('rwAddRewardCommand', '!addreward shoutout 500');
     return runAdminCommand(ADMIN_USER, command, 'Add reward');
+  });
+})();
+</script>
+
+<script>
+/* ═══ ACTIVE EVENT ═══
+   Same honest-render pattern as Just Happened / Redemption queue:
+   explicit error row on fetch failure, explicit empty state when no
+   event is active. */
+(function () {
+  var POLL_MS = 15000;
+  var eventStatus = document.getElementById('eventStatus');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(text, cls) {
+    eventStatus.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderEvent(activeEvent) {
+    if (!activeEvent || !activeEvent.active) {
+      renderMessage('No event active. Start one above.');
+      return;
+    }
+    var claimedCount = activeEvent.claimed ? Object.keys(activeEvent.claimed).length : 0;
+    var body = escapeHtml(activeEvent.name || 'Event') +
+      (activeEvent.description ? ' — ' + escapeHtml(activeEvent.description) : '') +
+      ' (' + claimedCount + ' claimed)';
+    eventStatus.innerHTML = '<div class="feed-item"><span class="feed-body">' + body + '</span></div>';
+  }
+
+  async function pollEventStatus() {
+    try {
+      var res = await fetch('/stream-event', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderEvent(data.active_event);
+    } catch (err) {
+      renderMessage("Can't load event status — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollEventStatus();
+  setInterval(pollEventStatus, POLL_MS);
+
+  window.foxbotPollEventStatus = pollEventStatus;
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('seActionError');
+  var resultBox = document.getElementById('seActionResult');
+  var resultText = document.getElementById('seActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollEventStatus === 'function') window.foxbotPollEventStatus();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('seStartBtn', function () {
+    var eventKey = val('seEventKey', 'random');
+    return runAdminCommand(ADMIN_USER, '!startevent ' + eventKey, 'Start — ' + eventKey);
+  });
+
+  bindAction('seClaimBtn', function () {
+    var viewer = val('seViewer', 'testviewer');
+    return runAdminCommand(viewer, '!event', 'Claim/check — ' + viewer);
+  });
+
+  bindAction('seListBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!events', 'List events');
+  });
+
+  bindAction('seEndBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!endevent', 'End event');
   });
 })();
 </script>
