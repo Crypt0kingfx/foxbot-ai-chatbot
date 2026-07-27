@@ -142,6 +142,19 @@ processed_polling_messages = set()
 
 
 
+# === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
+# Captures the raw chat item whenever find_chat_username() falls through to
+# "viewer" on a vote/follow auto-event (the @viewer thank-you bug). Purely
+# diagnostic -- no fallback/recognition behavior depends on this list.
+# Persisted (small, capped) so a redeploy doesn't wipe it before we catch
+# one; see _foxbot_capture_viewer_fallback_debug_v1 and its call site in
+# _foxbot_process_channel_rows_v1.
+viewer_fallback_debug_log = []
+VIEWER_FALLBACK_DEBUG_LOG_CAP = 20
+# === End TEMP DIAGNOSTIC ===
+
+
+
 giveaway_overlay = {
 
     "active": False,
@@ -524,7 +537,12 @@ def get_persistent_snapshot():
 
         "cooldown_settings": globals().get("cooldown_settings", {}),
 
-        "boss_battle": globals().get("boss_battle", {})
+        "boss_battle": globals().get("boss_battle", {}),
+
+        # TEMP DIAGNOSTIC key -- see viewer_fallback_debug_log definition.
+        # Safe to delete this key (and the one in apply_persistent_snapshot)
+        # once the @viewer thank-you bug fix is designed and shipped.
+        "viewer_fallback_debug_log_TEMP": globals().get("viewer_fallback_debug_log", [])
 
     }
 
@@ -569,6 +587,8 @@ def apply_persistent_snapshot(data):
     global cooldown_tracker
 
     global boss_battle
+
+    global viewer_fallback_debug_log
 
 
 
@@ -729,6 +749,12 @@ def apply_persistent_snapshot(data):
         boss_battle.setdefault("defeated_count", 0)
 
         boss_battle.setdefault("last_winner", None)
+
+
+
+    # TEMP DIAGNOSTIC restore -- see viewer_fallback_debug_log definition.
+    if isinstance(data.get("viewer_fallback_debug_log_TEMP"), list):
+        viewer_fallback_debug_log[:] = data["viewer_fallback_debug_log_TEMP"][:VIEWER_FALLBACK_DEBUG_LOG_CAP]
 
 
 
@@ -7170,6 +7196,61 @@ def find_chat_message_text(payload):
 def find_chat_username(payload):
 
     return find_first_string(payload, ["displayName", "username", "slug", "name"]) or "viewer"
+
+
+
+# === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
+_FOXBOT_DEBUG_SENSITIVE_KEY_MARKERS = (
+    "token", "secret", "password", "auth", "cookie", "session",
+    "email", "phone", "ip", "key", "credential",
+)
+
+
+def _foxbot_redact_sensitive_debug_v1(value, _depth=0):
+    """Recursively mask values whose key looks sensitive, keeping the
+    overall shape intact so the payload structure is still inspectable.
+    Depth-capped so a pathological/self-referential payload can't blow up
+    this purely-diagnostic path."""
+    if _depth > 8:
+        return "[TRUNCATED]"
+
+    if isinstance(value, dict):
+        redacted = {}
+        for key, inner in value.items():
+            key_lower = str(key).lower()
+            if any(marker in key_lower for marker in _FOXBOT_DEBUG_SENSITIVE_KEY_MARKERS):
+                redacted[key] = "[REDACTED]"
+            else:
+                redacted[key] = _foxbot_redact_sensitive_debug_v1(inner, _depth + 1)
+        return redacted
+
+    if isinstance(value, list):
+        return [_foxbot_redact_sensitive_debug_v1(item, _depth + 1) for item in value[:20]]
+
+    return value
+
+
+def _foxbot_capture_viewer_fallback_debug_v1(event_type, raw_item):
+    """TEMP diagnostic only -- records a redacted copy of the raw chat item
+    that produced a 'viewer' fallback name on a vote/follow auto-event, so
+    the next live occurrence gives us a real payload shape to design the
+    actual name-extraction fix against. No fallback/recognition behavior
+    reads from this list. Remove this function, its call site, the
+    viewer_fallback_debug_log global, and the persistence wiring for it
+    once a real payload has been captured."""
+    from datetime import datetime, timezone
+
+    try:
+        entry = {
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "raw_item": _foxbot_redact_sensitive_debug_v1(raw_item),
+        }
+        viewer_fallback_debug_log.append(entry)
+        del viewer_fallback_debug_log[:-VIEWER_FALLBACK_DEBUG_LOG_CAP]
+    except Exception:
+        pass
+# === End TEMP DIAGNOSTIC ===
 
 
 
@@ -14493,6 +14574,20 @@ def recognition_test(event_type: str):
 
     STUDIO_STATE["recognitionQueue"] = max(0, STUDIO_STATE["recognitionQueue"] - 1)
 
+
+
+# === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
+@app.get("/api/studio/debug/viewer-fallback-captures")
+async def foxbot_viewer_fallback_debug_captures_v1():
+    """Gated by the existing /api/studio/ Basic Auth prefix. Read-only view
+    of viewer_fallback_debug_log -- see its definition for what this is."""
+    return {
+        "ok": True,
+        "note": "TEMP diagnostic for the @viewer thank-you bug. Remove this route once a real payload has been captured.",
+        "count": len(viewer_fallback_debug_log),
+        "captures": viewer_fallback_debug_log,
+    }
+# === End TEMP DIAGNOSTIC ===
 
 
 @app.get("/api/studio/stats/live")
@@ -22826,6 +22921,12 @@ def _foxbot_process_channel_rows_v1(target, rows):
             polling_status["last_auto_event"] = auto_event_result
 
             auto_event = auto_event_result.get("event") or {}
+
+            # === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
+            if clean_username == "viewer" and auto_event.get("event_type") in ("vote", "follow"):
+                _foxbot_capture_viewer_fallback_debug_v1(auto_event.get("event_type"), item)
+            # === End TEMP DIAGNOSTIC ===
+
             if auto_event.get("event_type") == "follow":
                 _foxbot_events_v1.emit_event(
                     creator_handle, "follow", actor=auto_event.get("username"), detail={}
