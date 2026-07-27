@@ -213,6 +213,35 @@ def event_exists(creator_handle: str, kind: str) -> bool | None:
         return None
 
 
+def count_events(creator_handle: str, kind: str) -> int | None:
+    """Total count of `kind` events ever recorded for this creator.
+    Returns None (not 0) on a database failure so callers can tell
+    "checked, and zero" apart from "couldn't check" -- same convention
+    as event_exists() above.
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            cursor = connection.execute(
+                "SELECT COUNT(*) FROM foxbot_events WHERE creator_handle = %s AND kind = %s",
+                (handle, kind),
+            )
+            row = cursor.fetchone()
+        _set_error(None)
+        return int(row[0]) if row else 0
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot event count failed (kind={kind}): {error}")
+        return None
+
+
 def fetch_onboarding_dismissal(creator_handle: str) -> dict[str, Any] | None:
     """Dismissal/completion row for a creator. Returns None on a database
     failure; a missing row (never dismissed, never completed) is a valid

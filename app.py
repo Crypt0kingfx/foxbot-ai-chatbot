@@ -14495,7 +14495,59 @@ def recognition_test(event_type: str):
 
 async def foxbot_studio_stats_live():
 
-    return STUDIO_STATE
+    # Derived at read-time from real sources -- deliberately not STUDIO_STATE,
+    # which is only ever written by manual test buttons (recognition_test,
+    # studio_recognition_response), never by real chat/recognition traffic.
+
+    foxcoins_total = sum(int(v) for v in foxcoin_economy["balances"].values())
+
+    commands_total = sum(int(v.get("commands", 0)) for v in viewer_stats.values())
+
+    viewers_total = len(viewer_stats)
+
+    # A short name/"None", not format_stream_event()'s full sentence --
+    # that reads fine as a chat reply but overflows a landing-page tile.
+    current_event = stream_event.get("name") if stream_event.get("active") else "None"
+
+    from services import blaze_native_connector as native
+
+    native_connected = bool(native.STATE.get("connected"))
+    native_started_at = native.STATE.get("started_at")
+
+    # uptime_seconds only comes from the native connector's own started_at --
+    # the legacy polling worker (polling_status) has no start-time field at
+    # all, so there is nothing to derive uptime from on that path. Left None
+    # (not 0, not a stale number) whenever the native socket isn't the one
+    # confirmed connected right now.
+    uptime_seconds = None
+    if native_connected and native_started_at:
+        uptime_seconds = max(0, int(time.time() - native_started_at))
+
+    bot_online = bool(polling_status.get("running")) or native_connected
+
+    follows_total = _foxbot_events_v1.count_events(
+        _foxbot_events_v1.resolve_owner_handle(), "follow"
+    )
+
+    return {
+
+        "ok": True,
+
+        "foxcoins_total": foxcoins_total,
+
+        "commands_total": commands_total,
+
+        "viewers_total": viewers_total,
+
+        "current_event": current_event,
+
+        "bot_online": bot_online,
+
+        "uptime_seconds": uptime_seconds,
+
+        "follows_total": follows_total,
+
+    }
 
 
 
