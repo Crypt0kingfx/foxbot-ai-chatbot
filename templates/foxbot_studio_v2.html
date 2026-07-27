@@ -512,6 +512,31 @@ body::before {
 
 .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 
+/* ═══ ARCADE SUB-TABS ═══════════════════════════════════════
+   In-page tab strip, scoped to #page-arcade only -- deliberately
+   separate class names (.subtab/.subpage) from the sidebar's
+   .item/.page so the two switchers never collide. */
+.subtab-row { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.subtab {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 6px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.subtab:hover { color: var(--ink); }
+.subtab.active { color: var(--ink); border-bottom-color: var(--violet); font-weight: 500; }
+
+/* Boss HP: --pulse is the design system's designated "health, live
+   status" color -- deliberately not the violet/magenta progress
+   gradient .fill uses, since magenta is reserved for broken things. */
+.hp-track { height: 10px; background: var(--panel-2); border-radius: var(--r-sm); overflow: hidden; margin: 10px 0; }
+.hp-fill { height: 100%; background: var(--pulse); }
+
 /* ═══ ACTIVITY FEED ═════════════════════════════════════════ */
 
 .feed-item {
@@ -624,9 +649,7 @@ body::before {
         <button class="group-head" data-toggle><span class="caret"></span>Engagement</button>
         <div class="group-items">
           <button class="item" data-target="page-rewards">Rewards</button>
-          <button class="item">Streaks<span class="flag down" title="Not working"></span></button>
-          <button class="item">Quests</button>
-          <button class="item">Boss Battle</button>
+          <button class="item" data-target="page-arcade">Arcade</button>
           <button class="item" data-target="page-giveaways">Giveaways</button>
           <button class="item" data-target="page-economy">Economy</button>
           <button class="item" data-target="page-recognition">Recognition</button>
@@ -1116,6 +1139,178 @@ body::before {
         <span class="card-sub" id="ggCopyStatus"></span>
       </div>
     </section>
+
+    </section>
+
+    <section class="page" id="page-arcade" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Arcade</h1>
+      <p class="page-sub">Boss battles, community quests, and viewer streaks — runs the live command engine and posts to chat.</p>
+    </div>
+
+    <div class="subtab-row">
+      <button type="button" class="subtab active" data-subtarget="arcade-boss">Boss Battle</button>
+      <button type="button" class="subtab" data-subtarget="arcade-quest">Community Quest</button>
+      <button type="button" class="subtab" data-subtarget="arcade-streaks">Streaks</button>
+    </div>
+
+    <div class="subpage" id="arcade-boss">
+
+    <section class="card" aria-label="Boss actions">
+      <div class="card-head">
+        <h2 class="card-title">Boss actions</h2>
+      </div>
+      <p class="card-sub">Start or end a boss battle, and attack. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Boss HP</span>
+          <input type="text" id="bossHp" class="field-input" value="500">
+        </label>
+        <label class="field field-wide">
+          <span class="field-label">Boss name</span>
+          <input type="text" id="bossName" class="field-input" value="Cyber Fox Dragon">
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="bossStartBtn" class="step-go">Start boss</button>
+        <button type="button" id="bossEndBtn" class="step-go">End boss</button>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Viewer username</span>
+          <input type="text" id="bossViewer" class="field-input" placeholder="testviewer">
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="bossAttackBtn" class="step-go">Attack</button>
+        <button type="button" id="bossPowerAttackBtn" class="step-go">Power attack</button>
+      </div>
+
+      <p class="dismiss-error" id="bossActionError" hidden></p>
+      <div class="feed-item" id="bossActionResult" hidden>
+        <span class="feed-body" id="bossActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Boss status">
+      <div class="card-head">
+        <h2 class="card-title">Boss status</h2>
+      </div>
+      <div class="hp-track"><div class="hp-fill" id="bossHpFill" style="width:0%"></div></div>
+      <div id="bossStatusText"></div>
+    </section>
+
+    <section class="card" aria-label="Boss damage leaderboard">
+      <div class="card-head">
+        <h2 class="card-title">Damage leaderboard</h2>
+      </div>
+      <div id="bossLeaderboard"></div>
+    </section>
+
+    </div>
+
+    <div class="subpage" id="arcade-quest" hidden>
+
+    <section class="card" aria-label="Quest actions">
+      <div class="card-head">
+        <h2 class="card-title">Quest actions</h2>
+      </div>
+      <p class="card-sub">Start, end, bump, or claim the community quest. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Quest type</span>
+          <select id="questType" class="field-input">
+            <option value="foxhunt">Foxhunt</option>
+            <option value="boss">Boss</option>
+            <option value="redeem">Redeem</option>
+            <option value="chat">Chat</option>
+            <option value="arcade">Arcade</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Goal</span>
+          <input type="text" id="questGoal" class="field-input" value="10">
+        </label>
+        <label class="field">
+          <span class="field-label">Reward (optional)</span>
+          <input type="text" id="questReward" class="field-input" placeholder="100">
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="questStartBtn" class="step-go">Start quest</button>
+        <button type="button" id="questEndBtn" class="step-go">End quest</button>
+        <button type="button" id="questTypesBtn" class="step-go">Quest types</button>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Add progress amount</span>
+          <input type="text" id="questAddAmount" class="field-input" value="1">
+        </label>
+        <label class="field">
+          <span class="field-label">Viewer username (for claim)</span>
+          <input type="text" id="questViewer" class="field-input" placeholder="testviewer">
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="questAddBtn" class="step-go">Add progress</button>
+        <button type="button" id="questClaimBtn" class="step-go">Claim reward</button>
+      </div>
+
+      <p class="dismiss-error" id="questActionError" hidden></p>
+      <div class="feed-item" id="questActionResult" hidden>
+        <span class="feed-body" id="questActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Quest progress">
+      <div class="card-head">
+        <h2 class="card-title">Quest progress</h2>
+      </div>
+      <div class="track"><div class="fill" id="questFill" style="width:0%"></div></div>
+      <div id="questStatusText"></div>
+    </section>
+
+    </div>
+
+    <div class="subpage" id="arcade-streaks" hidden>
+
+    <section class="card" aria-label="Streak actions">
+      <div class="card-head">
+        <h2 class="card-title">Streak actions</h2>
+      </div>
+      <p class="card-sub">Check in, look up, or reset a viewer's streak. Every action here posts a real reply to Blaze chat.</p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Viewer username</span>
+          <input type="text" id="streakViewer" class="field-input" placeholder="testviewer">
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="streakCheckinBtn" class="step-go">Check in</button>
+        <button type="button" id="streakCheckBtn" class="step-go">Check streak</button>
+        <button type="button" id="streakResetBtn" class="step-go">Reset streak</button>
+      </div>
+
+      <p class="dismiss-error" id="streakActionError" hidden></p>
+      <div class="feed-item" id="streakActionResult" hidden>
+        <span class="feed-body" id="streakActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Streak leaderboard">
+      <div class="card-head">
+        <h2 class="card-title">Streak leaderboard</h2>
+      </div>
+      <div id="streakLeaderboard"></div>
+    </section>
+
+    </div>
 
     </section>
 
@@ -2312,6 +2507,402 @@ document.querySelectorAll('.item').forEach(function (item) {
       copyStatus.textContent = url;
     }
     setTimeout(function () { copyStatus.textContent = ''; }, 3000);
+  });
+})();
+</script>
+
+<script>
+/* ═══ ARCADE SUB-TABS ═══
+   Scoped entirely to #page-arcade -- .subtab/.subpage are deliberately
+   not .item/.page, so this never touches (or is touched by) the
+   sidebar's global page switcher. */
+(function () {
+  var arcadePage = document.getElementById('page-arcade');
+  if (!arcadePage) return;
+  var subtabs = arcadePage.querySelectorAll('.subtab');
+  subtabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      subtabs.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var targetId = btn.getAttribute('data-subtarget');
+      arcadePage.querySelectorAll('.subpage').forEach(function (p) {
+        p.hidden = (p.id !== targetId);
+      });
+    });
+  });
+})();
+</script>
+
+<script>
+/* ═══ BOSS STATUS ═══
+   Same honest-render pattern as the other status polls. HP bar and
+   leaderboard are built from the real boss_battle dict (hp/max_hp,
+   damage_log), not a formatted summary string, so they render as an
+   actual bar and actual ranked rows instead of static v1 numbers. */
+(function () {
+  var POLL_MS = 15000;
+  var hpFill = document.getElementById('bossHpFill');
+  var statusText = document.getElementById('bossStatusText');
+  var leaderboardEl = document.getElementById('bossLeaderboard');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(el, text, cls) {
+    el.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderBoss(data) {
+    var boss = data.boss_battle || {};
+    var hp = Number(boss.hp || 0);
+    var maxHp = Number(boss.max_hp || 0) || 1;
+    var pct = boss.active ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
+    hpFill.style.width = pct + '%';
+    renderMessage(statusText, data.status || 'No boss is active.');
+
+    var damageLog = boss.damage_log || {};
+    var rows = Object.keys(damageLog).map(function (name) {
+      return { name: name, damage: Number(damageLog[name] || 0) };
+    }).sort(function (a, b) { return b.damage - a.damage; }).slice(0, 5);
+
+    if (!rows.length) {
+      renderMessage(leaderboardEl, 'No boss damage yet. Type !attack to get on the board.');
+      return;
+    }
+    leaderboardEl.innerHTML = rows.map(function (r, i) {
+      return '<div class="feed-item"><span class="feed-body">' + (i + 1) + '. ' +
+        escapeHtml(r.name) + ' — ' + r.damage + ' damage</span></div>';
+    }).join('');
+  }
+
+  async function pollBoss() {
+    try {
+      var res = await fetch('/boss', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderBoss(data);
+    } catch (err) {
+      hpFill.style.width = '0%';
+      renderMessage(statusText, "Can't load boss status — feed unreachable", 'feed-error');
+      renderMessage(leaderboardEl, "Can't load leaderboard — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollBoss();
+  setInterval(pollBoss, POLL_MS);
+
+  window.foxbotPollBoss = pollBoss;
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('bossActionError');
+  var resultBox = document.getElementById('bossActionResult');
+  var resultText = document.getElementById('bossActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollBoss === 'function') window.foxbotPollBoss();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('bossStartBtn', function () {
+    var hp = val('bossHp', '500');
+    var name = val('bossName', 'Cyber Fox Dragon');
+    return runAdminCommand(ADMIN_USER, '!startboss ' + hp + ' ' + name, 'Start boss');
+  });
+
+  bindAction('bossEndBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!endboss', 'End boss');
+  });
+
+  bindAction('bossAttackBtn', function () {
+    var viewer = val('bossViewer', 'testviewer');
+    return runAdminCommand(viewer, '!attack', 'Attack — ' + viewer);
+  });
+
+  bindAction('bossPowerAttackBtn', function () {
+    var viewer = val('bossViewer', 'testviewer');
+    return runAdminCommand(viewer, '!powerattack', 'Power attack — ' + viewer);
+  });
+})();
+</script>
+
+<script>
+/* ═══ QUEST PROGRESS ═══
+   Real progress/goal numbers drive an actual bar, and the status text
+   mirrors format_quest_status() exactly (active/complete/inactive). */
+(function () {
+  var POLL_MS = 15000;
+  var questFill = document.getElementById('questFill');
+  var statusText = document.getElementById('questStatusText');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(text, cls) {
+    statusText.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderQuest(data) {
+    var quest = data.community_quest || {};
+    var progress = Number(quest.progress || 0);
+    var goal = Number(quest.goal || 0) || 1;
+    questFill.style.width = (quest.active ? Math.max(0, Math.min(100, (progress / goal) * 100)) : 0) + '%';
+    renderMessage(data.status || 'No community quest is active.');
+  }
+
+  async function pollQuest() {
+    try {
+      var res = await fetch('/community-quest', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderQuest(data);
+    } catch (err) {
+      questFill.style.width = '0%';
+      renderMessage("Can't load quest status — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollQuest();
+  setInterval(pollQuest, POLL_MS);
+
+  window.foxbotPollQuest = pollQuest;
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('questActionError');
+  var resultBox = document.getElementById('questActionResult');
+  var resultText = document.getElementById('questActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollQuest === 'function') window.foxbotPollQuest();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('questStartBtn', function () {
+    var type = val('questType', 'foxhunt');
+    var goal = val('questGoal', '10');
+    var reward = val('questReward', '');
+    var command = '!startquest ' + type + ' ' + goal + (reward ? ' ' + reward : '');
+    return runAdminCommand(ADMIN_USER, command, 'Start quest');
+  });
+
+  bindAction('questEndBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!endquest', 'End quest');
+  });
+
+  bindAction('questTypesBtn', function () {
+    return runAdminCommand(ADMIN_USER, '!quests', 'Quest types');
+  });
+
+  bindAction('questAddBtn', function () {
+    var amount = val('questAddAmount', '1');
+    return runAdminCommand(ADMIN_USER, '!questadd ' + amount, 'Add progress');
+  });
+
+  bindAction('questClaimBtn', function () {
+    var viewer = val('questViewer', 'testviewer');
+    return runAdminCommand(viewer, '!claimquest', 'Claim — ' + viewer);
+  });
+})();
+</script>
+
+<script>
+/* ═══ STREAK LEADERBOARD ═══
+   Real per-viewer rows sorted by streak, built from the /streaks
+   dict -- same honest-render pattern as the boss damage leaderboard. */
+(function () {
+  var POLL_MS = 15000;
+  var leaderboardEl = document.getElementById('streakLeaderboard');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(text, cls) {
+    leaderboardEl.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderStreaks(streaks) {
+    var rows = Object.keys(streaks || {}).map(function (key) {
+      var s = streaks[key] || {};
+      return { name: s.display_name || key, streak: Number(s.streak || 0), best: Number(s.best_streak || 0) };
+    }).sort(function (a, b) { return b.streak - a.streak; }).slice(0, 5);
+
+    if (!rows.length) {
+      renderMessage('No streaks yet. Type !checkin to start your FoxBot streak.');
+      return;
+    }
+    leaderboardEl.innerHTML = rows.map(function (r, i) {
+      return '<div class="feed-item"><span class="feed-body">' + (i + 1) + '. ' +
+        escapeHtml(r.name) + ' — ' + r.streak + ' streak (best ' + r.best + ')</span></div>';
+    }).join('');
+  }
+
+  async function pollStreaks() {
+    try {
+      var res = await fetch('/streaks', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderStreaks(data.streaks || {});
+    } catch (err) {
+      renderMessage("Can't load streak leaderboard — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollStreaks();
+  setInterval(pollStreaks, POLL_MS);
+
+  window.foxbotPollStreaks = pollStreaks;
+})();
+</script>
+
+<script>
+(function () {
+  var ADMIN_USER = 'crypt0k1ng96';
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('streakActionError');
+  var resultBox = document.getElementById('streakActionResult');
+  var resultText = document.getElementById('streakActionResultText');
+
+  async function runAdminCommand(username, message, label) {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    try {
+      var res = await fetch('/api/foxbot/admin-command', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: username, message: message, send_to_blaze: true })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Command failed');
+      var reply = data.reply || (data.command_result && data.command_result.response) || 'No reply.';
+      var sendFailed = data.send_result && data.send_result.ok === false;
+      var suffix = sendFailed ? ' (not posted to chat — ' + (data.send_result.error || 'send failed') + ')' : '';
+      resultText.textContent = label + ': ' + reply + suffix;
+      resultBox.hidden = false;
+      if (typeof window.foxbotPollStreaks === 'function') window.foxbotPollStreaks();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  function bindAction(buttonId, run) {
+    var btn = document.getElementById(buttonId);
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      await run();
+      btn.disabled = false;
+    });
+  }
+
+  bindAction('streakCheckinBtn', function () {
+    var viewer = val('streakViewer', 'testviewer');
+    return runAdminCommand(viewer, '!checkin', 'Check in — ' + viewer);
+  });
+
+  bindAction('streakCheckBtn', function () {
+    var viewer = val('streakViewer', 'testviewer');
+    return runAdminCommand(ADMIN_USER, '!streak ' + viewer, 'Check streak — ' + viewer);
+  });
+
+  bindAction('streakResetBtn', function () {
+    var viewer = val('streakViewer', 'testviewer');
+    return runAdminCommand(ADMIN_USER, '!resetstreak ' + viewer, 'Reset streak — ' + viewer);
   });
 })();
 </script>
