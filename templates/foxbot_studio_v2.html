@@ -641,7 +641,7 @@ body::before {
         <button class="group-head" data-toggle><span class="caret"></span>Home</button>
         <div class="group-items">
           <button class="item active" data-target="page-overview">Overview</button>
-          <button class="item">Connections</button>
+          <button class="item" data-target="page-connections">Connections</button>
         </div>
       </div>
 
@@ -1311,6 +1311,43 @@ body::before {
     </section>
 
     </div>
+
+    </section>
+
+    <section class="page" id="page-connections" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Connections</h1>
+      <p class="page-sub">Creators connected to FoxBot via Blaze — reads the same public registry as /connected-creators.</p>
+    </div>
+
+    <section class="card" aria-label="Connect creator">
+      <div class="card-head">
+        <h2 class="card-title">Connect creator</h2>
+      </div>
+      <p class="card-sub">Manually add a creator after they follow FoxBot and type !connect.</p>
+
+      <div class="field-row">
+        <label class="field field-wide">
+          <span class="field-label">Creator handle</span>
+          <input type="text" id="connCreatorHandle" class="field-input" placeholder="brachial513">
+        </label>
+        <button type="button" id="connConnectBtn" class="step-go" style="align-self:flex-end;">Connect creator</button>
+      </div>
+
+      <p class="dismiss-error" id="connActionError" hidden></p>
+      <div class="feed-item" id="connActionResult" hidden>
+        <span class="feed-body" id="connActionResultText"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Connected creators">
+      <div class="card-head">
+        <h2 class="card-title">Connected creators</h2>
+        <span class="card-count" id="connTotalsCount"></span>
+      </div>
+      <div id="connCreatorList"></div>
+    </section>
 
     </section>
 
@@ -2903,6 +2940,119 @@ document.querySelectorAll('.item').forEach(function (item) {
   bindAction('streakResetBtn', function () {
     var viewer = val('streakViewer', 'testviewer');
     return runAdminCommand(ADMIN_USER, '!resetstreak ' + viewer, 'Reset streak — ' + viewer);
+  });
+})();
+</script>
+
+<script>
+/* ═══ CONNECTED CREATORS ═══
+   Same honest-render pattern as every other list in this port: real
+   rows from the public /api/connected-creators registry (the same one
+   /connected-creators itself reads), explicit error row on fetch
+   failure, explicit empty state on zero creators. */
+(function () {
+  var POLL_MS = 20000;
+  var listEl = document.getElementById('connCreatorList');
+  var countEl = document.getElementById('connTotalsCount');
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function renderMessage(text, cls) {
+    listEl.innerHTML = '<div class="feed-item"><span class="feed-body' +
+      (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderCreators(data) {
+    var creators = data.creators || [];
+    var totals = data.totals || {};
+    countEl.textContent = (totals.creators || 0) + ' creator' + (totals.creators === 1 ? '' : 's');
+
+    if (!creators.length) {
+      renderMessage('No creators connected yet.');
+      return;
+    }
+    listEl.innerHTML = creators.map(function (c) {
+      var badges = (c.badges || []).join(' ');
+      var body = escapeHtml(c.handle) + ' — ' + escapeHtml(c.status || 'setting up...') +
+        ' | 💬 ' + Number(c.messages || 0) + ' ⭐ ' + Number(c.stars || 0) +
+        ' 💼 ' + Number(c.foxcoins || 0) +
+        (badges ? ' | ' + escapeHtml(badges) : '');
+      return '<div class="feed-item"><span class="feed-body">' + body + '</span></div>';
+    }).join('');
+  }
+
+  async function pollCreators() {
+    try {
+      var res = await fetch('/api/connected-creators', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      renderCreators(data);
+    } catch (err) {
+      countEl.textContent = '';
+      renderMessage("Can't load connected creators — feed unreachable", 'feed-error');
+    }
+  }
+
+  pollCreators();
+  setInterval(pollCreators, POLL_MS);
+
+  window.foxbotPollCreators = pollCreators;
+})();
+</script>
+
+<script>
+(function () {
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  var errorEl = document.getElementById('connActionError');
+  var resultBox = document.getElementById('connActionResult');
+  var resultText = document.getElementById('connActionResultText');
+  var handleInput = document.getElementById('connCreatorHandle');
+
+  async function connectCreator() {
+    errorEl.hidden = true;
+    resultBox.hidden = true;
+    var handle = val('connCreatorHandle', '').replace(/^@/, '');
+    if (!handle) {
+      errorEl.textContent = 'Enter a creator handle first.';
+      errorEl.hidden = false;
+      return;
+    }
+    try {
+      var res = await fetch('/api/connected-creators/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ handle: handle })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok) throw new Error(data.message || 'Connect failed');
+      resultText.textContent = data.message || (handle + ' connected.');
+      resultBox.hidden = false;
+      handleInput.value = '';
+      if (typeof window.foxbotPollCreators === 'function') window.foxbotPollCreators();
+    } catch (err) {
+      errorEl.textContent = 'Action failed — try again.';
+      errorEl.hidden = false;
+    }
+  }
+
+  var btn = document.getElementById('connConnectBtn');
+  btn.addEventListener('click', async function () {
+    btn.disabled = true;
+    await connectCreator();
+    btn.disabled = false;
+  });
+  handleInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') btn.click();
   });
 })();
 </script>
