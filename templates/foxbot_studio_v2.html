@@ -1071,6 +1071,33 @@ body::before {
       </div>
     </section>
 
+    <section class="card" aria-label="Giveaway link and rules">
+      <div class="card-head">
+        <h2 class="card-title">Giveaway link & rules</h2>
+      </div>
+      <p class="card-sub">Edits what !giveawaylink and !rules reply with in chat.</p>
+
+      <div class="field-row">
+        <label class="field field-wide">
+          <span class="field-label">!giveawaylink message</span>
+          <textarea id="ggLinkText" class="field-input" rows="3"></textarea>
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="ggLinkSaveBtn" class="step-go">Save link message</button>
+      </div>
+
+      <div class="field-row">
+        <label class="field field-wide">
+          <span class="field-label">!rules message</span>
+          <textarea id="ggRulesText" class="field-input" rows="3"></textarea>
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="ggRulesSaveBtn" class="step-go">Save rules message</button>
+      </div>
+    </section>
+
     <section class="card" aria-label="Entries">
       <div class="card-head">
         <h2 class="card-title">Entries</h2>
@@ -2234,6 +2261,41 @@ document.querySelectorAll('.item').forEach(function (item) {
 
   bindAction('ggLinkBtn', function () {
     return runAdminCommand(ADMIN_USER, '!giveawaylink', 'Giveaway link');
+  });
+
+  (async function loadCustomCommandTexts() {
+    try {
+      var res = await fetch('/custom-commands', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var commands = data.commands || {};
+      var linkEl = document.getElementById('ggLinkText');
+      var rulesEl = document.getElementById('ggRulesText');
+      if (linkEl && commands['!giveawaylink']) linkEl.value = commands['!giveawaylink'].response || '';
+      if (rulesEl && commands['!rules']) rulesEl.value = commands['!rules'].response || '';
+    } catch (err) {
+      // Leave fields blank -- the admin can still type and save.
+    }
+  })();
+
+  bindAction('ggLinkSaveBtn', function () {
+    var text = val('ggLinkText', '');
+    if (!text) {
+      errorEl.textContent = 'Enter a message first.';
+      errorEl.hidden = false;
+      return;
+    }
+    return runAdminCommand(ADMIN_USER, '!addcmd giveawaylink ' + text, 'Saved giveaway link');
+  });
+
+  bindAction('ggRulesSaveBtn', function () {
+    var text = val('ggRulesText', '');
+    if (!text) {
+      errorEl.textContent = 'Enter a message first.';
+      errorEl.hidden = false;
+      return;
+    }
+    return runAdminCommand(ADMIN_USER, '!addcmd rules ' + text, 'Saved rules message');
   });
 
   var copyBtn = document.getElementById('ggCopyOverlayBtn');
