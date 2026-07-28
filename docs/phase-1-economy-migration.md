@@ -167,17 +167,39 @@ end-to-end, including exactly how a rollback behaves.
      and silently overwrite live post-migration activity with the stale
      frozen flat-dict snapshot. This needs its own test: run the migration
      twice, confirm the second run is a no-op.
-4. **Deploy.**
-5. **Verify immediately** (before any real chat activity accumulates):
-   - Total FoxCoins in circulation — `sum(by_creator[TENANT_ZERO_ID]["balances"].values())`
-     — must exactly equal the pre-migration flat-dict sum. This is also
-     the number the Overview hero tile displays; confirm it visually
-     matches what it showed pre-deploy.
-   - Spot-check several known individual viewer balances by name against
-     their pre-migration values.
-   - Exercise the live path end to end: `!daily`, `!givepoints`/`!takepoints`,
-     `!coinleaderboard`, `/foxcoins` (studio-v2 Economy tab), a boss-battle
-     reward, a recognition-triggered award, a shop redemption.
+4. **Deploy during a LOW-ACTIVITY period — not mid-stream.** This is a
+   direct consequence of the rollback nuance below: a revert doesn't lose
+   any data, but it can orphan real activity that happened on the new
+   shape while it was briefly live. The less activity accumulates between
+   deploy and verification, the smaller that window is. Don't deploy this
+   while a stream is live and chat is active; pick a quiet window instead.
+5. **Verify immediately after deploy — before resuming normal activity,**
+   not "at some point today." Run this checklist in order, right after the
+   deploy finishes:
+   - [ ] **Balances match pre-migration.** Total FoxCoins in circulation —
+     `sum(by_creator[TENANT_ZERO_ID]["balances"].values())` — exactly
+     equals the pre-migration flat-dict sum. Spot-check several known
+     individual viewer balances by name against their pre-migration values.
+   - [ ] **Give/take works.** Run `!givepoints` and `!takepoints` on a test
+     viewer, confirm the balance change is correct and reflected
+     immediately in `/foxcoins` and `!balance`.
+   - [ ] **Recognition awards correctly.** Trigger (or wait for) one real
+     recognition event (follow/sub/vote/tip/raid) and confirm the award
+     lands on the correct viewer's `by_creator[TENANT_ZERO_ID]` balance,
+     not the old flat dict.
+   - [ ] **`/foxcoins` reads right.** studio-v2's Economy tab shows the
+     correct total and per-viewer balances, matching pre-migration.
+   - [ ] **The Overview tile reads right.** The hero tile's FoxCoins number
+     (`/api/studio/stats/live`) matches the same total confirmed above —
+     this is the most visible surface, worth a direct visual check, not
+     just an API call.
+   - [ ] `!daily`, `!coinleaderboard`, and a shop redemption all behave
+     identically to pre-migration.
+   
+   If every box checks out, the window for orphaned-activity risk is
+   effectively closed — normal activity can resume. If anything looks
+   wrong, revert immediately (see rollback story below) before more
+   activity accumulates on the new shape.
 6. **Live-soak for a day** (per the master plan), then a **separate cleanup
    commit** removes the old flat `balances`/`daily_claims`/`transactions`
    keys and the now-unneeded migration-copy routine.
