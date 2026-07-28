@@ -1036,29 +1036,47 @@ async def foxbot_studio_admin_auth_gate_v1(request, call_next):
         import secrets
         from fastapi.responses import JSONResponse, Response
 
-        expected_user = os.getenv("STUDIO_ADMIN_USER")
-        expected_password = os.getenv("STUDIO_ADMIN_PASSWORD")
-
-        if not expected_user or not expected_password:
-            return JSONResponse(
-                {"ok": False, "error": "Studio admin auth is not configured (STUDIO_ADMIN_USER / STUDIO_ADMIN_PASSWORD unset)."},
-                status_code=503,
-            )
-
-        auth_header = request.headers.get("authorization", "")
+        auth_mode = os.getenv("STUDIO_AUTH_MODE", "both").strip().lower()
         authorized = False
 
-        if auth_header.lower().startswith("basic "):
-            try:
-                decoded = base64.b64decode(auth_header.split(" ", 1)[1]).decode("utf-8")
-                supplied_user, _, supplied_password = decoded.partition(":")
-            except Exception:
-                supplied_user, supplied_password = "", ""
+        # Blaze dashboard session -- checked first, purely additive. Never
+        # replaces Basic Auth below; both stay live simultaneously while
+        # STUDIO_AUTH_MODE=both (the default). See
+        # docs/blaze-dashboard-auth-plan.md and foxbot_dashboard_callback_v1.
+        # Approval is re-derived from STUDIO_APPROVED_BLAZE_USER_IDS on
+        # every request (not baked into the cookie), so removing someone
+        # from the allowlist takes effect without needing to invalidate
+        # any already-issued session cookie.
+        if auth_mode in ("blaze", "both"):
+            session_token = request.cookies.get("foxbot_dashboard_session")
+            if session_token:
+                identity = _foxbot_dashboard_session_verify_v1(session_token)
+                if identity and _foxbot_dashboard_user_is_approved_v1(identity.get("blaze_id")):
+                    authorized = True
 
-            authorized = (
-                secrets.compare_digest(supplied_user, expected_user)
-                and secrets.compare_digest(supplied_password, expected_password)
-            )
+        if not authorized and auth_mode in ("basic", "both"):
+            expected_user = os.getenv("STUDIO_ADMIN_USER")
+            expected_password = os.getenv("STUDIO_ADMIN_PASSWORD")
+
+            if not expected_user or not expected_password:
+                return JSONResponse(
+                    {"ok": False, "error": "Studio admin auth is not configured (STUDIO_ADMIN_USER / STUDIO_ADMIN_PASSWORD unset)."},
+                    status_code=503,
+                )
+
+            auth_header = request.headers.get("authorization", "")
+
+            if auth_header.lower().startswith("basic "):
+                try:
+                    decoded = base64.b64decode(auth_header.split(" ", 1)[1]).decode("utf-8")
+                    supplied_user, _, supplied_password = decoded.partition(":")
+                except Exception:
+                    supplied_user, supplied_password = "", ""
+
+                authorized = (
+                    secrets.compare_digest(supplied_user, expected_user)
+                    and secrets.compare_digest(supplied_password, expected_password)
+                )
 
         if not authorized:
             return Response(
@@ -19498,6 +19516,279 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
     return HTMLResponse(html)
 
 
+# === FoxBot Studio Dashboard Login (separate from bot OAuth) ===
+# A distinct, parallel OAuth flow so approved people can log into the
+# studio dashboard with their own Blaze identity, instead of everyone
+# sharing STUDIO_ADMIN_USER/PASSWORD. Deliberately independent of
+# /auth/blaze/login + /auth/blaze/callback above: different routes,
+# different cookie names, minimal users.read scope only (no
+# offline.access/channel.moderate/users.bot), and it never touches
+# blaze_oauth_tokens.json, BLAZE_BOT_USER_ID, or any bot-identity state.
+# The access token is used once to read the visitor's profile, then
+# discarded -- nothing long-lived is stored per person.
+#
+# Env vars this flow reads:
+#   STUDIO_APPROVED_BLAZE_USER_IDS  comma-separated allowlist of Blaze
+#                                    userIds permitted to get a session.
+#   STUDIO_SESSION_SECRET           HMAC key signing the session cookie.
+#   STUDIO_AUTH_MODE                basic|blaze|both (default "both").
+#                                    Basic Auth stays fully intact in
+#                                    "both" -- see foxbot_studio_admin_auth_gate_v1.
+
+_FOXBOT_DASHBOARD_SESSION_MAX_AGE = 24 * 60 * 60  # 24h
+
+
+def _foxbot_dashboard_session_sign_v1(blaze_id, display_name) -> str:
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    secret = os.getenv("STUDIO_SESSION_SECRET", "").strip()
+    if not secret:
+        raise RuntimeError("STUDIO_SESSION_SECRET is not configured.")
+
+    payload = json.dumps({
+        "blaze_id": str(blaze_id),
+        "display_name": str(display_name or ""),
+        "issued_at": time.time(),
+    }).encode("utf-8")
+
+    payload_b64 = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    signature = hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{payload_b64}.{signature}"
+
+
+def _foxbot_dashboard_session_verify_v1(token):
+    import base64
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    secret = os.getenv("STUDIO_SESSION_SECRET", "").strip()
+    if not secret or not token or "." not in token:
+        return None
+
+    payload_b64, _, signature = token.rpartition(".")
+    expected = hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(signature, expected):
+        return None
+
+    try:
+        padding = "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + padding).decode("utf-8"))
+    except Exception:
+        return None
+
+    issued_at = payload.get("issued_at")
+    if not isinstance(issued_at, (int, float)) or time.time() - issued_at > _FOXBOT_DASHBOARD_SESSION_MAX_AGE:
+        return None
+
+    if not payload.get("blaze_id"):
+        return None
+
+    return payload
+
+
+def _foxbot_dashboard_user_is_approved_v1(blaze_id) -> bool:
+    if not blaze_id:
+        return False
+
+    approved = [
+        x.strip() for x in os.getenv("STUDIO_APPROVED_BLAZE_USER_IDS", "").split(",") if x.strip()
+    ]
+    return str(blaze_id).strip() in approved
+
+
+@app.get("/auth/dashboard/login")
+def foxbot_dashboard_login_v1():
+    from fastapi.responses import HTMLResponse, RedirectResponse
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = os.getenv(
+        "STUDIO_DASHBOARD_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/dashboard/callback"
+    ).strip()
+
+    if not client_id or not client_secret:
+        return HTMLResponse(
+            "<h1>FoxBot Dashboard Login Missing Config</h1>"
+            "<p>Add BLAZE_CLIENT_ID and BLAZE_CLIENT_SECRET in Render first.</p>",
+            status_code=500
+        )
+
+    if not os.getenv("STUDIO_SESSION_SECRET", "").strip():
+        return HTMLResponse(
+            "<h1>FoxBot Dashboard Login Missing Config</h1>"
+            "<p>Add STUDIO_SESSION_SECRET in Render first.</p>",
+            status_code=500
+        )
+
+    try:
+        data = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/generate-auth-url",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "redirectUri": redirect_uri,
+                "scopes": ["users.read"]
+            }
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f"<h1>FoxBot Dashboard Login Error</h1><p>Could not generate auth URL.</p><pre>{e}</pre>",
+            status_code=500
+        )
+
+    state = data.get("state")
+    code_verifier = data.get("codeVerifier")
+    url = data.get("url")
+
+    if not state or not code_verifier or not url:
+        return HTMLResponse(
+            f"<h1>FoxBot Dashboard Login Error</h1><p>Blaze did not return state/codeVerifier/url.</p><pre>{data}</pre>",
+            status_code=500
+        )
+
+    response = RedirectResponse(url)
+
+    # Distinct cookie names from the bot flow's foxbot_oauth_state /
+    # foxbot_oauth_verifier / foxbot_oauth_redirect -- a concurrent bot
+    # re-auth and a dashboard login in the same browser must not collide.
+    try:
+        response.set_cookie(
+            "foxbot_dashboard_oauth_state", state,
+            max_age=900, httponly=True, secure=True, samesite="lax"
+        )
+        response.set_cookie(
+            "foxbot_dashboard_oauth_verifier", code_verifier,
+            max_age=900, httponly=True, secure=True, samesite="lax"
+        )
+        response.set_cookie(
+            "foxbot_dashboard_oauth_redirect", redirect_uri,
+            max_age=900, httponly=True, secure=True, samesite="lax"
+        )
+    except Exception:
+        pass
+
+    return response
+
+
+@app.get("/auth/dashboard/callback")
+def foxbot_dashboard_callback_v1(request: Request, code: str = "", state: str = ""):
+    from fastapi.responses import HTMLResponse, RedirectResponse
+
+    if not code:
+        return HTMLResponse("<h1>FoxBot Dashboard Login Error</h1><p>No code received.</p>", status_code=400)
+
+    cookie_state = request.cookies.get("foxbot_dashboard_oauth_state")
+    cookie_verifier = request.cookies.get("foxbot_dashboard_oauth_verifier")
+    cookie_redirect = request.cookies.get("foxbot_dashboard_oauth_redirect")
+
+    if not cookie_state or cookie_state != state or not cookie_verifier:
+        return HTMLResponse(
+            "<h1>FoxBot Dashboard Login Error</h1>"
+            "<p>Login state was not found or didn't match. Open /auth/dashboard/login again "
+            "and complete login in the same browser session.</p>",
+            status_code=400
+        )
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = cookie_redirect or os.getenv(
+        "STUDIO_DASHBOARD_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/dashboard/callback"
+    ).strip()
+
+    try:
+        tokens, _style = _foxbot_blaze_exchange_code_v3(
+            client_id, client_secret, code, cookie_verifier, redirect_uri
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f"<h1>FoxBot Dashboard Login Error</h1><p>Could not exchange code for token.</p><pre>{e}</pre>",
+            status_code=500
+        )
+
+    access_token = (tokens or {}).get("accessToken") or (tokens or {}).get("access_token") or ""
+    if not access_token:
+        return HTMLResponse(
+            "<h1>FoxBot Dashboard Login Error</h1><p>No access token returned.</p>",
+            status_code=500
+        )
+
+    # Identity-only: read the profile once, then let access_token/tokens
+    # fall out of scope. Nothing per-person is saved to disk or Postgres --
+    # this flow never calls _foxbot_blaze_oauth_save_tokens_v1.
+    profile = _foxbot_blaze_http_json_v1(
+        "GET",
+        "https://api.blaze.stream/v1/users/profile",
+        None,
+        {
+            "authorization": f"Bearer {access_token}",
+            "client-id": client_id,
+            "accept": "application/json",
+            "user-agent": "FoxBotAI/1.0"
+        }
+    )
+
+    node = ((profile.get("body") or {}).get("data") or {}) if profile.get("ok") else {}
+    blaze_id = node.get("userId")
+
+    display_name = ""
+    for key in ("username", "handle", "slug", "displayName", "display_name", "name"):
+        value = node.get(key)
+        if value:
+            display_name = str(value).strip().lstrip("@")[:40]
+            break
+
+    if not blaze_id:
+        return HTMLResponse(
+            "<h1>FoxBot Dashboard Login Error</h1>"
+            "<p>Could not read a Blaze user ID from your profile. Try again.</p>",
+            status_code=502
+        )
+
+    # Always logged, regardless of approval -- this is the bootstrap path:
+    # the very first approved user has no way to know their own Blaze
+    # userId in advance, so it has to surface here before the allowlist
+    # can ever contain it. Mirrors the existing BLAZE_BOT_USER_ID bootstrap
+    # print in _foxbot_blaze_oauth_verify_identity_v1.
+    print(f"[FoxBot Dashboard Login] Blaze account userId={blaze_id!r} name={display_name!r} attempted dashboard login.")
+
+    if not _foxbot_dashboard_user_is_approved_v1(blaze_id):
+        return HTMLResponse(
+            f"<h1>Not yet approved</h1>"
+            f"<p>Signed in as Blaze account <code>{blaze_id}</code>"
+            f"{' (@' + display_name + ')' if display_name else ''}, "
+            f"but this account is not on the dashboard allowlist yet.</p>"
+            f"<p>To approve it, add this to Render's environment and restart:</p>"
+            f"<textarea readonly style='width:100%;height:3em;'>STUDIO_APPROVED_BLAZE_USER_IDS={blaze_id}</textarea>"
+            f"<p>If others are already approved, add a comma and this ID to the existing value "
+            f"instead of replacing it.</p>",
+            status_code=403
+        )
+
+    session_token = _foxbot_dashboard_session_sign_v1(blaze_id, display_name)
+
+    response = RedirectResponse("/studio-v2")
+    response.set_cookie(
+        "foxbot_dashboard_session", session_token,
+        max_age=_FOXBOT_DASHBOARD_SESSION_MAX_AGE,
+        httponly=True, secure=True, samesite="lax"
+    )
+    # Clear the short-lived PKCE cookies now that login is complete.
+    response.delete_cookie("foxbot_dashboard_oauth_state")
+    response.delete_cookie("foxbot_dashboard_oauth_verifier")
+    response.delete_cookie("foxbot_dashboard_oauth_redirect")
+
+    return response
+
+# === End FoxBot Studio Dashboard Login ===
 
 
 
