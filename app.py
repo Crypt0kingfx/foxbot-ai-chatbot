@@ -4084,89 +4084,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-    if lower_message == "!giveaway":
-
-        if not admin:
-
-            return {
-
-                "response": f"@{username}, only the creator or mods can start giveaways."
-
-            }
-
-
-
-        giveaway_entries = []
-
-        giveaway_overlay["active"] = True
-
-        giveaway_overlay["latest_entry"] = None
-
-        giveaway_overlay["winner"] = None
-
-
-
-        prize = os.getenv("GIVEAWAY_PRIZE", "a Blaze community prize")
-
-        return {
-
-            "response": f"FoxBot giveaway started for {prize}! Type !enter to join."
-
-        }
-
-
-
-    if lower_message == "!enter":
-
-        existing_names = [name.lower() for name in giveaway_entries]
-
-
-
-        if username.lower() in existing_names:
-
-            return {
-
-                "response": f"@{username}, you are already entered."
-
-            }
-
-
-
-        giveaway_entries.append(username)
-
-        giveaway_overlay["latest_entry"] = username
-
-        giveaway_overlay["active"] = True
-
-
-
-        return {
-
-            "response": f"@{username}, you are entered into the giveaway!"
-
-        }
-
-
-
-    if lower_message == "!entries":
-
-        if giveaway_entries:
-
-            return {
-
-                "response": f"Current giveaway entries: {len(giveaway_entries)} | Names: {', '.join(giveaway_entries)}"
-
-            }
-
-
-
-        return {
-
-            "response": "Current giveaway entries: 0 | Names: No entries yet"
-
-        }
-
-
+    # !giveaway, !enter, and !entries used to be handled here. That code is
+    # deleted (Phase 0 cleanup, e33a91d follow-up) -- it was unreachable:
+    # the "FoxBot Studio Giveaway Viewer Entry v3" block above (~line 3710)
+    # intercepts all three with an unconditional return before execution
+    # could ever reach this point. See giveaway-state-split memory.
 
     if lower_message == "!pickwinner":
 
