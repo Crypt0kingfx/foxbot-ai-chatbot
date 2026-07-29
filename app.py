@@ -58,6 +58,8 @@ import threading
 
 import time
 
+import copy
+
 from datetime import date
 
 
@@ -215,6 +217,11 @@ arcade_stats = {
 
 
 
+# Phase 1 multi-tenant economy migration: real per-creator IDs land in a
+# later phase (bot-connection territory). Until then, every call implicitly
+# targets this one tenant. See docs/phase-1-economy-migration.md.
+FOXBOT_TENANT_ZERO_CREATOR_ID = os.getenv("FOXBOT_TENANT_ZERO_CREATOR_ID", "").strip()
+
 foxcoin_economy = {
 
     "currency_name": os.getenv("POINTS_NAME", "FoxCoins"),
@@ -223,7 +230,9 @@ foxcoin_economy = {
 
     "daily_claims": {},
 
-    "transactions": []
+    "transactions": [],
+
+    "by_creator": {}
 
 }
 
@@ -711,6 +720,60 @@ def apply_persistent_snapshot(data):
         foxcoin_economy.setdefault("daily_claims", {})
 
         foxcoin_economy.setdefault("transactions", [])
+
+        foxcoin_economy.setdefault("by_creator", {})
+
+        # One-time migration: copy the pre-Phase-1 flat balances into
+        # tenant zero's by_creator slot. Idempotent -- gated on tenant zero
+        # not already having a by_creator entry -- so a process restart
+        # after the copy has already happened is a no-op and never
+        # overwrites live post-migration activity with this stale
+        # snapshot. The flat dict itself is never written to or cleared
+        # here; it stays frozen as the rollback safety net until the
+        # separate cleanup commit after the live-soak window.
+        if (
+            FOXBOT_TENANT_ZERO_CREATOR_ID
+            and FOXBOT_TENANT_ZERO_CREATOR_ID not in foxcoin_economy["by_creator"]
+            and foxcoin_economy["balances"]
+        ):
+
+            foxcoin_economy["by_creator"][FOXBOT_TENANT_ZERO_CREATOR_ID] = {
+
+                "balances": copy.deepcopy(foxcoin_economy["balances"]),
+
+                "daily_claims": copy.deepcopy(foxcoin_economy["daily_claims"]),
+
+                "transactions": copy.deepcopy(foxcoin_economy["transactions"]),
+
+            }
+
+        elif not FOXBOT_TENANT_ZERO_CREATOR_ID and foxcoin_economy["balances"]:
+
+            # There's real pre-Phase-1 balance data sitting in the flat
+            # dict, but no tenant ID to migrate it to. Every economy read/
+            # write will fall back to a separate empty "tenant-zero"
+            # bucket -- balances will show 0 and new activity lands in the
+            # wrong place. Not data loss (the flat dict stays frozen) but
+            # a visible incident. Loud on purpose: set
+            # FOXBOT_TENANT_ZERO_CREATOR_ID before this is allowed to run
+            # for real.
+            print(
+
+                "!!! FOXBOT PHASE-1 MIGRATION SKIPPED !!! "
+
+                "FOXBOT_TENANT_ZERO_CREATOR_ID is not set, but "
+
+                f"{len(foxcoin_economy['balances'])} existing balance(s) were "
+
+                "found. Economy reads/writes will fall back to an empty "
+
+                "'tenant-zero' bucket -- balances will appear as 0 until "
+
+                "the env var is set and the app restarts. Set "
+
+                "FOXBOT_TENANT_ZERO_CREATOR_ID in Render now."
+
+            )
 
 
 
@@ -2767,12 +2830,75 @@ def get_currency_name():
 
 
 
+_tenant_zero_fallback_warned = False
+
+
+
+
+def _tenant_zero_id():
+
+    # Falls back to a literal sentinel (never "") if the env var isn't set,
+    # e.g. local dev/tests -- keeps this a distinct, clearly-labeled empty
+    # bucket rather than crashing or silently colliding with a real ID.
+    # Warn once (not per-call -- this runs on every economy read/write) so
+    # real activity landing in the wrong bucket in production surfaces
+    # immediately instead of silently, without spamming the logs.
+    if FOXBOT_TENANT_ZERO_CREATOR_ID:
+
+        return FOXBOT_TENANT_ZERO_CREATOR_ID
+
+
+
+    global _tenant_zero_fallback_warned
+
+    if not _tenant_zero_fallback_warned:
+
+        _tenant_zero_fallback_warned = True
+
+        print(
+
+            "!!! FOXBOT ECONOMY FALLBACK !!! FOXBOT_TENANT_ZERO_CREATOR_ID "
+
+            "is not set -- economy activity is landing in a separate "
+
+            "'tenant-zero' bucket, not the real creator's data. Set "
+
+            "FOXBOT_TENANT_ZERO_CREATOR_ID in Render and restart."
+
+        )
+
+
+
+    return "tenant-zero"
+
+
+
+
+def _tenant_zero_economy():
+
+    # Lazy setdefault: works whether or not the hydration-time migration
+    # populated this entry (a fresh install with no pre-Phase-1 balances
+    # never triggers that copy) -- first access always succeeds, never
+    # KeyErrors.
+    return foxcoin_economy["by_creator"].setdefault(_tenant_zero_id(), {
+
+        "balances": {},
+
+        "daily_claims": {},
+
+        "transactions": []
+
+    })
+
+
+
+
 
 def get_balance(name: str):
 
     key = viewer_key(name)
 
-    return int(foxcoin_economy["balances"].get(key, 0))
+    return int(_tenant_zero_economy()["balances"].get(key, 0))
 
 
 
@@ -2784,17 +2910,19 @@ def add_points(name: str, amount: int, reason: str = "activity"):
 
     key = viewer_key(clean_name)
 
+    economy = _tenant_zero_economy()
 
 
-    current = int(foxcoin_economy["balances"].get(key, 0))
+
+    current = int(economy["balances"].get(key, 0))
 
     new_balance = max(0, current + int(amount))
 
-    foxcoin_economy["balances"][key] = new_balance
+    economy["balances"][key] = new_balance
 
 
 
-    foxcoin_economy["transactions"].append({
+    economy["transactions"].append({
 
         "viewer": clean_name,
 
@@ -2810,7 +2938,7 @@ def add_points(name: str, amount: int, reason: str = "activity"):
 
     # Keep transaction history small
 
-    foxcoin_economy["transactions"] = foxcoin_economy["transactions"][-50:]
+    economy["transactions"] = economy["transactions"][-50:]
 
 
 
@@ -3467,9 +3595,11 @@ def format_coin_leaderboard(limit: int = 5):
 
     currency = get_currency_name()
 
+    balances = _tenant_zero_economy()["balances"]
 
 
-    if not foxcoin_economy["balances"]:
+
+    if not balances:
 
         return f"No {currency} balances yet. Type !daily or !foxhunt to earn some."
 
@@ -3477,7 +3607,7 @@ def format_coin_leaderboard(limit: int = 5):
 
     sorted_balances = sorted(
 
-        foxcoin_economy["balances"].items(),
+        balances.items(),
 
         key=lambda item: item[1],
 
@@ -5514,9 +5644,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
+        daily_claims = _tenant_zero_economy()["daily_claims"]
 
 
-        if foxcoin_economy["daily_claims"].get(key):
+
+        if daily_claims.get(key):
 
             return {
 
@@ -5530,7 +5662,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         new_balance = add_points(username, reward, "daily")
 
-        foxcoin_economy["daily_claims"][key] = True
+        daily_claims[key] = True
 
 
 
@@ -9488,15 +9620,17 @@ def arcade_stats_endpoint():
 
 def foxcoins_endpoint():
 
+    economy = _tenant_zero_economy()
+
     return {
 
         "currency_name": get_currency_name(),
 
-        "balances": foxcoin_economy["balances"],
+        "balances": economy["balances"],
 
-        "daily_claims": foxcoin_economy["daily_claims"],
+        "daily_claims": economy["daily_claims"],
 
-        "recent_transactions": foxcoin_economy["transactions"][-10:],
+        "recent_transactions": economy["transactions"][-10:],
 
         "reward_shop": reward_shop,
 
@@ -9978,7 +10112,7 @@ def data_status_endpoint():
 
         "custom_command_count": len(custom_commands),
 
-        "viewer_balance_count": len(foxcoin_economy.get("balances", {})),
+        "viewer_balance_count": len(_tenant_zero_economy().get("balances", {})),
 
         "reward_count": len(reward_shop),
 
@@ -14547,7 +14681,7 @@ async def foxbot_studio_stats_live():
     # which is only ever written by manual test buttons (recognition_test,
     # studio_recognition_response), never by real chat/recognition traffic.
 
-    foxcoins_total = sum(int(v) for v in foxcoin_economy["balances"].values())
+    foxcoins_total = sum(int(v) for v in _tenant_zero_economy()["balances"].values())
 
     commands_total = sum(int(v.get("commands", 0)) for v in viewer_stats.values())
 
