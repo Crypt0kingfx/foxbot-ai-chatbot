@@ -20243,6 +20243,20 @@ def foxbot_auto_start_oauth_refresh_v1():
         target=_foxbot_blaze_oauth_refresh_worker_v1, daemon=True
     )
     _blaze_oauth_refresh_thread.start()
+
+
+@app.get("/api/blaze/oauth/refresh-status")
+def foxbot_blaze_oauth_refresh_status_v1():
+    """Read-only view of the scheduled refresh loop's own in-process state
+    (cycles/last_attempt_at/last_ok/last_error) -- gated by the existing
+    /api/blaze/oauth/ Basic Auth prefix, same as /api/blaze/oauth/status.
+    Does not touch the worker, the refresh endpoint, or the identity lock;
+    it only reads blaze_oauth_refresh_status."""
+    return {
+        "ok": True,
+        "thread_alive": bool(_blaze_oauth_refresh_thread and _blaze_oauth_refresh_thread.is_alive()),
+        "refresh_status": blaze_oauth_refresh_status,
+    }
 # === End FoxBot Blaze OAuth Scheduled Refresh v1 ===
 
 
