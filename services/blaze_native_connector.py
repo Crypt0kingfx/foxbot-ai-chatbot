@@ -884,7 +884,7 @@ def _foxbot_should_ignore_chat_v1(chat):
 
     allowed_commands = set(
         x.strip().lower()
-        for x in env("FOXBOT_LIVE_ALLOWED_COMMANDS", "!connect,!profile,!rank,!disconnect,!help").split(",")
+        for x in env("FOXBOT_LIVE_ALLOWED_COMMANDS", "!connect,!profile,!rank,!disconnect,!foxhelp").split(",")
         if x.strip()
     )
 
@@ -1187,8 +1187,8 @@ def _foxbot_live_command_reply_v2(chat):
     if command == "!disconnect":
         return f"🦊 @{username} FoxBot disconnect request received."
 
-    if command == "!help":
-        return "🦊 FoxBot commands: !connect, !profile, !rank, !disconnect, !help"
+    if command == "!foxhelp":
+        return "🦊 FoxBot commands: !connect, !profile, !rank, !disconnect, !foxhelp"
 
     return ""
 
@@ -1310,13 +1310,13 @@ def _foxbot_owner_direct_reply_v1(chat):
         return f"🦊 @{username} is connected as the FoxBot channel owner! Owner access unlocked. Use !profile next."
 
     if command == "!profile":
-        return f"🦊 @{username} FoxBot Owner Profile | Status: connected | Role: Channel Owner | Commands: !connect, !profile, !rank, !help"
+        return f"🦊 @{username} FoxBot Owner Profile | Status: connected | Role: Channel Owner | Commands: !connect, !profile, !rank, !foxhelp"
 
     if command == "!rank":
         return f"🏆 @{username} FoxBot Rank | Channel Owner | Top Fox unlocked."
 
-    if command == "!help":
-        return "🦊 FoxBot commands: !connect, !profile, !rank, !disconnect, !help"
+    if command == "!foxhelp":
+        return "🦊 FoxBot commands: !connect, !profile, !rank, !disconnect, !foxhelp"
 
     return ""
 # === End FoxBot Blaze Owner Bypass v1 ===

@@ -1288,7 +1288,7 @@
             <p>Test core commands without leaving Studio.</p>
 
             <div class="diagnostics-button-grid">
-              <button onclick="runDiagnosticsCommand('!help')">Test !help</button>
+              <button onclick="runDiagnosticsCommand('!foxhelp')">Test !foxhelp</button>
               <button onclick="runDiagnosticsCommand('!daily')">Test !daily</button>
               <button onclick="runDiagnosticsCommand('!boss')">Test !boss</button>
               <button onclick="runDiagnosticsCommand('!event')">Test !event</button>
@@ -1790,7 +1790,7 @@
       }
 
       if (name === "dry-command") {
-        const result = await getJson("/api/blaze/native/live-reply-test?username=crypt0k1ng96&message=!help");
+        const result = await getJson("/api/blaze/native/live-reply-test?username=crypt0k1ng96&message=!foxhelp");
         renderOutput("Dry Command Reply Test", result);
       }
 
@@ -1874,7 +1874,7 @@
 
         <h2 style="margin:22px 0 10px;">Safe Tests</h2>
         <div style="display:flex;flex-wrap:wrap;gap:10px;">
-          <button data-real-action="dry-command" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Test !help</button>
+          <button data-real-action="dry-command" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Test !foxhelp</button>
           <button data-real-action="event-test" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#fff;color:#050505;cursor:pointer;">Dry Test Follow Thanks</button>
           <button data-real-action="send-test" style="border:0;border-radius:12px;padding:12px 15px;font-weight:900;background:#ff7a18;color:#140700;cursor:pointer;">Send Test To Chat</button>
           <button data-real-action="refresh" style="border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 15px;font-weight:900;background:#151d16;color:#f5fff7;cursor:pointer;">Refresh</button>

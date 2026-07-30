@@ -1601,7 +1601,7 @@ html_content = """
 
                 <div class="command-list">
 
-                    <div class="command-chip">!help</div>
+                    <div class="command-chip">!foxhelp</div>
 
                     <div class="command-chip">!schedule</div>
 
@@ -1687,7 +1687,7 @@ html_content = """
 
                     <div class="quick-buttons">
 
-                        <button onclick="sendQuickMessage('!help')">!help</button>
+                        <button onclick="sendQuickMessage('!foxhelp')">!foxhelp</button>
 
                         <button onclick="sendQuickMessage('!schedule')">!schedule</button>
 
@@ -1749,7 +1749,7 @@ html_content = """
 
                 <div class="chat-box" id="chatBox">
 
-                    <div class="message bot">Welcome to FoxBot. Try !help to see commands.</div>
+                    <div class="message bot">Welcome to FoxBot. Try !foxhelp to see commands.</div>
 
                     <div class="message bot">FoxBot supports Blaze OAuth, chat posting, command replies, polling-based chat reading, and giveaway tools.</div>
 
@@ -2111,7 +2111,7 @@ dashboard_html = """
 
             <button onclick="callEndpoint('/blaze/send-test-message')">Send Test Message</button>
 
-            <button onclick="callEndpoint('/blaze/run-command?message=!help&username=Ryan')">Run !help</button>
+            <button onclick="callEndpoint('/blaze/run-command?message=!foxhelp&username=Ryan')">Run !foxhelp</button>
 
             <button onclick="callEndpoint('/blaze/judge-demo')">Run Judge Demo</button>
 
@@ -2449,7 +2449,7 @@ judges_html = """
 
         <ul>
 
-            <li><code>!help</code> — shows available commands</li>
+            <li><code>!foxhelp</code> — shows available commands</li>
 
             <li><code>!schedule</code> — shows the stream schedule</li>
 
@@ -2479,7 +2479,7 @@ judges_html = """
 
             <li>Click <strong>Start Listener</strong>.</li>
 
-            <li>Type <code>!help</code> in Blaze chat.</li>
+            <li>Type <code>!foxhelp</code> in Blaze chat.</li>
 
             <li>FoxBot replies directly in Blaze chat.</li>
 
@@ -3759,7 +3759,7 @@ def format_leaderboard(limit: int = 5):
 
     if not viewer_stats:
 
-        return "FoxBot leaderboard is empty. Type !help to get started."
+        return "FoxBot leaderboard is empty. Type !foxhelp to get started."
 
 
 
@@ -4193,6 +4193,20 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
     if lower_message == "!help":
+
+        # BLAZEIAN_BOT (a platform bot we don't control) also answers !help, which
+        # gave viewers two overlapping help lists. FoxBot now stays silent on !help
+        # and only answers !foxhelp, so this must not fall through to the unknown-
+        # command catch-all below.
+        return {
+
+            "response": ""
+
+        }
+
+
+
+    if lower_message == "!foxhelp":
 
         if admin:
 
@@ -6636,7 +6650,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         reserved_commands = {
 
-            "!help", "!schedule", "!faq", "!socials", "!mode",
+            "!help", "!foxhelp", "!schedule", "!faq", "!socials", "!mode",
 
             "!giveaway", "!enter", "!entries", "!pickwinner",
 
@@ -6959,7 +6973,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     return {
 
-        "response": "Unknown command. Type !help"
+        "response": "Unknown command. Type !foxhelp"
 
     }
 
@@ -7150,7 +7164,7 @@ def send_test_blaze_message():
 
 @app.get("/blaze/run-command")
 
-def run_command_in_blaze(message: str = "!help", username: str = "viewer"):
+def run_command_in_blaze(message: str = "!foxhelp", username: str = "viewer"):
 
     if not bot_tokens.get("accessToken"):
 
@@ -7741,7 +7755,7 @@ def project_status():
 
         "commands": [
 
-            "!help",
+            "!foxhelp",
 
             "!schedule",
 
@@ -7813,7 +7827,7 @@ def judge_demo():
 
         "FoxBot Judge Demo starting now!",
 
-        chat(message="!help", username="JudgeDemo").get("response"),
+        chat(message="!foxhelp", username="JudgeDemo").get("response"),
 
         chat(message="!giveaway", username="JudgeDemo").get("response"),
 
@@ -8191,7 +8205,7 @@ features_html = """
 
                 <ul>
 
-                    <li>Simple commands like <code>!help</code> and <code>!enter</code></li>
+                    <li>Simple commands like <code>!foxhelp</code> and <code>!enter</code></li>
 
                     <li>Fast answers to common questions</li>
 
@@ -8249,7 +8263,7 @@ features_html = """
 
                 <h3>Chat Commands</h3>
 
-                <p>FoxBot supports public commands like <code>!help</code>, <code>!schedule</code>, <code>!faq</code>, <code>!enter</code>, and <code>!entries</code>.</p>
+                <p>FoxBot supports public commands like <code>!foxhelp</code>, <code>!schedule</code>, <code>!faq</code>, <code>!enter</code>, and <code>!entries</code>.</p>
 
             </div>
 
@@ -9284,7 +9298,7 @@ judge_demo_html = """
 
                 <div class="buttons">
 
-                    <button onclick="runCommand('!help')">!help</button>
+                    <button onclick="runCommand('!foxhelp')">!foxhelp</button>
 
                     <button onclick="runCommand('!goodnight')">!goodnight</button>
 
@@ -10774,7 +10788,7 @@ async function sendBlazeCommand() {
 
     const username = v("blazeUser") || "Ryan";
 
-    const message = v("blazeMessage") || "!help";
+    const message = v("blazeMessage") || "!foxhelp";
 
 
 
@@ -12094,7 +12108,7 @@ smoke_test_html = """
 
         const coreTests = [
 
-            "!help",
+            "!foxhelp",
 
             "!socials",
 
@@ -13699,7 +13713,7 @@ button.secondary:hover {
 
             <div class="row">
 
-                <button class="action" onclick="runCommand('!help')">Test !help</button>
+                <button class="action" onclick="runCommand('!foxhelp')">Test !foxhelp</button>
 
                 <button class="secondary" onclick="runCommand('!rules')">Test !rules</button>
 
@@ -13755,7 +13769,7 @@ button.secondary:hover {
 
             <input id="blazeUser" value="Ryan">
 
-            <input id="blazeMessage" value="!help">
+            <input id="blazeMessage" value="!foxhelp">
 
             <button class="action" onclick="sendBlazeCommand()">Send To Blaze</button>
 
@@ -13781,7 +13795,7 @@ button.secondary:hover {
 
             <p>Run any command as any username.</p>
 
-            <input id="cmdInput" value="!help">
+            <input id="cmdInput" value="!foxhelp">
 
             <input id="userInput" value="Ryan">
 
@@ -23254,11 +23268,12 @@ def _foxbot_process_channel_rows_v1(target, rows):
             )
             foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
             foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
-            send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
-            _foxbot_events_v1.emit_event(
-                creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
-            )
-            polling_status["last_reply"] = foxbot_reply
+            if foxbot_reply:
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                _foxbot_events_v1.emit_event(
+                    creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
+                )
+                polling_status["last_reply"] = foxbot_reply
             processed_count += 1
             continue
 
@@ -23317,82 +23332,84 @@ def _foxbot_process_channel_rows_v1(target, rows):
         )
         foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
 
-        send_result = send_blaze_chat_message(
-            foxbot_reply,
-            channel_id=channel_id,
-        )
+        if foxbot_reply:
+            send_result = send_blaze_chat_message(
+                foxbot_reply,
+                channel_id=channel_id,
+            )
 
-        polling_status["last_multichannel_send"] = {
-            "channel_id": channel_id,
-            "channel_slug": channel_slug,
-            "creator_handle": creator_handle,
-            "viewer": clean_username,
-            "command": command,
-            "reply": foxbot_reply,
-            "send_result": send_result,
-        }
-
-        send_success = bool(
-            isinstance(send_result, dict)
-            and send_result.get("success")
-        )
-        send_message = (
-            str(send_result.get("message") or "")
-            if isinstance(send_result, dict)
-            else "Unknown Blaze send response."
-        )
-        follower_required = (
-            not send_success
-            and "only followers can send messages" in send_message.lower()
-        )
-
-        if follower_required:
-            polling_status["multichannel_connection_health"] = {
-                "chat_ready": False,
-                "setup_issue": "foxbot_not_following_creator",
-                "action_required": (
-                    f"Follow @{channel_slug} from the FoxBot Blaze account, "
-                    "then test !help again."
-                ),
+            polling_status["last_multichannel_send"] = {
                 "channel_id": channel_id,
                 "channel_slug": channel_slug,
                 "creator_handle": creator_handle,
-                "last_error": send_message,
-                "checked_at": time.time(),
-            }
-        elif send_success:
-            polling_status["multichannel_connection_health"] = {
-                "chat_ready": True,
-                "setup_issue": None,
-                "action_required": None,
-                "channel_id": channel_id,
-                "channel_slug": channel_slug,
-                "creator_handle": creator_handle,
-                "last_error": None,
-                "checked_at": time.time(),
-            }
-        else:
-            polling_status["multichannel_connection_health"] = {
-                "chat_ready": False,
-                "setup_issue": "blaze_send_failed",
-                "action_required": "Review the latest Blaze send response.",
-                "channel_id": channel_id,
-                "channel_slug": channel_slug,
-                "creator_handle": creator_handle,
-                "last_error": send_message,
-                "checked_at": time.time(),
+                "viewer": clean_username,
+                "command": command,
+                "reply": foxbot_reply,
+                "send_result": send_result,
             }
 
-        _foxbot_events_v1.emit_event(
-            creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
-        )
+            send_success = bool(
+                isinstance(send_result, dict)
+                and send_result.get("success")
+            )
+            send_message = (
+                str(send_result.get("message") or "")
+                if isinstance(send_result, dict)
+                else "Unknown Blaze send response."
+            )
+            follower_required = (
+                not send_success
+                and "only followers can send messages" in send_message.lower()
+            )
+
+            if follower_required:
+                polling_status["multichannel_connection_health"] = {
+                    "chat_ready": False,
+                    "setup_issue": "foxbot_not_following_creator",
+                    "action_required": (
+                        f"Follow @{channel_slug} from the FoxBot Blaze account, "
+                        "then test !foxhelp again."
+                    ),
+                    "channel_id": channel_id,
+                    "channel_slug": channel_slug,
+                    "creator_handle": creator_handle,
+                    "last_error": send_message,
+                    "checked_at": time.time(),
+                }
+            elif send_success:
+                polling_status["multichannel_connection_health"] = {
+                    "chat_ready": True,
+                    "setup_issue": None,
+                    "action_required": None,
+                    "channel_id": channel_id,
+                    "channel_slug": channel_slug,
+                    "creator_handle": creator_handle,
+                    "last_error": None,
+                    "checked_at": time.time(),
+                }
+            else:
+                polling_status["multichannel_connection_health"] = {
+                    "chat_ready": False,
+                    "setup_issue": "blaze_send_failed",
+                    "action_required": "Review the latest Blaze send response.",
+                    "channel_id": channel_id,
+                    "channel_slug": channel_slug,
+                    "creator_handle": creator_handle,
+                    "last_error": send_message,
+                    "checked_at": time.time(),
+                }
+
+            _foxbot_events_v1.emit_event(
+                creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
+            )
+            proof_stats["last_command"] = message_text
+            proof_stats["last_reply"] = foxbot_reply
+            proof_stats["last_username"] = clean_username
+            proof_stats["last_message"] = message_text
+            proof_stats["last_reply_at"] = time.time()
+            polling_status["last_reply"] = foxbot_reply
+
         processed_count += 1
-        proof_stats["last_command"] = message_text
-        proof_stats["last_reply"] = foxbot_reply
-        proof_stats["last_username"] = clean_username
-        proof_stats["last_message"] = message_text
-        proof_stats["last_reply_at"] = time.time()
-        polling_status["last_reply"] = foxbot_reply
 
     return processed_count
 
