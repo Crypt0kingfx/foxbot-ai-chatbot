@@ -58,6 +58,8 @@ import threading
 
 import time
 
+import copy
+
 from datetime import date
 
 
@@ -171,7 +173,7 @@ giveaway_overlay = {
 
 
 
-viewer_stats = {}
+viewer_stats = {"by_creator": {}}
 
 
 
@@ -348,7 +350,7 @@ community_quest = {
 
 
 
-viewer_streaks = {}
+viewer_streaks = {"by_creator": {}}
 
 
 
@@ -664,6 +666,60 @@ def apply_persistent_snapshot(data):
     if isinstance(data.get("viewer_streaks"), dict):
 
         viewer_streaks.update(data["viewer_streaks"])
+
+        viewer_streaks.setdefault("by_creator", {})
+
+        # Phase 2 multi-tenant migration, viewer_streaks slice. Same
+        # additive-migrate-then-cleanup pattern as Phase 1's foxcoin_economy
+        # (docs/multi-tenant-implementation-plan.md), adapted for a store
+        # that has no wrapper dict: viewer_streaks IS the flat
+        # {viewer_key: streak_dict} map, so unlike foxcoin_economy's named
+        # "balances" sub-key, every top-level key other than "by_creator"
+        # itself is a pre-migration viewer record. Idempotent -- gated on
+        # tenant zero not already having a by_creator entry -- so a process
+        # restart after the copy has already happened is a no-op and never
+        # overwrites live post-migration activity with this stale snapshot.
+        # The flat entries are never deleted here; they stay frozen as the
+        # rollback safety net until the separate cleanup commit after the
+        # live-soak window.
+        pre_migration_streak_keys = [key for key in viewer_streaks if key != "by_creator"]
+
+        if (
+            FOXBOT_TENANT_ZERO_CREATOR_ID
+            and FOXBOT_TENANT_ZERO_CREATOR_ID not in viewer_streaks["by_creator"]
+            and pre_migration_streak_keys
+        ):
+
+            viewer_streaks["by_creator"][FOXBOT_TENANT_ZERO_CREATOR_ID] = {
+                key: copy.deepcopy(viewer_streaks[key]) for key in pre_migration_streak_keys
+            }
+
+        elif not FOXBOT_TENANT_ZERO_CREATOR_ID and pre_migration_streak_keys:
+
+            # There's real pre-Phase-2 streak data sitting in the flat
+            # top-level keys, but no tenant ID to migrate it to. Every
+            # streak read/write will fall back to a separate empty
+            # "tenant-zero" bucket -- streaks will appear reset until the
+            # env var is set and the app restarts. Not data loss (the flat
+            # entries stay frozen) but a visible incident. Loud on purpose,
+            # matching Phase 1's warning.
+            print(
+
+                "!!! FOXBOT PHASE-2 STREAKS MIGRATION SKIPPED !!! "
+
+                "FOXBOT_TENANT_ZERO_CREATOR_ID is not set, but "
+
+                f"{len(pre_migration_streak_keys)} existing streak record(s) "
+
+                "were found. Streak reads/writes will fall back to an empty "
+
+                "'tenant-zero' bucket -- streaks will appear reset until "
+
+                "the env var is set and the app restarts. Set "
+
+                "FOXBOT_TENANT_ZERO_CREATOR_ID in Render now."
+
+            )
 
 
 
@@ -2829,6 +2885,27 @@ def _tenant_zero_economy():
     })
 
 
+def _tenant_zero_streaks():
+
+    # Lazy setdefault, same reasoning as _tenant_zero_economy(): works
+    # whether or not the hydration-time migration populated this entry, and
+    # returns a live mutable reference -- callers that mutate the returned
+    # dict's values in place (get_streak_data's callers do exactly this,
+    # e.g. data["streak"] += 1) are mutating the real by_creator storage,
+    # not a copy, so the change persists without a separate write-back call.
+    return viewer_streaks["by_creator"].setdefault(_tenant_zero_id(), {})
+
+
+def _tenant_zero_viewer_stats():
+
+    # Lazy setdefault, same reference-preserving contract as
+    # _tenant_zero_economy()/_tenant_zero_streaks(). viewer_stats has no
+    # persistence and no migration -- it resets to {"by_creator": {}} on
+    # every process start regardless -- so unlike the other two tenant-zero
+    # helpers, there's no frozen flat data behind this one, ever.
+    return viewer_stats["by_creator"].setdefault(_tenant_zero_id(), {})
+
+
 
 
 
@@ -3245,11 +3322,13 @@ def get_streak_data(username: str):
 
     key = viewer_key(username)
 
+    tenant_streaks = _tenant_zero_streaks()
 
 
-    if key not in viewer_streaks:
 
-        viewer_streaks[key] = {
+    if key not in tenant_streaks:
+
+        tenant_streaks[key] = {
 
             "display_name": normalize_viewer_name(username),
 
@@ -3263,7 +3342,7 @@ def get_streak_data(username: str):
 
 
 
-    return viewer_streaks[key]
+    return tenant_streaks[key]
 
 
 
@@ -3271,7 +3350,9 @@ def get_streak_data(username: str):
 
 def format_streak_leaderboard(limit: int = 5):
 
-    if not viewer_streaks:
+    tenant_streaks = _tenant_zero_streaks()
+
+    if not tenant_streaks:
 
         return "No streaks yet. Type !checkin to start your FoxBot streak."
 
@@ -3279,7 +3360,7 @@ def format_streak_leaderboard(limit: int = 5):
 
     sorted_streaks = sorted(
 
-        viewer_streaks.values(),
+        tenant_streaks.values(),
 
         key=lambda item: int(item.get("streak", 0)),
 
@@ -3669,11 +3750,13 @@ def track_viewer_command(username: str, command: str):
 
     clean_key = clean_name.lower()
 
+    tenant_stats = _tenant_zero_viewer_stats()
 
 
-    if clean_key not in viewer_stats:
 
-        viewer_stats[clean_key] = {
+    if clean_key not in tenant_stats:
+
+        tenant_stats[clean_key] = {
 
             "display_name": clean_name,
 
@@ -3685,9 +3768,9 @@ def track_viewer_command(username: str, command: str):
 
 
 
-    viewer_stats[clean_key]["commands"] += 1
+    tenant_stats[clean_key]["commands"] += 1
 
-    viewer_stats[clean_key]["last_command"] = command
+    tenant_stats[clean_key]["last_command"] = command
 
 
 
@@ -3695,7 +3778,9 @@ def track_viewer_command(username: str, command: str):
 
 def format_leaderboard(limit: int = 5):
 
-    if not viewer_stats:
+    tenant_stats = _tenant_zero_viewer_stats()
+
+    if not tenant_stats:
 
         return "FoxBot leaderboard is empty. Type !foxhelp to get started."
 
@@ -3703,7 +3788,7 @@ def format_leaderboard(limit: int = 5):
 
     sorted_users = sorted(
 
-        viewer_stats.values(),
+        tenant_stats.values(),
 
         key=lambda item: item.get("commands", 0),
 
@@ -4592,7 +4677,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        viewer_streaks[key] = {
+        _tenant_zero_streaks()[key] = {
 
             "display_name": target,
 
@@ -6845,7 +6930,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!stats":
 
-        user_data = viewer_stats.get(username.lower(), {"commands": 0})
+        user_data = _tenant_zero_viewer_stats().get(username.lower(), {"commands": 0})
 
         return {
 
@@ -8724,13 +8809,15 @@ def giveaway_overlay_data():
 
 def viewer_stats_endpoint():
 
+    tenant_stats = _tenant_zero_viewer_stats()
+
     return {
 
-        "viewer_count": len(viewer_stats),
+        "viewer_count": len(tenant_stats),
 
         "leaderboard": sorted(
 
-            viewer_stats.values(),
+            tenant_stats.values(),
 
             key=lambda item: item.get("commands", 0),
 
@@ -12880,13 +12967,15 @@ def community_quest_endpoint():
 
 def streaks_endpoint():
 
+    tenant_streaks = _tenant_zero_streaks()
+
     return {
 
         "today": today_string(),
 
-        "viewer_count": len(viewer_streaks),
+        "viewer_count": len(tenant_streaks),
 
-        "streaks": viewer_streaks,
+        "streaks": tenant_streaks,
 
         "leaderboard": format_streak_leaderboard(),
 
@@ -14635,9 +14724,11 @@ async def foxbot_studio_stats_live():
 
     foxcoins_total = sum(int(v) for v in _tenant_zero_economy()["balances"].values())
 
-    commands_total = sum(int(v.get("commands", 0)) for v in viewer_stats.values())
+    tenant_stats = _tenant_zero_viewer_stats()
 
-    viewers_total = len(viewer_stats)
+    commands_total = sum(int(v.get("commands", 0)) for v in tenant_stats.values())
+
+    viewers_total = len(tenant_stats)
 
     # A short name/"None", not format_stream_event()'s full sentence --
     # that reads fine as a chat reply but overflows a landing-page tile.
