@@ -161,18 +161,6 @@ VIEWER_FALLBACK_DEBUG_LOG_CAP = 20
 
 
 
-giveaway_overlay = {
-
-    "active": False,
-
-    "latest_entry": None,
-
-    "winner": None
-
-}
-
-
-
 viewer_stats = {"by_creator": {}}
 
 
@@ -3834,8 +3822,6 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     global giveaway_entries
 
-    global giveaway_overlay
-
     global bot_mode
 
     global custom_commands
@@ -4300,8 +4286,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         winner = random.choice(giveaway_entries)
 
         # Writes the same FOXBOT_STUDIO_GIVEAWAY_STATE_V3 store
-        # /overlay/giveaway-data now reads, instead of the retired
-        # giveaway_overlay global (see giveaway-state-split memory).
+        # /overlay/giveaway-data reads.
         foxbot_studio_giveaway_state_v3()["last_winner"] = winner
 
         _foxbot_events_v1.emit_event(
@@ -8781,8 +8766,7 @@ def giveaway_overlay_data():
 
     # Reads FOXBOT_STUDIO_GIVEAWAY_STATE_V3 -- the same store the REST
     # /api/studio/giveaways/* endpoints and chat()'s !enter/!giveaway
-    # intercept already read/write. giveaway_overlay is no longer read
-    # here (see giveaway-state-split memory); this is the fix.
+    # intercept already read/write.
     state = foxbot_studio_giveaway_state_v3()
 
     return {
