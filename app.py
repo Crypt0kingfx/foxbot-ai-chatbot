@@ -7295,6 +7295,36 @@ def find_chat_username(payload):
     return find_first_string(payload, ["displayName", "username", "slug", "name"]) or "viewer"
 
 
+def _foxbot_resolve_auto_event_username_v1(item, message_text):
+    """Vote events carry the real voter identity nested under
+    actionInfo.senderDisplayName (actionInfo.senderId as fallback), not any
+    of the generic top-level/nested keys find_chat_username searches for
+    (displayName/username/slug/name) -- confirmed against a real captured
+    payload from viewer_fallback_debug_log. Scoped narrowly to messages that
+    already match parse_auto_chat_event's own vote-keyword check, so this
+    never touches follow/raid/boss/normal-chat rows -- those haven't been
+    confirmed to share this shape, and guessing at their structure isn't
+    part of this fix. A real chat message that merely mentions "vote" has
+    no actionInfo at all, so it falls straight through to the unchanged
+    find_chat_username(item) call below -- the direct-message path is
+    untouched."""
+    lower = str(message_text or "").lower()
+
+    if "voted" in lower or "vote" in lower:
+        action_info = item.get("actionInfo") if isinstance(item, dict) else None
+
+        if isinstance(action_info, dict):
+            sender_display_name = action_info.get("senderDisplayName")
+            if isinstance(sender_display_name, str) and sender_display_name.strip():
+                return sender_display_name.strip()
+
+            sender_id = action_info.get("senderId")
+            if sender_id:
+                return str(sender_id).strip()
+
+    return find_chat_username(item)
+
+
 
 # === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
 _FOXBOT_DEBUG_SENSITIVE_KEY_MARKERS = (
@@ -23315,7 +23345,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
     for item in reversed(rows):
         message_id = find_chat_message_id(item)
         message_text = find_chat_message_text(item)
-        username = find_chat_username(item)
+        username = _foxbot_resolve_auto_event_username_v1(item, message_text)
         message_key = f"{channel_key}:{message_id}"
 
         polling_status["last_message"] = item
