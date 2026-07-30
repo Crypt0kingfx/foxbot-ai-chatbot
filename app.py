@@ -58,8 +58,6 @@ import threading
 
 import time
 
-import copy
-
 from datetime import date
 
 
@@ -229,12 +227,6 @@ FOXBOT_TENANT_ZERO_CREATOR_ID = os.getenv("FOXBOT_TENANT_ZERO_CREATOR_ID", "").s
 foxcoin_economy = {
 
     "currency_name": os.getenv("POINTS_NAME", "FoxCoins"),
-
-    "balances": {},
-
-    "daily_claims": {},
-
-    "transactions": [],
 
     "by_creator": {}
 
@@ -719,65 +711,7 @@ def apply_persistent_snapshot(data):
 
         foxcoin_economy.setdefault("currency_name", os.getenv("POINTS_NAME", "FoxCoins"))
 
-        foxcoin_economy.setdefault("balances", {})
-
-        foxcoin_economy.setdefault("daily_claims", {})
-
-        foxcoin_economy.setdefault("transactions", [])
-
         foxcoin_economy.setdefault("by_creator", {})
-
-        # One-time migration: copy the pre-Phase-1 flat balances into
-        # tenant zero's by_creator slot. Idempotent -- gated on tenant zero
-        # not already having a by_creator entry -- so a process restart
-        # after the copy has already happened is a no-op and never
-        # overwrites live post-migration activity with this stale
-        # snapshot. The flat dict itself is never written to or cleared
-        # here; it stays frozen as the rollback safety net until the
-        # separate cleanup commit after the live-soak window.
-        if (
-            FOXBOT_TENANT_ZERO_CREATOR_ID
-            and FOXBOT_TENANT_ZERO_CREATOR_ID not in foxcoin_economy["by_creator"]
-            and foxcoin_economy["balances"]
-        ):
-
-            foxcoin_economy["by_creator"][FOXBOT_TENANT_ZERO_CREATOR_ID] = {
-
-                "balances": copy.deepcopy(foxcoin_economy["balances"]),
-
-                "daily_claims": copy.deepcopy(foxcoin_economy["daily_claims"]),
-
-                "transactions": copy.deepcopy(foxcoin_economy["transactions"]),
-
-            }
-
-        elif not FOXBOT_TENANT_ZERO_CREATOR_ID and foxcoin_economy["balances"]:
-
-            # There's real pre-Phase-1 balance data sitting in the flat
-            # dict, but no tenant ID to migrate it to. Every economy read/
-            # write will fall back to a separate empty "tenant-zero"
-            # bucket -- balances will show 0 and new activity lands in the
-            # wrong place. Not data loss (the flat dict stays frozen) but
-            # a visible incident. Loud on purpose: set
-            # FOXBOT_TENANT_ZERO_CREATOR_ID before this is allowed to run
-            # for real.
-            print(
-
-                "!!! FOXBOT PHASE-1 MIGRATION SKIPPED !!! "
-
-                "FOXBOT_TENANT_ZERO_CREATOR_ID is not set, but "
-
-                f"{len(foxcoin_economy['balances'])} existing balance(s) were "
-
-                "found. Economy reads/writes will fall back to an empty "
-
-                "'tenant-zero' bucket -- balances will appear as 0 until "
-
-                "the env var is set and the app restarts. Set "
-
-                "FOXBOT_TENANT_ZERO_CREATOR_ID in Render now."
-
-            )
 
 
 
