@@ -118,6 +118,10 @@ polling_thread = None
 
 
 
+_blaze_oauth_refresh_thread = None
+
+
+
 polling_status = {
 
     "running": False,
@@ -20116,6 +20120,105 @@ def foxbot_blaze_oauth_refresh_v1():
 
 # === End FoxBot Blaze OAuth Routes v1 ===
 
+
+# === FoxBot Blaze OAuth Scheduled Refresh v1 ===
+# Calls the existing, identity-locked foxbot_blaze_oauth_refresh_v1() on a
+# timer so the bot's Blaze access token gets renewed automatically instead
+# of expiring and needing a manual /auth/blaze/login redo. Deliberately does
+# not touch foxbot_blaze_oauth_refresh_v1, _foxbot_blaze_oauth_save_tokens_v1,
+# or _foxbot_blaze_oauth_verify_identity_v1 -- this only calls that existing
+# logic on a schedule.
+blaze_oauth_refresh_status = {
+    "running": False,
+    "cycles": 0,
+    "last_attempt_at": None,
+    "last_ok": None,
+    "last_error": None,
+}
+
+
+def _foxbot_blaze_oauth_log_raw_fields_v1():
+    """Read back the just-saved token file and print whatever fields Blaze's
+    response actually contained (masking only the token values themselves),
+    so the real expiresIn/tokenType/etc. show up once in the Render log
+    stream instead of staying unknown forever. Read-only -- writes nothing."""
+
+    import json
+
+    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+
+    if not token_path.exists():
+        return
+
+    try:
+        saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
+    except Exception as e:
+        print(f"[FoxBot OAuth Refresh] could not read back token file for logging: {e}")
+        return
+
+    masked = dict(saved)
+    for key in ("accessToken", "access_token", "refreshToken", "refresh_token"):
+        if key in masked:
+            masked[key] = _foxbot_blaze_oauth_mask_v1(masked.get(key))
+
+    print(f"[FoxBot OAuth Refresh] saved token fields (masked tokens only): {masked}")
+
+
+def _foxbot_blaze_oauth_refresh_worker_v1():
+    blaze_oauth_refresh_status["running"] = True
+
+    try:
+        interval = float(os.getenv("FOXBOT_BLAZE_TOKEN_REFRESH_INTERVAL_SECONDS", "3600") or "3600")
+    except (TypeError, ValueError):
+        interval = 3600.0
+    interval = max(60.0, interval)
+
+    while blaze_oauth_refresh_status["running"]:
+        blaze_oauth_refresh_status["last_attempt_at"] = time.time()
+        blaze_oauth_refresh_status["cycles"] += 1
+
+        try:
+            result = foxbot_blaze_oauth_refresh_v1()
+            blaze_oauth_refresh_status["last_ok"] = bool(result.get("ok"))
+
+            if result.get("ok"):
+                blaze_oauth_refresh_status["last_error"] = None
+                print("[FoxBot OAuth Refresh] scheduled refresh succeeded.")
+                _foxbot_blaze_oauth_log_raw_fields_v1()
+            else:
+                blaze_oauth_refresh_status["last_error"] = result.get("error")
+                print(f"[FoxBot OAuth Refresh] scheduled refresh did not run: {result.get('error')}")
+        except Exception as e:
+            blaze_oauth_refresh_status["last_ok"] = False
+            blaze_oauth_refresh_status["last_error"] = str(e)
+            print(f"[FoxBot OAuth Refresh] scheduled refresh crashed: {e}")
+
+        time.sleep(interval)
+
+    blaze_oauth_refresh_status["running"] = False
+
+
+@app.on_event("startup")
+def foxbot_auto_start_oauth_refresh_v1():
+    """Start the scheduled Blaze OAuth refresh loop automatically on boot.
+    Set FOXBOT_AUTO_REFRESH_BLAZE_TOKEN=false to opt out."""
+    global _blaze_oauth_refresh_thread
+
+    opt_out = (os.getenv("FOXBOT_AUTO_REFRESH_BLAZE_TOKEN", "true") or "").strip().lower()
+    if opt_out in ["0", "false", "no", "off"]:
+        return
+
+    if not os.getenv("BLAZE_CLIENT_ID") or not os.getenv("BLAZE_CLIENT_SECRET"):
+        return
+
+    if _blaze_oauth_refresh_thread and _blaze_oauth_refresh_thread.is_alive():
+        return
+
+    _blaze_oauth_refresh_thread = threading.Thread(
+        target=_foxbot_blaze_oauth_refresh_worker_v1, daemon=True
+    )
+    _blaze_oauth_refresh_thread.start()
+# === End FoxBot Blaze OAuth Scheduled Refresh v1 ===
 
 
 # === FoxBot Blaze OAuth Debug Routes v1 ===
