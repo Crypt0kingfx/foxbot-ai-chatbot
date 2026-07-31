@@ -58,6 +58,8 @@ import threading
 
 import time
 
+import copy
+
 from datetime import date
 
 
@@ -167,7 +169,7 @@ bot_mode = os.getenv("FOXBOT_MODE", "hype").lower()
 
 
 
-custom_commands = {}
+custom_commands = {"by_creator": {}}
 
 
 
@@ -600,6 +602,68 @@ def apply_persistent_snapshot(data):
     if isinstance(data.get("custom_commands"), dict):
 
         custom_commands = data["custom_commands"]
+
+        # Phase 3a multi-tenant migration, custom_commands slice. Unlike
+        # foxcoin_economy/viewer_streaks, this store's hydration is a
+        # wholesale reassignment (custom_commands = data[...]), not an
+        # in-place .update() -- so the module-level custom_commands =
+        # {"by_creator": {}} default at declaration time provides no
+        # protection here; the rebound object needs its own setdefault
+        # every time this runs, including on the mid-process hydration-
+        # recovery path (see load_persistent_data()'s caller), not just
+        # at startup.
+        custom_commands.setdefault("by_creator", {})
+
+        # Same additive-migrate-then-cleanup pattern as Phase 1/2
+        # (docs/multi-tenant-implementation-plan.md), adapted for a store
+        # with no wrapper dict: custom_commands IS the flat
+        # {command_name: command_dict} map, so every top-level key other
+        # than "by_creator" itself is a pre-migration command record.
+        # Idempotent -- gated on tenant zero not already having a
+        # by_creator entry -- so a process restart (or the mid-process
+        # recovery path above) after the copy has already happened is a
+        # no-op and never overwrites live post-migration activity with
+        # this stale snapshot. The flat entries are never deleted here;
+        # they stay frozen as the rollback safety net until the separate
+        # cleanup commit after the live-soak window.
+        pre_migration_command_keys = [key for key in custom_commands if key != "by_creator"]
+
+        if (
+            FOXBOT_TENANT_ZERO_CREATOR_ID
+            and FOXBOT_TENANT_ZERO_CREATOR_ID not in custom_commands["by_creator"]
+            and pre_migration_command_keys
+        ):
+
+            custom_commands["by_creator"][FOXBOT_TENANT_ZERO_CREATOR_ID] = {
+                key: copy.deepcopy(custom_commands[key]) for key in pre_migration_command_keys
+            }
+
+        elif not FOXBOT_TENANT_ZERO_CREATOR_ID and pre_migration_command_keys:
+
+            # There's real pre-Phase-3a command data sitting in the flat
+            # top-level keys, but no tenant ID to migrate it to. Every
+            # command read/write will fall back to a separate empty
+            # "tenant-zero" bucket -- custom commands will appear to
+            # vanish until the env var is set and the app restarts. Not
+            # data loss (the flat entries stay frozen) but a visible
+            # incident. Loud on purpose, matching Phase 1/2's warning.
+            print(
+
+                "!!! FOXBOT PHASE-3A COMMANDS MIGRATION SKIPPED !!! "
+
+                "FOXBOT_TENANT_ZERO_CREATOR_ID is not set, but "
+
+                f"{len(pre_migration_command_keys)} existing custom command(s) "
+
+                "were found. Command reads/writes will fall back to an "
+
+                "empty 'tenant-zero' bucket -- commands will appear to "
+
+                "vanish until the env var is set and the app restarts. "
+
+                "Set FOXBOT_TENANT_ZERO_CREATOR_ID in Render now."
+
+            )
 
 
 
@@ -2840,6 +2904,21 @@ def _tenant_zero_viewer_stats():
     return viewer_stats["by_creator"].setdefault(_tenant_zero_id(), {})
 
 
+def _tenant_zero_commands():
+
+    # Lazy setdefault, same reference-preserving contract as the other
+    # three tenant-zero helpers. Deliberately keyed by _tenant_zero_id(),
+    # not the per-request creator_handle chat() receives -- matches the
+    # key Stage 1's migration-copy routine already writes into, and matches
+    # Phase 1/2's precedent of routing every touchpoint through the single
+    # tenant-zero constant rather than per-request identity. Real dynamic
+    # creator routing is deferred to the separate Bot Connection track,
+    # same as Phase 1/2 deferred it -- using creator_handle here instead
+    # would split pre-existing migrated commands and newly-seeded ones
+    # across two different keys.
+    return custom_commands["by_creator"].setdefault(_tenant_zero_id(), {})
+
+
 
 
 
@@ -3610,13 +3689,15 @@ def normalize_custom_command(command_name: str):
 
 def format_custom_commands():
 
-    if not custom_commands:
+    tenant_commands = _tenant_zero_commands()
+
+    if not tenant_commands:
 
         return "No custom commands yet. Admins can add one with !addcmd name response"
 
 
 
-    command_names = sorted(custom_commands.keys())
+    command_names = sorted(tenant_commands.keys())
 
     return "Custom FoxBot commands: " + ", ".join(command_names)
 
@@ -4129,7 +4210,16 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
     # via setdefault (never overwrites an existing entry, so a prior or
     # future !addcmd edit sticks) and falling through instead of
     # returning lets !addcmd actually take effect for these two.
-    custom_commands.setdefault("!rules", {
+    #
+    # Phase 3a: seeds into tenant-zero's by_creator slice, not the frozen
+    # flat top level -- must use the same _tenant_zero_id() key the
+    # migration-copy routine and every other touchpoint use, or this would
+    # split pre-existing/migrated commands and freshly-seeded defaults
+    # across two different creator buckets, and dispatch would only ever
+    # find one of them.
+    tenant_commands = _tenant_zero_commands()
+
+    tenant_commands.setdefault("!rules", {
 
         "response": "BLAZE COMMUNITY SPIN RULES | $25 USDC Giveaway | +100 Votes Sponsored by FoxBot AI | Tag 3 Friends | Like + Repost | Be Active in FoxBot AI Discord | Up to 1.50x Multiplier | 1-5 Gifted Subs = Bonus Entries | Sunday 5 PM PST | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20",
 
@@ -4137,7 +4227,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     })
 
-    custom_commands.setdefault("!giveawaylink", {
+    tenant_commands.setdefault("!giveawaylink", {
 
         "response": "$25 USDC Giveaway + 100 Votes Sponsored by FoxBot AI | Enter here: https://x.com/Pardon_my_trade/status/2069089169738289206?s=20",
 
@@ -6636,7 +6726,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        custom_commands[command_name] = {
+        _tenant_zero_commands()[command_name] = {
 
             "response": command_response,
 
@@ -6682,9 +6772,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         command_name = normalize_custom_command(parts[1])
 
+        tenant_commands = _tenant_zero_commands()
 
 
-        if command_name not in custom_commands:
+
+        if command_name not in tenant_commands:
 
             return {
 
@@ -6694,7 +6786,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        del custom_commands[command_name]
+        del tenant_commands[command_name]
 
 
 
@@ -6915,11 +7007,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-    if lower_message in custom_commands:
+    if lower_message in _tenant_zero_commands():
 
         return {
 
-            "response": custom_commands[lower_message]["response"]
+            "response": _tenant_zero_commands()[lower_message]["response"]
 
         }
 
@@ -8837,11 +8929,13 @@ def bot_mode_endpoint():
 
 def custom_commands_endpoint():
 
+    tenant_commands = _tenant_zero_commands()
+
     return {
 
-        "count": len(custom_commands),
+        "count": len(tenant_commands),
 
-        "commands": custom_commands,
+        "commands": tenant_commands,
 
         "examples": [
 
@@ -10109,7 +10203,7 @@ def data_status_endpoint():
 
         "exists": exists,
 
-        "custom_command_count": len(custom_commands),
+        "custom_command_count": len(_tenant_zero_commands()),
 
         "viewer_balance_count": len(_tenant_zero_economy().get("balances", {})),
 
@@ -23294,7 +23388,7 @@ def foxbot_onboarding_read_v1(creator_handle: str = ""):
     if posted is None or giveaway_done is None or dismissal is None:
         return {"ok": False, "error": "onboarding data unavailable"}
 
-    command_added = bool(custom_commands)
+    command_added = bool(_tenant_zero_commands())
     reward_added = bool(set(reward_shop.keys()) - {"hug", "hype", "flex", "mysterybox", "sponsor"})
 
     items = [
