@@ -58,8 +58,6 @@ import threading
 
 import time
 
-import copy
-
 from datetime import date
 
 
@@ -656,58 +654,6 @@ def apply_persistent_snapshot(data):
         viewer_streaks.update(data["viewer_streaks"])
 
         viewer_streaks.setdefault("by_creator", {})
-
-        # Phase 2 multi-tenant migration, viewer_streaks slice. Same
-        # additive-migrate-then-cleanup pattern as Phase 1's foxcoin_economy
-        # (docs/multi-tenant-implementation-plan.md), adapted for a store
-        # that has no wrapper dict: viewer_streaks IS the flat
-        # {viewer_key: streak_dict} map, so unlike foxcoin_economy's named
-        # "balances" sub-key, every top-level key other than "by_creator"
-        # itself is a pre-migration viewer record. Idempotent -- gated on
-        # tenant zero not already having a by_creator entry -- so a process
-        # restart after the copy has already happened is a no-op and never
-        # overwrites live post-migration activity with this stale snapshot.
-        # The flat entries are never deleted here; they stay frozen as the
-        # rollback safety net until the separate cleanup commit after the
-        # live-soak window.
-        pre_migration_streak_keys = [key for key in viewer_streaks if key != "by_creator"]
-
-        if (
-            FOXBOT_TENANT_ZERO_CREATOR_ID
-            and FOXBOT_TENANT_ZERO_CREATOR_ID not in viewer_streaks["by_creator"]
-            and pre_migration_streak_keys
-        ):
-
-            viewer_streaks["by_creator"][FOXBOT_TENANT_ZERO_CREATOR_ID] = {
-                key: copy.deepcopy(viewer_streaks[key]) for key in pre_migration_streak_keys
-            }
-
-        elif not FOXBOT_TENANT_ZERO_CREATOR_ID and pre_migration_streak_keys:
-
-            # There's real pre-Phase-2 streak data sitting in the flat
-            # top-level keys, but no tenant ID to migrate it to. Every
-            # streak read/write will fall back to a separate empty
-            # "tenant-zero" bucket -- streaks will appear reset until the
-            # env var is set and the app restarts. Not data loss (the flat
-            # entries stay frozen) but a visible incident. Loud on purpose,
-            # matching Phase 1's warning.
-            print(
-
-                "!!! FOXBOT PHASE-2 STREAKS MIGRATION SKIPPED !!! "
-
-                "FOXBOT_TENANT_ZERO_CREATOR_ID is not set, but "
-
-                f"{len(pre_migration_streak_keys)} existing streak record(s) "
-
-                "were found. Streak reads/writes will fall back to an empty "
-
-                "'tenant-zero' bucket -- streaks will appear reset until "
-
-                "the env var is set and the app restarts. Set "
-
-                "FOXBOT_TENANT_ZERO_CREATOR_ID in Render now."
-
-            )
 
 
 
