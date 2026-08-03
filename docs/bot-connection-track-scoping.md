@@ -367,22 +367,59 @@ estimate.
 
 ---
 
+## Decisions (resolved 2026-08-03)
+
+Both blocking decisions below are made. Nothing else in this doc changes —
+they resolve the two open questions that used to sit here; nothing in
+Sections 1-6 required rewriting to match them, since neither decision
+diverges from the direction those sections were already leaning.
+
+**DECISION 1 — Canonical creator key = Blaze user ID (`blaze_id`).**
+
+- All `by_creator` stores (Phases 1/2/3a) already key on `_tenant_zero_id()`,
+  which resolves to a Blaze user ID. This is forced by what's already
+  built, not chosen fresh — re-keying it to anything else would mean
+  re-keying three completed migrations.
+- `creator_handle` (chat-side, self-reported channel-slug from `!connect`)
+  is the **outlier**, not a peer key: it must be **translated** to
+  `blaze_id` via the join (`connected_creators.json`) before it ever
+  touches a `by_creator` store. A raw `creator_handle` is **never** a
+  `by_creator` key.
+- `blaze_id` is resolved from Blaze's `/v1/users/profile` endpoint on
+  **both** the dashboard-login side and the bot-connect-OAuth side — same
+  source of truth, so the two shouldn't disagree in practice. If they ever
+  do, **the OAuth-verified value is authoritative** — it's the identity
+  that actually posts to chat, so it's the one identity check that has to
+  be right for the bot-clobbering protection (Section 1) to hold.
+
+**DECISION 2 — Authorization model = fully open self-service, bound to
+OAuth-verified identity.**
+
+- Any creator who completes Blaze dashboard login can self-register a bot
+  connection. No admin approval, no allowlist, no payment gate.
+- **Non-negotiable binding:** a creator can only ever register a slot for
+  the `blaze_id` they OAuth-verified as — the slot is keyed to the
+  verified identity returned by Blaze, never to user-supplied input. This
+  is the structural property that keeps self-service from reopening the
+  clobbering vulnerability Section 1 describes: since a slot's key is the
+  OAuth-verified `blaze_id` itself, not a value the requester can choose
+  or supply, there's no way to open a login flow and land tokens in a
+  *different* creator's slot — a save for identity X can only physically
+  reach slot X, by construction, no allowlist required to enforce it.
+
+  *(This paragraph completes a sentence that was cut off in the decision
+  as given — confirm this captures the intent before treating it as
+  final.)*
+
 ## Open questions before any sub-phase starts
 
-1. **Sub-phase B's authorization model** (see above) — who is allowed to
-   register a new per-creator bot connection slot? This blocks B, which
-   blocks C, E, and F.
-2. **The dashboard↔chat identity join** (Section 3) — decide whether
-   `blaze_id` gets written into `connected_creators.json` at first
-   dashboard login, at first bot-connect completion, or both, and which
-   one wins if they disagree.
-3. Confirm whether `docs/blaze-dashboard-auth-plan.md`'s still-open
+1. Confirm whether `docs/blaze-dashboard-auth-plan.md`'s still-open
    `/oauth/blaze/callback` vs `/auth/blaze/callback` path discrepancy
    (noted in that doc, not re-verified here) affects the *new* bot-connect
    OAuth flow (Sub-phase E) before building it — if the existing bot
    OAuth flow's registered redirect URI doesn't match its route, the new
    flow risks being built next to a similarly mismatched path.
-4. Both `docs/blaze-dashboard-auth-plan.md` and
+2. Both `docs/blaze-dashboard-auth-plan.md` and
    `docs/multi-tenant-implementation-plan.md` need a status correction —
    the dashboard-login phase they describe as unbuilt is live. Recommend
    a short follow-up pass to update those docs so a future session doesn't
