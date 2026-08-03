@@ -58,8 +58,6 @@ import threading
 
 import time
 
-import copy
-
 from datetime import date
 
 
@@ -603,67 +601,17 @@ def apply_persistent_snapshot(data):
 
         custom_commands = data["custom_commands"]
 
-        # Phase 3a multi-tenant migration, custom_commands slice. Unlike
-        # foxcoin_economy/viewer_streaks, this store's hydration is a
-        # wholesale reassignment (custom_commands = data[...]), not an
+        # Unlike foxcoin_economy/viewer_streaks, this store's hydration is
+        # a wholesale reassignment (custom_commands = data[...]), not an
         # in-place .update() -- so the module-level custom_commands =
         # {"by_creator": {}} default at declaration time provides no
         # protection here; the rebound object needs its own setdefault
         # every time this runs, including on the mid-process hydration-
         # recovery path (see load_persistent_data()'s caller), not just
-        # at startup.
+        # at startup. This is permanent, not migration scaffolding --
+        # leave it in place even if custom_commands ever needs another
+        # cleanup pass.
         custom_commands.setdefault("by_creator", {})
-
-        # Same additive-migrate-then-cleanup pattern as Phase 1/2
-        # (docs/multi-tenant-implementation-plan.md), adapted for a store
-        # with no wrapper dict: custom_commands IS the flat
-        # {command_name: command_dict} map, so every top-level key other
-        # than "by_creator" itself is a pre-migration command record.
-        # Idempotent -- gated on tenant zero not already having a
-        # by_creator entry -- so a process restart (or the mid-process
-        # recovery path above) after the copy has already happened is a
-        # no-op and never overwrites live post-migration activity with
-        # this stale snapshot. The flat entries are never deleted here;
-        # they stay frozen as the rollback safety net until the separate
-        # cleanup commit after the live-soak window.
-        pre_migration_command_keys = [key for key in custom_commands if key != "by_creator"]
-
-        if (
-            FOXBOT_TENANT_ZERO_CREATOR_ID
-            and FOXBOT_TENANT_ZERO_CREATOR_ID not in custom_commands["by_creator"]
-            and pre_migration_command_keys
-        ):
-
-            custom_commands["by_creator"][FOXBOT_TENANT_ZERO_CREATOR_ID] = {
-                key: copy.deepcopy(custom_commands[key]) for key in pre_migration_command_keys
-            }
-
-        elif not FOXBOT_TENANT_ZERO_CREATOR_ID and pre_migration_command_keys:
-
-            # There's real pre-Phase-3a command data sitting in the flat
-            # top-level keys, but no tenant ID to migrate it to. Every
-            # command read/write will fall back to a separate empty
-            # "tenant-zero" bucket -- custom commands will appear to
-            # vanish until the env var is set and the app restarts. Not
-            # data loss (the flat entries stay frozen) but a visible
-            # incident. Loud on purpose, matching Phase 1/2's warning.
-            print(
-
-                "!!! FOXBOT PHASE-3A COMMANDS MIGRATION SKIPPED !!! "
-
-                "FOXBOT_TENANT_ZERO_CREATOR_ID is not set, but "
-
-                f"{len(pre_migration_command_keys)} existing custom command(s) "
-
-                "were found. Command reads/writes will fall back to an "
-
-                "empty 'tenant-zero' bucket -- commands will appear to "
-
-                "vanish until the env var is set and the app restarts. "
-
-                "Set FOXBOT_TENANT_ZERO_CREATOR_ID in Render now."
-
-            )
 
 
 
