@@ -19125,25 +19125,51 @@ def _foxbot_blaze_oauth_save_tokens_v1(tokens):
 
     actual_id = _foxbot_blaze_oauth_verify_identity_v1(tokens)
 
-    # Bot Connection Sub-phase B.1: the per-slot authorization decision.
-    # actual_id came ONLY from Blaze's own verification above -- never
-    # from a caller-supplied value -- so this decision structurally
-    # cannot be tricked into targeting any slot other than the one Blaze
-    # just proved this request's identity to be (see the invariant
-    # documented on _foxbot_blaze_oauth_verify_identity_v1).
-    #
-    # Self-service is OFF in B.1: any non-tenant-zero identity is still
-    # rejected here, exactly as it was before this rework -- byte-
-    # identical. Sub-phase B.2 replaces this raise with new-slot
-    # registration (by_creator[actual_id], no allowlist -- Decision 2,
-    # docs/bot-connection-track-scoping.md).
+    # Bot Connection Sub-phase B: the per-slot authorization decision.
+    # actual_id came ONLY from Blaze's own verification above. This
+    # function has no creator_id parameter -- nothing else it could read
+    # a slot key from -- so this decision is structurally incapable of
+    # targeting any slot other than the one Blaze just proved this
+    # request's identity to be (see the invariant documented on
+    # _foxbot_blaze_oauth_verify_identity_v1).
     expected_id = _foxbot_blaze_bot_expected_id_v1()
 
     if actual_id and expected_id and str(actual_id).strip() != expected_id:
-        raise FoxBotBlazeIdentityMismatch(
-            f"Blaze account {actual_id!r} does not match the configured FoxBot identity "
-            f"({expected_id!r}); refusing to save its OAuth tokens."
-        )
+        # Sub-phase B.2: new-slot registration, not rejection. Self-
+        # service, no allowlist (Decision 2,
+        # docs/bot-connection-track-scoping.md) -- completing OAuth and
+        # having Blaze verify the identity above IS the authorization;
+        # there's no separate approval step.
+        #
+        # Isolation guarantee: this branch reads and writes ONLY
+        # by_creator[actual_id]. It never opens the flat top-level keys
+        # and never touches by_creator[tenant-zero] -- a second
+        # creator's save cannot affect tenant-zero's tokens even by
+        # accident, because this code has no reference to them at all.
+        # (Today, nothing live can reach this branch: every live caller
+        # of this function -- the /auth/blaze/callback login route and
+        # the refresh flow, which only ever refreshes tenant-zero's own
+        # flat-key refresh token -- always verifies back to tenant-zero's
+        # own identity. Sub-phase E is what will eventually add a route
+        # where actual_id could genuinely differ.)
+        path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8") or "{}")
+            except Exception:
+                existing = {}
+
+        by_creator = existing.setdefault("by_creator", {})
+        slot = dict(by_creator.get(actual_id) or {})
+        slot.update(tokens or {})
+        slot["saved_at"] = datetime.now(timezone.utc).isoformat()
+        by_creator[actual_id] = slot
+
+        path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+        return slot
 
     # tenant-zero path: actual_id is None (config missing), matches
     # expected_id, or expected_id isn't configured yet (bootstrap case).
