@@ -5,7 +5,7 @@ import time
 import urllib.error
 import urllib.request
 
-from services.blaze_tokens import resolve_blaze_access_token, resolve_blaze_refresh_token
+from services.blaze_tokens import resolve_blaze_access_token, resolve_blaze_refresh_token, sync_tenant_zero_slot
 from services.storage_paths import storage_path
 from services import foxbot_events as _foxbot_events_v1
 
@@ -636,6 +636,19 @@ def _fb_blaze_headers_diag(token=None):
     }
 
 
+def _fb_tenant_zero_creator_id_diag():
+    """Same fallback-sentinel key app.py's _tenant_zero_id() resolves to
+    (FOXBOT_TENANT_ZERO_CREATOR_ID env var, else 'tenant-zero'), duplicated
+    here because this module can't import app.py's version -- app.py
+    imports from services, not the reverse, and importing it here would be
+    the first-ever services-to-app import in this codebase. No warn-once
+    print like app.py's version has: app.py's own economy/streaks/commands
+    paths already print that warning loudly on every other by_creator
+    store if the env var is unset, so this would just be a redundant
+    second warning for the same misconfiguration."""
+    return (os.getenv("FOXBOT_TENANT_ZERO_CREATOR_ID") or "").strip() or "tenant-zero"
+
+
 def _fb_save_tokens_diag(tokens):
     import json
     from datetime import datetime, timezone
@@ -654,6 +667,7 @@ def _fb_save_tokens_diag(tokens):
 
     existing.update(tokens)
     existing["saved_at"] = datetime.now(timezone.utc).isoformat()
+    sync_tenant_zero_slot(existing, _fb_tenant_zero_creator_id_diag())
     path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
     return existing
 

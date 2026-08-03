@@ -62,3 +62,29 @@ def resolve_blaze_refresh_token():
     if token:
         return token
     return str(os.getenv("BLAZE_REFRESH_TOKEN") or "").strip()
+
+
+def sync_tenant_zero_slot(payload, creator_id):
+    """Mirror every flat top-level token field into by_creator[creator_id].
+
+    Bot Connection Sub-phase A: storage-shape only. The flat keys stay the
+    sole live read/write target -- resolve_blaze_access_token/refresh_token
+    above never reach by_creator (they check flat keys first and only
+    recurse if those are absent). This just keeps by_creator[tenant-zero]
+    an accurate mirror so a later phase (C/F) isn't starting from a stale
+    one-time snapshot. Unconditional overwrite, not a gated one-time copy --
+    the flat keys keep changing (refresh cycles) all through Sub-phase A,
+    so "copy once" would go stale on the very next refresh.
+
+    creator_id is a caller-supplied parameter, not resolved here: this
+    module has no access to app.py's _tenant_zero_id() (app.py imports
+    from services, not the reverse) so each caller resolves its own
+    creator_id and passes it in.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    by_creator = payload.setdefault("by_creator", {})
+    by_creator[creator_id] = {
+        key: value for key, value in payload.items() if key != "by_creator"
+    }
+    return payload

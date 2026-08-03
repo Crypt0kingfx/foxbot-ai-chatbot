@@ -73,6 +73,7 @@ from services.storage_paths import storage_path as _foxbot_storage_path_v1
 from services.storage_paths import hydration_failed as _foxbot_hydration_failed_v1
 from services import foxbot_events as _foxbot_events_v1
 from services.blaze_tokens import resolve_blaze_access_token
+from services.blaze_tokens import sync_tenant_zero_slot as _foxbot_blaze_oauth_sync_tenant_zero_slot_v1
 
 from fastapi.staticfiles import StaticFiles
 
@@ -19087,6 +19088,8 @@ def _foxbot_blaze_oauth_save_tokens_v1(tokens):
 
     merged["saved_at"] = datetime.now(timezone.utc).isoformat()
 
+    _foxbot_blaze_oauth_sync_tenant_zero_slot_v1(merged, _tenant_zero_id())
+
 
 
     path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
@@ -20225,11 +20228,39 @@ def _foxbot_blaze_oauth_refresh_worker_v1():
     blaze_oauth_refresh_status["running"] = False
 
 
+def _foxbot_blaze_oauth_startup_sync_tenant_zero_slot_v1():
+    """One-time startup sync so by_creator[tenant-zero] is populated right
+    after deploy instead of waiting for the next login/refresh event.
+    Bot Connection Sub-phase A, storage-shape only -- doesn't start or
+    change anything else; a no-op if no tokens are saved yet."""
+    import json
+
+    path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+    if not path.exists():
+        return
+
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except Exception:
+        return
+
+    if not isinstance(existing, dict):
+        return
+
+    if not (existing.get("accessToken") or existing.get("access_token")):
+        return
+
+    _foxbot_blaze_oauth_sync_tenant_zero_slot_v1(existing, _tenant_zero_id())
+    path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+
+
 @app.on_event("startup")
 def foxbot_auto_start_oauth_refresh_v1():
     """Start the scheduled Blaze OAuth refresh loop automatically on boot.
     Set FOXBOT_AUTO_REFRESH_BLAZE_TOKEN=false to opt out."""
     global _blaze_oauth_refresh_thread
+
+    _foxbot_blaze_oauth_startup_sync_tenant_zero_slot_v1()
 
     opt_out = (os.getenv("FOXBOT_AUTO_REFRESH_BLAZE_TOKEN", "true") or "").strip().lower()
     if opt_out in ["0", "false", "no", "off"]:
