@@ -18976,21 +18976,56 @@ class FoxBotBlazeIdentityMismatch(Exception):
     pass
 
 
+def _foxbot_blaze_bot_expected_id_v1():
+    """The tenant-zero bot's configured Blaze identity (BLAZE_BOT_USER_ID,
+    falling back to FOXBOT_BLAZE_USER_ID), or "" if unset. Shared by
+    _foxbot_blaze_oauth_verify_identity_v1's bootstrap check and
+    _foxbot_blaze_oauth_save_tokens_v1's per-slot authorization decision
+    so both read the exact same value -- pulled out during Bot Connection
+    Sub-phase B so the two can't drift apart."""
+    import os
+    return (
+        os.getenv("BLAZE_BOT_USER_ID", "")
+        or os.getenv("FOXBOT_BLAZE_USER_ID", "")
+    ).strip()
+
+
 def _foxbot_blaze_oauth_verify_identity_v1(tokens):
+    """Returns the Blaze-verified actual_id for these tokens -- the userId
+    Blaze's own /v1/users/profile reports for the access_token just
+    obtained via OAuth -- or None if it can't be determined (no
+    BLAZE_CLIENT_ID configured, or no access_token in tokens; the
+    existing missing-config error paths handle that downstream, same as
+    before this function returned anything).
+
+    Still raises FoxBotBlazeIdentityMismatch for the tenant-zero bootstrap
+    race specifically (BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID unset AND
+    tokens already saved) -- a safety check on whether this save is even
+    eligible to become the tenant-zero identity while the env var is
+    unconfigured. Unrelated to, and unaffected by, Sub-phase B's per-slot
+    authorization decision, which now lives in
+    _foxbot_blaze_oauth_save_tokens_v1 instead of here.
+
+    Bot Connection Sub-phase B invariant, load-bearing -- read this before
+    touching this function or adding a new caller: actual_id is the ONLY
+    value any code may ever use as a by_creator token-slot key. It comes
+    exclusively from this Blaze API call -- never from a request
+    parameter, cookie, or any other caller-supplied value. Any future call
+    site (including whatever route Sub-phase E builds for per-creator
+    bot-connect) that accepts a creator_id from outside this function
+    reopens the exact token-clobbering vulnerability this whole gate
+    exists to prevent. If you need to know "who is this," call this
+    function -- do not thread a creator_id through from elsewhere.
+    """
     import os
 
     access_token = (tokens or {}).get("accessToken") or (tokens or {}).get("access_token") or ""
     client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
 
-    expected_id = (
-        os.getenv("BLAZE_BOT_USER_ID", "")
-        or os.getenv("FOXBOT_BLAZE_USER_ID", "")
-    ).strip()
-
     if not access_token or not client_id:
         # Nothing to check the new token against -- let it through here and
         # let the existing missing-config error paths handle it.
-        return
+        return None
 
     res = _foxbot_blaze_http_json_v1(
         "GET",
@@ -19006,6 +19041,7 @@ def _foxbot_blaze_oauth_verify_identity_v1(tokens):
 
     data = ((res.get("body") or {}).get("data") or {}) if res.get("ok") else {}
     actual_id = data.get("userId")
+    expected_id = _foxbot_blaze_bot_expected_id_v1()
 
     if not expected_id:
         # Bootstrap case: on a fresh deploy BLAZE_BOT_USER_ID/FOXBOT_BLAZE_USER_ID
@@ -19067,15 +19103,14 @@ def _foxbot_blaze_oauth_verify_identity_v1(tokens):
             f"Set BLAZE_BOT_USER_ID={actual_id} in Render to stop future logins from any "
             f"other Blaze account from overwriting these tokens."
         )
-        return
+        return actual_id
 
-    # Blaze's profile API can return userId as an int while env vars are always
-    # strings -- normalize both sides so a real match isn't rejected on type.
-    if str(actual_id).strip() != str(expected_id).strip():
-        raise FoxBotBlazeIdentityMismatch(
-            f"Blaze account {actual_id!r} does not match the configured FoxBot identity "
-            f"({expected_id!r}); refusing to save its OAuth tokens."
-        )
+    # Sub-phase B: no more comparison/raise here -- this function's job is
+    # purely "who does Blaze say this is." The accept/reject decision
+    # (Sub-phase B.1: reject anyone but tenant-zero; B.2: register a new
+    # slot instead) now lives in _foxbot_blaze_oauth_save_tokens_v1, the
+    # one place actual_id gets used to decide what to write.
+    return actual_id
 
 
 def _foxbot_blaze_oauth_save_tokens_v1(tokens):
@@ -19088,7 +19123,32 @@ def _foxbot_blaze_oauth_save_tokens_v1(tokens):
 
 
 
-    _foxbot_blaze_oauth_verify_identity_v1(tokens)
+    actual_id = _foxbot_blaze_oauth_verify_identity_v1(tokens)
+
+    # Bot Connection Sub-phase B.1: the per-slot authorization decision.
+    # actual_id came ONLY from Blaze's own verification above -- never
+    # from a caller-supplied value -- so this decision structurally
+    # cannot be tricked into targeting any slot other than the one Blaze
+    # just proved this request's identity to be (see the invariant
+    # documented on _foxbot_blaze_oauth_verify_identity_v1).
+    #
+    # Self-service is OFF in B.1: any non-tenant-zero identity is still
+    # rejected here, exactly as it was before this rework -- byte-
+    # identical. Sub-phase B.2 replaces this raise with new-slot
+    # registration (by_creator[actual_id], no allowlist -- Decision 2,
+    # docs/bot-connection-track-scoping.md).
+    expected_id = _foxbot_blaze_bot_expected_id_v1()
+
+    if actual_id and expected_id and str(actual_id).strip() != expected_id:
+        raise FoxBotBlazeIdentityMismatch(
+            f"Blaze account {actual_id!r} does not match the configured FoxBot identity "
+            f"({expected_id!r}); refusing to save its OAuth tokens."
+        )
+
+    # tenant-zero path: actual_id is None (config missing), matches
+    # expected_id, or expected_id isn't configured yet (bootstrap case).
+    # Flat keys + by_creator[tenant-zero] mirror, unchanged from before
+    # Sub-phase B.
 
 
 
