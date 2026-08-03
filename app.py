@@ -7312,6 +7312,26 @@ def _foxbot_resolve_auto_event_username_v1(item, message_text):
     return find_chat_username(item)
 
 
+def _foxbot_item_has_vote_signal_v1(item):
+    """True only when a chat-feed row carries Blaze's own structured vote
+    marker: top-level type=="vote" AND a sibling actionInfo dict --
+    confirmed present together on all 8 real captures from
+    viewer_fallback_debug_log ("X is giving N Votes to Y" rows). Both
+    required, not either/or: type is the authoritative "this is a vote"
+    signal, actionInfo is what carries the data needed to attribute
+    (senderDisplayName) and size (amount) the reward -- a type=="vote" row
+    with no actionInfo can't be safely attributed or sized, so it doesn't
+    count either.
+
+    A plain chat message that merely contains "vote"/"voted" as text --
+    whether from a bot (e.g. ScurvyBot) or a human typing "I voted!" --
+    has neither field, since it isn't an actual Blaze vote action, and
+    returns False. parse_auto_chat_event's vote branch gates on this
+    instead of the old bare keyword match."""
+    if not isinstance(item, dict):
+        return False
+    return item.get("type") == "vote" and isinstance(item.get("actionInfo"), dict)
+
 
 # === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
 _FOXBOT_DEBUG_SENSITIVE_KEY_MARKERS = (
@@ -16023,7 +16043,7 @@ auto_chat_event_seen = set()
 
 
 
-def parse_auto_chat_event(message_text: str, username: str = "viewer"):
+def parse_auto_chat_event(message_text: str, username: str = "viewer", item: dict = None):
 
     text = str(message_text or "").strip()
 
@@ -16074,17 +16094,27 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer"):
 
 
 
-    elif "voted" in lower or "vote" in lower:
+    elif _foxbot_item_has_vote_signal_v1(item):
 
         event_type = "vote"
 
-        for word in words:
+        action_info = (item or {}).get("actionInfo") or {}
 
-            if word.isdigit():
+        vote_amount = action_info.get("amount")
 
-                amount = int(word)
+        if isinstance(vote_amount, (int, float)) and not isinstance(vote_amount, bool) and vote_amount > 0:
 
-                break
+            amount = int(vote_amount)
+
+        else:
+
+            for word in words:
+
+                if word.isdigit():
+
+                    amount = int(word)
+
+                    break
 
 
 
@@ -16140,9 +16170,9 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer"):
 
 
 
-def handle_auto_chat_event(message_id: str, message_text: str, username: str = "viewer"):
+def handle_auto_chat_event(message_id: str, message_text: str, username: str = "viewer", item: dict = None):
 
-    event = parse_auto_chat_event(message_text, username)
+    event = parse_auto_chat_event(message_text, username, item)
 
 
 
@@ -23172,6 +23202,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
                 message_key,
                 message_text,
                 clean_username,
+                item,
             )
         except Exception as auto_event_error:
             polling_status["last_auto_event_error"] = str(auto_event_error)
