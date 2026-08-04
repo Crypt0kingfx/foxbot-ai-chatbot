@@ -23776,7 +23776,16 @@ def foxbot_onboarding_read_v1(creator_handle: str = ""):
     if posted is None or giveaway_done is None or dismissal is None:
         return {"ok": False, "error": "onboarding data unavailable"}
 
-    command_added = bool(_tenant_zero_commands())
+    # Bot Connection Sub-phase D, stage 2: the first call site migrated
+    # off the tenant-zero-only helper. `handle` is already resolved above
+    # (line 23768) and used by every other check in this function --
+    # this was the one place that ignored it. Falls back to
+    # tenant-zero automatically via _foxbot_resolve_creator_id_v1 for as
+    # long as `handle` has no blaze_id mapping (today's real state for
+    # everyone), so this is byte-identical to the old
+    # _tenant_zero_commands() call until a real join exists for this
+    # handle.
+    command_added = bool(_creator_commands_v1(_foxbot_resolve_creator_id_v1(creator_handle=handle)))
     reward_added = bool(set(reward_shop.keys()) - {"hug", "hype", "flex", "mysterybox", "sponsor"})
 
     items = [
