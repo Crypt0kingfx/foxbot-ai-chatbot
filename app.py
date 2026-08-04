@@ -20274,12 +20274,21 @@ def foxbot_blaze_oauth_refresh_v1():
 # not touch foxbot_blaze_oauth_refresh_v1, _foxbot_blaze_oauth_save_tokens_v1,
 # or _foxbot_blaze_oauth_verify_identity_v1 -- this only calls that existing
 # logic on a schedule.
+#
+# Bot Connection Sub-phase C: the loop also refreshes every OTHER creator
+# in by_creator (via _foxbot_blaze_oauth_refresh_creator_v1), independently,
+# with its own per-creator status. Tenant-zero's own refresh mechanism
+# above is completely unchanged by this -- the per-creator loop explicitly
+# excludes tenant-zero's id (see _foxbot_blaze_oauth_refresh_worker_v1) so
+# it is never refreshed twice. Dormant in practice until Sub-phase E ships
+# a route that can add a second creator to by_creator.
 blaze_oauth_refresh_status = {
     "running": False,
     "cycles": 0,
     "last_attempt_at": None,
     "last_ok": None,
     "last_error": None,
+    "per_creator": {},
 }
 
 
@@ -20382,6 +20391,15 @@ def _foxbot_blaze_oauth_refresh_creator_v1(creator_id, creator_slot):
     }
 
 
+def _foxbot_blaze_oauth_refresh_creator_status_v1(creator_id):
+    """The per_creator status entry for one creator, creating it with the
+    same shape as the top-level fields on first touch."""
+    return blaze_oauth_refresh_status["per_creator"].setdefault(
+        creator_id,
+        {"cycles": 0, "last_attempt_at": None, "last_ok": None, "last_error": None},
+    )
+
+
 def _foxbot_blaze_oauth_refresh_worker_v1():
     blaze_oauth_refresh_status["running"] = True
 
@@ -20395,21 +20413,84 @@ def _foxbot_blaze_oauth_refresh_worker_v1():
         blaze_oauth_refresh_status["last_attempt_at"] = time.time()
         blaze_oauth_refresh_status["cycles"] += 1
 
+        # --- Tenant-zero: UNCHANGED flat-path refresh. Same call, same
+        # try/except shape as before Sub-phase C -- zero new code in this
+        # block. Also mirrored into per_creator[tz_id] so the status
+        # endpoint gives one consistent view of every creator, even
+        # though tenant-zero's actual refresh mechanism stays untouched.
+        tz_id = _tenant_zero_id()
+        tz_status = _foxbot_blaze_oauth_refresh_creator_status_v1(tz_id)
+        tz_status["last_attempt_at"] = time.time()
+        tz_status["cycles"] += 1
+
         try:
             result = foxbot_blaze_oauth_refresh_v1()
-            blaze_oauth_refresh_status["last_ok"] = bool(result.get("ok"))
+            ok = bool(result.get("ok"))
+            blaze_oauth_refresh_status["last_ok"] = ok
+            tz_status["last_ok"] = ok
 
-            if result.get("ok"):
+            if ok:
                 blaze_oauth_refresh_status["last_error"] = None
+                tz_status["last_error"] = None
                 print("[FoxBot OAuth Refresh] scheduled refresh succeeded.")
                 _foxbot_blaze_oauth_log_raw_fields_v1()
             else:
                 blaze_oauth_refresh_status["last_error"] = result.get("error")
+                tz_status["last_error"] = result.get("error")
                 print(f"[FoxBot OAuth Refresh] scheduled refresh did not run: {result.get('error')}")
         except Exception as e:
             blaze_oauth_refresh_status["last_ok"] = False
             blaze_oauth_refresh_status["last_error"] = str(e)
+            tz_status["last_ok"] = False
+            tz_status["last_error"] = str(e)
             print(f"[FoxBot OAuth Refresh] scheduled refresh crashed: {e}")
+
+        # --- Every OTHER creator in by_creator: Bot Connection Sub-phase
+        # C. Explicitly skips tz_id -- keyed on _tenant_zero_id(), the
+        # same function that writes by_creator[tz_id] (Sub-phase A's
+        # mirror sync), so the exclusion always matches what's actually
+        # stored there regardless of whether BLAZE_BOT_USER_ID/
+        # FOXBOT_BLAZE_USER_ID (the identity-lock's own env vars) ever
+        # differs from FOXBOT_TENANT_ZERO_CREATOR_ID. Tenant-zero is
+        # never refreshed here -- it was already handled above via the
+        # unchanged flat path. Dormant today: by_creator only ever
+        # contains tz_id until Sub-phase E ships a route that can add
+        # another creator.
+        import json
+
+        try:
+            token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+            existing = json.loads(token_path.read_text(encoding="utf-8") or "{}") if token_path.exists() else {}
+        except Exception as e:
+            existing = {}
+            print(f"[FoxBot OAuth Refresh] could not read token file for per-creator refresh: {e}")
+
+        by_creator = existing.get("by_creator") if isinstance(existing, dict) else None
+
+        for creator_id, creator_slot in (by_creator or {}).items():
+            if creator_id == tz_id:
+                continue
+
+            creator_status = _foxbot_blaze_oauth_refresh_creator_status_v1(creator_id)
+            creator_status["last_attempt_at"] = time.time()
+            creator_status["cycles"] += 1
+
+            try:
+                result = _foxbot_blaze_oauth_refresh_creator_v1(creator_id, creator_slot)
+                creator_status["last_ok"] = bool(result.get("ok"))
+                creator_status["last_error"] = None if result.get("ok") else result.get("error")
+                if result.get("ok"):
+                    print(f"[FoxBot OAuth Refresh] scheduled refresh succeeded for creator {creator_id!r}.")
+                else:
+                    print(f"[FoxBot OAuth Refresh] scheduled refresh did not run for creator {creator_id!r}: {result.get('error')}")
+            except Exception as e:
+                # Isolation: caught here, per creator_id -- one creator's
+                # exception must never stop the loop from reaching the
+                # next creator, and is only ever recorded against this
+                # creator's own status entry.
+                creator_status["last_ok"] = False
+                creator_status["last_error"] = str(e)
+                print(f"[FoxBot OAuth Refresh] scheduled refresh crashed for creator {creator_id!r}: {e}")
 
         time.sleep(interval)
 
