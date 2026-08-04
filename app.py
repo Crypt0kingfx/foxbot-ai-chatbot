@@ -2923,23 +2923,23 @@ def _tenant_zero_commands():
 
 
 
-def get_balance(name: str):
+def get_balance(name: str, creator_id: str = None):
 
     key = viewer_key(name)
 
-    return int(_tenant_zero_economy()["balances"].get(key, 0))
+    return int(_creator_economy_v1(creator_id or _tenant_zero_id())["balances"].get(key, 0))
 
 
 
 
 
-def add_points(name: str, amount: int, reason: str = "activity"):
+def add_points(name: str, amount: int, reason: str = "activity", creator_id: str = None):
 
     clean_name = normalize_viewer_name(name)
 
     key = viewer_key(clean_name)
 
-    economy = _tenant_zero_economy()
+    economy = _creator_economy_v1(creator_id or _tenant_zero_id())
 
 
 
@@ -3332,11 +3332,11 @@ def today_string():
 
 
 
-def get_streak_data(username: str):
+def get_streak_data(username: str, creator_id: str = None):
 
     key = viewer_key(username)
 
-    tenant_streaks = _tenant_zero_streaks()
+    tenant_streaks = _creator_streaks_v1(creator_id or _tenant_zero_id())
 
 
 
@@ -3362,9 +3362,9 @@ def get_streak_data(username: str):
 
 
 
-def format_streak_leaderboard(limit: int = 5):
+def format_streak_leaderboard(limit: int = 5, creator_id: str = None):
 
-    tenant_streaks = _tenant_zero_streaks()
+    tenant_streaks = _creator_streaks_v1(creator_id or _tenant_zero_id())
 
     if not tenant_streaks:
 
@@ -3624,11 +3624,11 @@ def format_rank_list():
 
 
 
-def format_coin_leaderboard(limit: int = 5):
+def format_coin_leaderboard(limit: int = 5, creator_id: str = None):
 
     currency = get_currency_name()
 
-    balances = _tenant_zero_economy()["balances"]
+    balances = _creator_economy_v1(creator_id or _tenant_zero_id())["balances"]
 
 
 
@@ -3688,9 +3688,9 @@ def normalize_custom_command(command_name: str):
 
 
 
-def format_custom_commands():
+def format_custom_commands(creator_id: str = None):
 
-    tenant_commands = _tenant_zero_commands()
+    tenant_commands = _creator_commands_v1(creator_id or _tenant_zero_id())
 
     if not tenant_commands:
 
@@ -3760,13 +3760,13 @@ def mode_style_response(message_type: str, username: str = "viewer", target: str
 
 
 
-def track_viewer_command(username: str, command: str):
+def track_viewer_command(username: str, command: str, creator_id: str = None):
 
     clean_name = username.strip() or "viewer"
 
     clean_key = clean_name.lower()
 
-    tenant_stats = _tenant_zero_viewer_stats()
+    tenant_stats = _creator_viewer_stats_v1(creator_id or _tenant_zero_id())
 
 
 
@@ -3792,9 +3792,9 @@ def track_viewer_command(username: str, command: str):
 
 
 
-def format_leaderboard(limit: int = 5):
+def format_leaderboard(limit: int = 5, creator_id: str = None):
 
-    tenant_stats = _tenant_zero_viewer_stats()
+    tenant_stats = _creator_viewer_stats_v1(creator_id or _tenant_zero_id())
 
     if not tenant_stats:
 
@@ -3891,6 +3891,16 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
     username = username.strip() or "viewer"
 
     creator_handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+
+    # Bot Connection Sub-phase D, stage 3: resolve ONCE per message, not
+    # at each of the ~30 call sites below -- same guaranteed-consistent
+    # value used everywhere in this message's processing (the split-brain
+    # guard), and avoids a redundant connected_creators.json read per
+    # call site. Falls back to tenant-zero automatically for as long as
+    # creator_handle has no blaze_id mapping (today's real state), so
+    # every call site below stays byte-identical to its old hardcoded
+    # _tenant_zero_*() behavior until a real join exists.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
 
     # === FoxBot Studio Giveaway Viewer Entry v3 ===
     # Real stream entry command for the Admin Hub Giveaway Center.
@@ -4064,7 +4074,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message.startswith("!"):
 
-        track_viewer_command(username, lower_message)
+        track_viewer_command(username, lower_message, creator_id=resolved_creator_id)
 
 
 
@@ -4212,13 +4222,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
     # future !addcmd edit sticks) and falling through instead of
     # returning lets !addcmd actually take effect for these two.
     #
-    # Phase 3a: seeds into tenant-zero's by_creator slice, not the frozen
-    # flat top level -- must use the same _tenant_zero_id() key the
-    # migration-copy routine and every other touchpoint use, or this would
-    # split pre-existing/migrated commands and freshly-seeded defaults
-    # across two different creator buckets, and dispatch would only ever
-    # find one of them.
-    tenant_commands = _tenant_zero_commands()
+    # Bot Connection Sub-phase D: seeds into resolved_creator_id's
+    # by_creator slice -- must use the exact same resolved id every other
+    # touchpoint in this function uses (computed once, see
+    # resolved_creator_id above), or this would split commands across two
+    # different creator buckets and dispatch would only ever find one of
+    # them.
+    tenant_commands = _creator_commands_v1(resolved_creator_id)
 
     tenant_commands.setdefault("!rules", {
 
@@ -4489,7 +4499,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         total_damage = add_boss_damage(username, damage)
 
-        new_balance = add_points(username, reward, "boss attack")
+        new_balance = add_points(username, reward, "boss attack", creator_id=resolved_creator_id)
 
         boss_hp = int(boss_battle.get("hp", 0))
 
@@ -4531,7 +4541,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         power_cost = 25
 
-        balance = get_balance(username)
+        balance = get_balance(username, creator_id=resolved_creator_id)
 
 
 
@@ -4545,7 +4555,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        add_points(username, -power_cost, "power attack cost")
+        add_points(username, -power_cost, "power attack cost", creator_id=resolved_creator_id)
 
 
 
@@ -4563,7 +4573,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         total_damage = add_boss_damage(username, damage)
 
-        new_balance = add_points(username, reward, "boss power attack reward")
+        new_balance = add_points(username, reward, "boss power attack reward", creator_id=resolved_creator_id)
 
         boss_hp = int(boss_battle.get("hp", 0))
 
@@ -4591,7 +4601,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!checkin":
 
-        data = get_streak_data(username)
+        data = get_streak_data(username, creator_id=resolved_creator_id)
 
         today = today_string()
 
@@ -4619,7 +4629,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         reward = 20 + min(int(data["streak"]) * 5, 100)
 
-        new_balance = add_points(username, reward, "daily streak checkin")
+        new_balance = add_points(username, reward, "daily streak checkin", creator_id=resolved_creator_id)
 
 
 
@@ -4645,7 +4655,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        data = get_streak_data(target)
+        data = get_streak_data(target, creator_id=resolved_creator_id)
 
 
 
@@ -4661,7 +4671,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": format_streak_leaderboard()
+            "response": format_streak_leaderboard(creator_id=resolved_creator_id)
 
         }
 
@@ -4699,7 +4709,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        _tenant_zero_streaks()[key] = {
+        _creator_streaks_v1(resolved_creator_id)[key] = {
 
             "display_name": target,
 
@@ -5011,7 +5021,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, f"claimed community quest {community_quest.get('type')}")
+        new_balance = add_points(username, reward, f"claimed community quest {community_quest.get('type')}", creator_id=resolved_creator_id)
 
 
 
@@ -5069,7 +5079,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         stream_event.setdefault("claimed", {})[key] = True
 
-        new_balance = add_points(username, reward, f"stream event {stream_event.get('key')}")
+        new_balance = add_points(username, reward, f"stream event {stream_event.get('key')}", creator_id=resolved_creator_id)
 
 
 
@@ -5187,7 +5197,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        balance = get_balance(target)
+        balance = get_balance(target, creator_id=resolved_creator_id)
 
         currency = get_currency_name()
 
@@ -5461,7 +5471,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, "chat activity")
+        new_balance = add_points(username, reward, "chat activity", creator_id=resolved_creator_id)
 
         return {
 
@@ -5507,7 +5517,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, f"claimed {amount} vote tokens")
+        new_balance = add_points(username, reward, f"claimed {amount} vote tokens", creator_id=resolved_creator_id)
 
         return {
 
@@ -5523,7 +5533,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, "follow reward")
+        new_balance = add_points(username, reward, "follow reward", creator_id=resolved_creator_id)
 
         return {
 
@@ -5539,7 +5549,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, "raid reward")
+        new_balance = add_points(username, reward, "raid reward", creator_id=resolved_creator_id)
 
         return {
 
@@ -5585,7 +5595,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, f"tip reward ${dollars}")
+        new_balance = add_points(username, reward, f"tip reward ${dollars}", creator_id=resolved_creator_id)
 
         return {
 
@@ -5601,7 +5611,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, "subscription reward")
+        new_balance = add_points(username, reward, "subscription reward", creator_id=resolved_creator_id)
 
         return {
 
@@ -5647,7 +5657,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, f"gift sub reward x{amount}")
+        new_balance = add_points(username, reward, f"gift sub reward x{amount}", creator_id=resolved_creator_id)
 
         return {
 
@@ -5659,7 +5669,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message in ["!balance", "!points", "!foxcoins"]:
 
-        balance = get_balance(username)
+        balance = get_balance(username, creator_id=resolved_creator_id)
 
         currency = get_currency_name()
 
@@ -5683,7 +5693,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             target = normalize_viewer_name(parts[1])
 
-            balance = get_balance(target)
+            balance = get_balance(target, creator_id=resolved_creator_id)
 
             currency = get_currency_name()
 
@@ -5703,7 +5713,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        daily_claims = _tenant_zero_economy()["daily_claims"]
+        daily_claims = _creator_economy_v1(resolved_creator_id)["daily_claims"]
 
 
 
@@ -5719,7 +5729,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         reward = 25
 
-        new_balance = add_points(username, reward, "daily")
+        new_balance = add_points(username, reward, "daily", creator_id=resolved_creator_id)
 
         daily_claims[key] = True
 
@@ -5737,7 +5747,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": format_coin_leaderboard()
+            "response": format_coin_leaderboard(creator_id=resolved_creator_id)
 
         }
 
@@ -5797,7 +5807,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        new_balance = add_points(target, amount, f"given by {username}")
+        new_balance = add_points(target, amount, f"given by {username}", creator_id=resolved_creator_id)
 
         currency = get_currency_name()
 
@@ -5865,7 +5875,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        new_balance = add_points(target, -amount, f"removed by {username}")
+        new_balance = add_points(target, -amount, f"removed by {username}", creator_id=resolved_creator_id)
 
         currency = get_currency_name()
 
@@ -5959,7 +5969,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        balance = get_balance(username)
+        balance = get_balance(username, creator_id=resolved_creator_id)
 
 
 
@@ -5973,7 +5983,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        new_balance = add_points(username, -cost, f"redeemed {reward_name}")
+        new_balance = add_points(username, -cost, f"redeemed {reward_name}", creator_id=resolved_creator_id)
 
         response_template = reward.get("response", "@{username} redeemed a reward!")
 
@@ -5989,7 +5999,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
                 bonus = 150
 
-                new_balance = add_points(username, bonus, "mysterybox jackpot")
+                new_balance = add_points(username, bonus, "mysterybox jackpot", creator_id=resolved_creator_id)
 
                 redeem_message = f"@{username} opened a mystery box and hit the JACKPOT! +{bonus} {currency}. Balance: {new_balance} {currency}."
 
@@ -6009,7 +6019,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
                 bonus = 50
 
-                new_balance = add_points(username, bonus, "mysterybox prize")
+                new_balance = add_points(username, bonus, "mysterybox prize", creator_id=resolved_creator_id)
 
                 redeem_message = f"@{username} opened a mystery box and found {bonus} {currency}! Balance: {new_balance} {currency}."
 
@@ -6259,7 +6269,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             reason = f"foxhunt x{multiplier} stream event"
 
-        new_balance = add_points(username, reward, reason)
+        new_balance = add_points(username, reward, reason, creator_id=resolved_creator_id)
 
 
 
@@ -6727,7 +6737,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        _tenant_zero_commands()[command_name] = {
+        _creator_commands_v1(resolved_creator_id)[command_name] = {
 
             "response": command_response,
 
@@ -6773,7 +6783,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         command_name = normalize_custom_command(parts[1])
 
-        tenant_commands = _tenant_zero_commands()
+        tenant_commands = _creator_commands_v1(resolved_creator_id)
 
 
 
@@ -6803,7 +6813,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": format_custom_commands()
+            "response": format_custom_commands(creator_id=resolved_creator_id)
 
         }
 
@@ -6954,7 +6964,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!stats":
 
-        user_data = _tenant_zero_viewer_stats().get(username.lower(), {"commands": 0})
+        user_data = _creator_viewer_stats_v1(resolved_creator_id).get(username.lower(), {"commands": 0})
 
         return {
 
@@ -6968,7 +6978,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": format_leaderboard()
+            "response": format_leaderboard(creator_id=resolved_creator_id)
 
         }
 
@@ -7008,11 +7018,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-    if lower_message in _tenant_zero_commands():
+    if lower_message in _creator_commands_v1(resolved_creator_id):
 
         return {
 
-            "response": _tenant_zero_commands()[lower_message]["response"]
+            "response": _creator_commands_v1(resolved_creator_id)[lower_message]["response"]
 
         }
 
