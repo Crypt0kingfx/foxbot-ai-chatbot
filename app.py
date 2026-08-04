@@ -2602,7 +2602,7 @@ def add_boss_damage(username: str, damage: int):
 
 
 
-def finish_boss_if_defeated():
+def finish_boss_if_defeated(creator_id: str = None):
 
     if int(boss_battle.get("hp", 0)) > 0:
 
@@ -2642,7 +2642,7 @@ def finish_boss_if_defeated():
 
     if top_player != "unknown":
 
-        add_points(top_player, bonus, "boss battle mvp")
+        add_points(top_player, bonus, "boss battle mvp", creator_id=creator_id)
 
 
 
@@ -3070,7 +3070,7 @@ def add_recognition_log(event_type: str, username: str, message: str, reward: in
 
 
 
-def surprise_bonus(username: str):
+def surprise_bonus(username: str, creator_id: str = None):
 
     if not recognition_settings.get("surprise_bonus_enabled", True):
 
@@ -3094,7 +3094,7 @@ def surprise_bonus(username: str):
 
     currency = get_currency_name()
 
-    new_balance = add_points(username, bonus, "surprise recognition bonus")
+    new_balance = add_points(username, bonus, "surprise recognition bonus", creator_id=creator_id)
 
 
 
@@ -3104,7 +3104,7 @@ def surprise_bonus(username: str):
 
 
 
-def recognition_response(event_type: str, target: str, amount=None):
+def recognition_response(event_type: str, target: str, amount=None, creator_id: str = None):
 
     target = normalize_viewer_name(target)
 
@@ -3124,11 +3124,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, "auto follow recognition")
+        new_balance = add_points(target, reward, "auto follow recognition", creator_id=creator_id)
 
         msg = f"Welcome @{target} to the FoxBot AI pack! Thanks for the follow. +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        msg += surprise_bonus(target)
+        msg += surprise_bonus(target, creator_id=creator_id)
 
         add_recognition_log(event_type, target, msg, reward)
 
@@ -3142,11 +3142,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, "auto sub recognition")
+        new_balance = add_points(target, reward, "auto sub recognition", creator_id=creator_id)
 
         msg = f"HUGE THANK YOU @{target} for subscribing! Welcome to the FoxBot AI family. +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        msg += surprise_bonus(target)
+        msg += surprise_bonus(target, creator_id=creator_id)
 
         add_recognition_log(event_type, target, msg, reward)
 
@@ -3162,11 +3162,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, f"auto gifted subs x{count}")
+        new_balance = add_points(target, reward, f"auto gifted subs x{count}", creator_id=creator_id)
 
         msg = f"LEGEND ALERT: @{target} gifted {count} subs! Everyone show some love. +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        msg += surprise_bonus(target)
+        msg += surprise_bonus(target, creator_id=creator_id)
 
         add_recognition_log(event_type, target, msg, reward)
 
@@ -3182,11 +3182,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, f"auto vote recognition x{votes}")
+        new_balance = add_points(target, reward, f"auto vote recognition x{votes}", creator_id=creator_id)
 
         msg = f"Thank you @{target} for voting with {votes} votes! FoxBot AI appreciates your support! +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        msg += surprise_bonus(target)
+        msg += surprise_bonus(target, creator_id=creator_id)
 
         add_recognition_log(event_type, target, msg, reward)
 
@@ -3202,11 +3202,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, f"auto tip recognition ${dollars}")
+        new_balance = add_points(target, reward, f"auto tip recognition ${dollars}", creator_id=creator_id)
 
         msg = f"Big shoutout to @{target} for the ${dollars:g} tip! Thank you for supporting the stream. +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        msg += surprise_bonus(target)
+        msg += surprise_bonus(target, creator_id=creator_id)
 
         add_recognition_log(event_type, target, msg, reward)
 
@@ -3220,11 +3220,11 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, "auto raid recognition")
+        new_balance = add_points(target, reward, "auto raid recognition", creator_id=creator_id)
 
         msg = f"RAID LOVE! Huge thanks to @{target} for bringing the community over. +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        msg += surprise_bonus(target)
+        msg += surprise_bonus(target, creator_id=creator_id)
 
         add_recognition_log(event_type, target, msg, reward)
 
@@ -3238,7 +3238,7 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, "MVP recognition")
+        new_balance = add_points(target, reward, "MVP recognition", creator_id=creator_id)
 
         msg = f"MVP SHOUTOUT: @{target} is carrying the stream today! +{reward} {currency}. Balance: {new_balance} {currency}."
 
@@ -3254,7 +3254,7 @@ def recognition_response(event_type: str, target: str, amount=None):
 
         reward = min(reward, RECOGNITION_MAX_REWARD)
 
-        new_balance = add_points(target, reward, "OG recognition")
+        new_balance = add_points(target, reward, "OG recognition", creator_id=creator_id)
 
         msg = f"OG FOX SPIRIT: @{target} has been here from the jump. Respect to one of the real ones. +{reward} {currency}. Balance: {new_balance} {currency}."
 
@@ -4503,7 +4503,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         boss_hp = int(boss_battle.get("hp", 0))
 
-        defeat_message = finish_boss_if_defeated()
+        defeat_message = finish_boss_if_defeated(creator_id=resolved_creator_id)
 
 
 
@@ -4577,7 +4577,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         boss_hp = int(boss_battle.get("hp", 0))
 
-        defeat_message = finish_boss_if_defeated()
+        defeat_message = finish_boss_if_defeated(creator_id=resolved_creator_id)
 
 
 
@@ -5295,7 +5295,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         target = parts[1] if len(parts) >= 2 else username
 
-        return {"response": recognition_response("follow", target)}
+        return {"response": recognition_response("follow", target, creator_id=resolved_creator_id)}
 
 
 
@@ -5309,7 +5309,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         target = parts[1] if len(parts) >= 2 else username
 
-        return {"response": recognition_response("sub", target)}
+        return {"response": recognition_response("sub", target, creator_id=resolved_creator_id)}
 
 
 
@@ -5325,7 +5325,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         count = parts[2] if len(parts) >= 3 else 1
 
-        return {"response": recognition_response("giftsub", target, count)}
+        return {"response": recognition_response("giftsub", target, count, creator_id=resolved_creator_id)}
 
 
 
@@ -5341,7 +5341,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         votes = parts[2] if len(parts) >= 3 else 1
 
-        return {"response": recognition_response("vote", target, votes)}
+        return {"response": recognition_response("vote", target, votes, creator_id=resolved_creator_id)}
 
 
 
@@ -5357,7 +5357,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         amount = parts[2] if len(parts) >= 3 else 1
 
-        return {"response": recognition_response("tip", target, amount)}
+        return {"response": recognition_response("tip", target, amount, creator_id=resolved_creator_id)}
 
 
 
@@ -5371,7 +5371,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         target = parts[1] if len(parts) >= 2 else username
 
-        return {"response": recognition_response("raid", target)}
+        return {"response": recognition_response("raid", target, creator_id=resolved_creator_id)}
 
 
 
@@ -5385,7 +5385,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         target = parts[1] if len(parts) >= 2 else username
 
-        return {"response": recognition_response("mvp", target)}
+        return {"response": recognition_response("mvp", target, creator_id=resolved_creator_id)}
 
 
 
@@ -5399,7 +5399,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         target = parts[1] if len(parts) >= 2 else username
 
-        return {"response": recognition_response("og", target)}
+        return {"response": recognition_response("og", target, creator_id=resolved_creator_id)}
 
 
 
