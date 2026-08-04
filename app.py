@@ -1057,6 +1057,19 @@ async def foxbot_studio_admin_auth_gate_v1(request, call_next):
                 identity = _foxbot_dashboard_session_verify_v1(session_token)
                 if identity and _foxbot_dashboard_user_is_approved_v1(identity.get("blaze_id")):
                     authorized = True
+                    # Bot Connection Sub-phase D, stage 6: stash the
+                    # verified blaze_id so a downstream route can resolve
+                    # its own creator identity (request.state is a plain
+                    # per-request namespace FastAPI/Starlette already
+                    # provides -- this is the only place anything writes
+                    # to it). Only set on a genuinely successful,
+                    # allowlist-approved Blaze session; never a
+                    # caller-supplied value. Basic-Auth-only requests
+                    # never reach this branch, so request.state.blaze_id
+                    # stays unset for them -- downstream code must read it
+                    # via getattr(request.state, "blaze_id", None), never
+                    # assume it exists.
+                    request.state.blaze_id = identity.get("blaze_id")
 
         if not authorized and auth_mode in ("basic", "both"):
             expected_user = os.getenv("STUDIO_ADMIN_USER")
@@ -14801,15 +14814,27 @@ async def foxbot_viewer_fallback_debug_captures_v1():
 
 @app.get("/api/studio/stats/live")
 
-async def foxbot_studio_stats_live():
+async def foxbot_studio_stats_live(request: Request):
 
     # Derived at read-time from real sources -- deliberately not STUDIO_STATE,
     # which is only ever written by manual test buttons (recognition_test,
     # studio_recognition_response), never by real chat/recognition traffic.
 
-    foxcoins_total = sum(int(v) for v in _tenant_zero_economy()["balances"].values())
+    # Bot Connection Sub-phase D, stage 6: request.state.blaze_id is only
+    # ever set by the auth-gate middleware, only on a successful
+    # allowlist-approved Blaze session -- absent (Basic Auth, or no auth
+    # yet reached this far) means None here, which
+    # _foxbot_resolve_creator_id_v1 falls back to tenant-zero for. This is
+    # the dashboard-request-driven resolution path stage 1's resolver was
+    # built for: blaze_id given directly, already canonical, no join
+    # lookup needed.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
 
-    tenant_stats = _tenant_zero_viewer_stats()
+    foxcoins_total = sum(int(v) for v in _creator_economy_v1(resolved_creator_id)["balances"].values())
+
+    tenant_stats = _creator_viewer_stats_v1(resolved_creator_id)
 
     commands_total = sum(int(v.get("commands", 0)) for v in tenant_stats.values())
 
