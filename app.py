@@ -16232,7 +16232,7 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer", item: dic
 
 
 
-def handle_auto_chat_event(message_id: str, message_text: str, username: str = "viewer", item: dict = None):
+def handle_auto_chat_event(message_id: str, message_text: str, username: str = "viewer", item: dict = None, creator_id: str = None):
 
     event = parse_auto_chat_event(message_text, username, item)
 
@@ -16314,7 +16314,9 @@ def handle_auto_chat_event(message_id: str, message_text: str, username: str = "
 
         event["username"],
 
-        event["amount"]
+        event["amount"],
+
+        creator_id=creator_id
 
     )
 
@@ -23453,6 +23455,17 @@ def _foxbot_process_channel_rows_v1(target, rows):
     is_subscription_channel = bool(target.get("is_subscription_channel"))
     creator_handle = str(target.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
 
+    # Bot Connection Sub-phase D, stage 5: resolved ONCE per channel, right
+    # here -- creator_handle above is already scoped to THIS channel (this
+    # function runs once per target/channel per poll cycle, called from a
+    # per-target loop), so resolving here, not inside handle_auto_chat_event,
+    # guarantees an event on channel X's row always resolves to X's
+    # identity, never a different channel's or a stale shared value. Falls
+    # back to tenant-zero automatically for as long as creator_handle has
+    # no blaze_id mapping (today's real state for every channel), so the
+    # auto-recognition path stays byte-identical until a real join exists.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+
     # On first discovery of a channel, seed only messages older than the
     # discovery moment (minus a small clock-skew grace window) so a redeploy
     # never replays the backlog. Messages at/after the cutoff are left
@@ -23591,6 +23604,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
                 message_text,
                 clean_username,
                 item,
+                creator_id=resolved_creator_id,
             )
         except Exception as auto_event_error:
             polling_status["last_auto_event_error"] = str(auto_event_error)
