@@ -2813,15 +2813,52 @@ def _tenant_zero_id():
     return "tenant-zero"
 
 
+def _foxbot_resolve_creator_id_v1(creator_handle=None, blaze_id=None):
+    """Bot Connection Sub-phase D, stage 1: THE canonical creator-identity
+    resolver. Every one of the by_creator touchpoints below funnels
+    through this one function so all 25+ call sites resolve identity the
+    SAME way -- the split-brain guard. Do not reimplement this logic at
+    a call site; call this function.
+
+    Precedence:
+    1. blaze_id given directly (dashboard-request-driven callers, which
+       already have a Blaze-verified blaze_id from the session) -- used
+       as-is, already canonical.
+    2. creator_handle given (chat-message-driven callers) -- looked up
+       via the connected_creators.json join
+       (_foxbot_resolve_blaze_id_for_handle_v1). Mapped -> that blaze_id.
+       Unmapped -> falls through to 3.
+    3. Neither given, or an unmapped handle -- _tenant_zero_id(). This is
+       what keeps every call site byte-identical to today's hardcoded
+       behavior for as long as nothing has a blaze_id mapped yet (the
+       real state of the system right now): every resolution lands in
+       tenant-zero's bucket, exactly as the direct _tenant_zero_id()
+       calls this function is replacing already did.
+
+    Never returns a bucket keyed on the raw creator_handle itself -- an
+    unmapped handle is not a new identity, it's an unresolved one, and
+    falls back to tenant-zero rather than fragmenting storage.
+    """
+    if blaze_id:
+        return str(blaze_id).strip()
+
+    if creator_handle:
+        mapped = _foxbot_resolve_blaze_id_for_handle_v1(creator_handle)
+        if mapped:
+            return mapped
+
+    return _tenant_zero_id()
 
 
-def _tenant_zero_economy():
+
+
+def _creator_economy_v1(creator_id):
 
     # Lazy setdefault: works whether or not the hydration-time migration
     # populated this entry (a fresh install with no pre-Phase-1 balances
     # never triggers that copy) -- first access always succeeds, never
     # KeyErrors.
-    return foxcoin_economy["by_creator"].setdefault(_tenant_zero_id(), {
+    return foxcoin_economy["by_creator"].setdefault(creator_id, {
 
         "balances": {},
 
@@ -2832,40 +2869,55 @@ def _tenant_zero_economy():
     })
 
 
-def _tenant_zero_streaks():
+def _tenant_zero_economy():
+    return _creator_economy_v1(_tenant_zero_id())
 
-    # Lazy setdefault, same reasoning as _tenant_zero_economy(): works
+
+def _creator_streaks_v1(creator_id):
+
+    # Lazy setdefault, same reasoning as _creator_economy_v1(): works
     # whether or not the hydration-time migration populated this entry, and
     # returns a live mutable reference -- callers that mutate the returned
     # dict's values in place (get_streak_data's callers do exactly this,
     # e.g. data["streak"] += 1) are mutating the real by_creator storage,
     # not a copy, so the change persists without a separate write-back call.
-    return viewer_streaks["by_creator"].setdefault(_tenant_zero_id(), {})
+    return viewer_streaks["by_creator"].setdefault(creator_id, {})
+
+
+def _tenant_zero_streaks():
+    return _creator_streaks_v1(_tenant_zero_id())
+
+
+def _creator_viewer_stats_v1(creator_id):
+
+    # Lazy setdefault, same reference-preserving contract as
+    # _creator_economy_v1()/_creator_streaks_v1(). viewer_stats has no
+    # persistence and no migration -- it resets to {"by_creator": {}} on
+    # every process start regardless -- so unlike the other two creator
+    # helpers, there's no frozen flat data behind this one, ever.
+    return viewer_stats["by_creator"].setdefault(creator_id, {})
 
 
 def _tenant_zero_viewer_stats():
+    return _creator_viewer_stats_v1(_tenant_zero_id())
 
-    # Lazy setdefault, same reference-preserving contract as
-    # _tenant_zero_economy()/_tenant_zero_streaks(). viewer_stats has no
-    # persistence and no migration -- it resets to {"by_creator": {}} on
-    # every process start regardless -- so unlike the other two tenant-zero
-    # helpers, there's no frozen flat data behind this one, ever.
-    return viewer_stats["by_creator"].setdefault(_tenant_zero_id(), {})
+
+def _creator_commands_v1(creator_id):
+
+    # Lazy setdefault, same reference-preserving contract as the other
+    # three creator helpers.
+    return custom_commands["by_creator"].setdefault(creator_id, {})
 
 
 def _tenant_zero_commands():
-
-    # Lazy setdefault, same reference-preserving contract as the other
-    # three tenant-zero helpers. Deliberately keyed by _tenant_zero_id(),
-    # not the per-request creator_handle chat() receives -- matches the
-    # key Stage 1's migration-copy routine already writes into, and matches
-    # Phase 1/2's precedent of routing every touchpoint through the single
-    # tenant-zero constant rather than per-request identity. Real dynamic
-    # creator routing is deferred to the separate Bot Connection track,
-    # same as Phase 1/2 deferred it -- using creator_handle here instead
-    # would split pre-existing migrated commands and newly-seeded ones
-    # across two different keys.
-    return custom_commands["by_creator"].setdefault(_tenant_zero_id(), {})
+    # Bot Connection Sub-phase D, stage 1: kept as a thin wrapper around
+    # _creator_commands_v1(_tenant_zero_id()) so every call site that
+    # genuinely has no per-request identity concept (admin/test/debug
+    # routes, background triggers) keeps working completely unchanged.
+    # Call sites that DO have a real creator_handle/blaze_id should call
+    # _creator_commands_v1(_foxbot_resolve_creator_id_v1(...)) instead of
+    # this function -- later stages migrate them one at a time.
+    return _creator_commands_v1(_tenant_zero_id())
 
 
 
@@ -17848,6 +17900,81 @@ def _foxbot_connect_upsert_creator_v1(handle, display_name=None, source="blaze_c
     return creator
 
 
+def _foxbot_connect_set_blaze_id_v1(handle, blaze_id, display_name=None):
+    """Bot Connection Sub-phase D, stage 1: writes the blaze_id join field
+    onto a connected_creators.json record -- the write side of the
+    creator_handle <-> blaze_id join Decision 1 requires
+    (docs/bot-connection-track-scoping.md). Separate from
+    _foxbot_connect_upsert_creator_v1 on purpose: that function's
+    messages/foxcoins/badges bookkeeping is specific to a real chat
+    interaction (each call means "a chat message just happened"), and a
+    dashboard login isn't one -- calling it here would silently grant
+    +25 FoxCoins and increment a message count on every login. This
+    function only ever touches handle/display_name/blaze_id/
+    last_seen_at, leaving chat-progression fields alone (unset if this
+    creates a brand-new record, until/unless a real chat interaction
+    later initializes them via the other function).
+
+    Currently called from exactly one place: foxbot_dashboard_callback_v1,
+    right after a successful (approved) dashboard login, using the
+    blaze_id Blaze's own /v1/users/profile just verified -- never a
+    caller-supplied value, same discipline as Sub-phase B's identity
+    invariant."""
+    handle = _foxbot_connect_clean_handle_v1(handle)
+
+    if not handle or not blaze_id:
+        return None
+
+    raw = _foxbot_connect_load_raw_v1()
+
+    existing_key = handle
+    for key in list(raw.keys()):
+        if str(key).lower() == handle.lower():
+            existing_key = key
+            break
+
+    creator = raw.get(existing_key)
+    if not isinstance(creator, dict):
+        creator = {}
+
+    creator.setdefault("handle", handle)
+    creator["handle"] = creator.get("handle") or handle
+
+    if display_name:
+        creator["display_name"] = creator.get("display_name") or str(display_name).strip()[:80]
+
+    creator["blaze_id"] = str(blaze_id).strip()
+    creator["last_seen_at"] = _foxbot_connect_now_iso_v1()
+
+    raw[existing_key] = creator
+
+    _foxbot_connect_save_raw_v1(raw)
+
+    return creator
+
+
+def _foxbot_resolve_blaze_id_for_handle_v1(creator_handle):
+    """Bot Connection Sub-phase D, stage 1: the read side of the join --
+    given a chat-side creator_handle, returns the mapped blaze_id from
+    connected_creators.json, or None if this handle has never completed
+    a dashboard login (or bot-connect OAuth, once Sub-phase E exists).
+    None is a legitimate, expected result -- callers (see
+    _foxbot_resolve_creator_id_v1) fall back to tenant-zero for it, they
+    don't treat it as an error."""
+    handle = _foxbot_connect_clean_handle_v1(creator_handle)
+
+    if not handle:
+        return None
+
+    raw = _foxbot_connect_load_raw_v1()
+
+    for key, creator in raw.items():
+        if str(key).lower() == handle.lower() and isinstance(creator, dict):
+            blaze_id = creator.get("blaze_id")
+            if blaze_id:
+                return str(blaze_id).strip()
+
+    return None
 
 
 
@@ -20070,6 +20197,18 @@ def foxbot_dashboard_callback_v1(request: Request, code: str = "", state: str = 
             f"instead of replacing it.</p>",
             status_code=403
         )
+
+    # Bot Connection Sub-phase D, stage 1: the join's write side. Only on
+    # a successful (approved) login -- blaze_id here came exclusively
+    # from Blaze's own /v1/users/profile response above, never from a
+    # caller-supplied value. Best-effort: a failure here must not block
+    # login (the session is the important part; the join can catch up
+    # on a later login if this write has a transient problem).
+    if display_name:
+        try:
+            _foxbot_connect_set_blaze_id_v1(display_name, blaze_id, display_name=display_name)
+        except Exception as e:
+            print(f"[FoxBot Dashboard Login] could not write blaze_id join for handle {display_name!r}: {e}")
 
     session_token = _foxbot_dashboard_session_sign_v1(blaze_id, display_name)
 
