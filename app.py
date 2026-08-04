@@ -20310,6 +20310,78 @@ def _foxbot_blaze_oauth_log_raw_fields_v1():
     print(f"[FoxBot OAuth Refresh] saved token fields (masked tokens only): {masked}")
 
 
+def _foxbot_blaze_oauth_refresh_creator_v1(creator_id, creator_slot):
+    """Bot Connection Sub-phase C, stage 1: refresh ONE creator's tokens
+    using their OWN refresh token from their by_creator slot -- never the
+    flat keys, and never the BLAZE_REFRESH_TOKEN env var fallback (that's
+    tenant-zero's bootstrap-only fallback; a per-creator slot must never
+    fall back to a shared/global credential belonging to a different
+    identity).
+
+    Reuses _foxbot_blaze_oauth_save_tokens_v1 unchanged: it already
+    derives the verified identity fresh from Blaze on every save and
+    routes the result correctly (flat keys if that identity is
+    tenant-zero, by_creator[that identity] otherwise) -- Sub-phase B's
+    gate already does the routing this function would otherwise have to
+    duplicate.
+
+    creator_id/creator_slot here are READ inputs only -- which slot's
+    refresh token to send to Blaze, and a label for the caller's status
+    tracking. They do not determine where the result gets WRITTEN: that
+    write destination is still derived exclusively inside
+    _foxbot_blaze_oauth_save_tokens_v1/_foxbot_blaze_oauth_verify_identity_v1
+    from Blaze's own fresh /v1/users/profile response, per the Sub-phase B
+    invariant documented there. Even a wrong/stale creator_id passed in
+    here can't misdirect the write -- the save path re-verifies for
+    itself and only ever writes to whatever identity Blaze just proved.
+
+    Returns {"ok": bool, "error": str} on any expected failure (missing
+    config, missing/expired refresh token, Blaze API error, identity
+    mismatch) -- same return shape as the existing
+    foxbot_blaze_oauth_refresh_v1(), so the per-creator refresh loop
+    (Sub-phase C stage 2) can record it without its own error parsing.
+    Genuinely unexpected exceptions propagate to the caller, which
+    isolates them per creator.
+    """
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+
+    refresh_token = (
+        (creator_slot or {}).get("refreshToken")
+        or (creator_slot or {}).get("refresh_token")
+        or ""
+    )
+
+    if not client_id or not client_secret or not refresh_token:
+        return {
+            "ok": False,
+            "error": f"Missing BLAZE_CLIENT_ID, BLAZE_CLIENT_SECRET, or {creator_id!r}'s own refreshToken.",
+        }
+
+    try:
+        tokens = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/refresh",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "refreshToken": refresh_token,
+            },
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    try:
+        saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+    except FoxBotBlazeIdentityMismatch as e:
+        return {"ok": False, "error": str(e)}
+
+    return {
+        "ok": True,
+        "has_access_token": bool(saved.get("accessToken") or saved.get("access_token")),
+        "has_refresh_token": bool(saved.get("refreshToken") or saved.get("refresh_token")),
+    }
+
+
 def _foxbot_blaze_oauth_refresh_worker_v1():
     blaze_oauth_refresh_status["running"] = True
 
