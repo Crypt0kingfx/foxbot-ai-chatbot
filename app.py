@@ -20559,9 +20559,126 @@ def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str 
     if not _foxbot_bot_connect_enabled_v1():
         return _foxbot_bot_connect_disabled_response_v1()
 
+    if not code:
+        return HTMLResponse("<h1>Bot Connect Error</h1><p>No code received.</p>", status_code=400)
+
+    # CSRF/state check, same cookie-comparison pattern as
+    # foxbot_dashboard_callback_v1 (app.py:20144) -- rejects here, before
+    # any exchange is attempted, if the state param wasn't issued by our
+    # own /auth/bot-connect/login for this browser.
+    cookie_state = request.cookies.get("foxbot_botconnect_oauth_state")
+    cookie_verifier = request.cookies.get("foxbot_botconnect_oauth_verifier")
+    cookie_redirect = request.cookies.get("foxbot_botconnect_oauth_redirect")
+
+    if not cookie_state or cookie_state != state or not cookie_verifier:
+        return HTMLResponse(
+            "<h1>Bot Connect Error</h1>"
+            "<p>Login state was not found or didn't match. Open /auth/bot-connect/login again "
+            "and complete login in the same browser session.</p>",
+            status_code=400
+        )
+
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = cookie_redirect or os.getenv(
+        "FOXBOT_BOT_CONNECT_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
+    ).strip()
+
+    try:
+        tokens, _style = _foxbot_blaze_exchange_code_v3(
+            client_id, client_secret, code, cookie_verifier, redirect_uri
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f"<h1>Bot Connect Error</h1><p>Could not exchange code for token.</p><pre>{e}</pre>",
+            status_code=500
+        )
+
+    access_token = (tokens or {}).get("accessToken") or (tokens or {}).get("access_token") or ""
+    if not access_token:
+        return HTMLResponse("<h1>Bot Connect Error</h1><p>No access token returned.</p>", status_code=500)
+
+    # THE SACRED INVARIANT. actual_id is obtained by calling the exact
+    # same function _foxbot_blaze_oauth_save_tokens_v1 calls internally
+    # (_foxbot_blaze_oauth_verify_identity_v1, app.py:19157) on the exact
+    # same tokens -- never parsed from `code`, `state`, a cookie, or any
+    # other value this request carries. That function's own docstring is
+    # explicit about this: "actual_id is the ONLY value any code may
+    # ever use as a by_creator token-slot key... do not thread a
+    # creator_id through from elsewhere." Getting it here the same way
+    # the save primitive gets it internally is what guarantees this
+    # join write below and that save's slot write can never disagree --
+    # both are the same deterministic function of the same
+    # Blaze-verified access token, not two independently-parsed values
+    # that merely happen to usually match.
+    try:
+        actual_id = _foxbot_blaze_oauth_verify_identity_v1(tokens)
+    except FoxBotBlazeIdentityMismatch as e:
+        return HTMLResponse(f"<h1>Bot Connect Rejected</h1><p>{e}</p>", status_code=403)
+
+    if not actual_id:
+        return HTMLResponse(
+            "<h1>Bot Connect Error</h1><p>Could not verify a Blaze account for this login.</p>",
+            status_code=502
+        )
+
+    # B's primitive, called COMPLETELY UNCHANGED -- single argument, no
+    # creator_id passed in from here. It re-derives actual_id internally
+    # via its own call to _foxbot_blaze_oauth_verify_identity_v1 and
+    # writes by_creator[that id] via Sub-phase B.2's self-service branch
+    # (app.py:19301). This callback has no parameter, and B's primitive
+    # has no parameter slot, through which anything request-supplied
+    # could reach the write destination.
+    try:
+        saved = _foxbot_blaze_oauth_save_tokens_v1(tokens)
+    except FoxBotBlazeIdentityMismatch as e:
+        return HTMLResponse(f"<h1>Bot Connect Rejected</h1><p>{e}</p>", status_code=403)
+
+    # Display name for the join's `handle` field only -- cosmetic, not
+    # security-relevant (unlike actual_id above, nothing downstream uses
+    # this as a token-slot key). Best-effort, mirrors the dashboard
+    # login's own profile read (app.py:20189): a failure here skips the
+    # join but must not undo the token save that already succeeded.
+    display_name = ""
+    try:
+        profile = _foxbot_blaze_http_json_v1(
+            "GET",
+            "https://api.blaze.stream/v1/users/profile",
+            None,
+            {
+                "authorization": f"Bearer {access_token}",
+                "client-id": client_id,
+                "accept": "application/json",
+                "user-agent": "FoxBotAI/1.0"
+            }
+        )
+        node = ((profile.get("body") or {}).get("data") or {}) if profile.get("ok") else {}
+        for key in ("username", "handle", "slug", "displayName", "display_name", "name"):
+            value = node.get(key)
+            if value:
+                display_name = str(value).strip().lstrip("@")[:40]
+                break
+    except Exception:
+        pass
+
+    # Sub-phase D's join, write side -- actual_id here is the SAME value
+    # verified above and handed to the save primitive, never a
+    # separately-parsed one, so the join and the token slot cannot
+    # disagree on who this creator is.
+    if display_name:
+        try:
+            _foxbot_connect_set_blaze_id_v1(display_name, actual_id, display_name=display_name)
+        except Exception as e:
+            print(f"[FoxBot Bot Connect] could not write blaze_id join for handle {display_name!r}: {e}")
+
     return HTMLResponse(
-        "<h1>Bot Connect Callback</h1><p>Not implemented yet (Stage 3).</p>",
-        status_code=501
+        f"<h1>Bot Connected</h1>"
+        f"<p>Blaze account <code>{actual_id}</code>"
+        f"{' (@' + display_name + ')' if display_name else ''} is now connected.</p>"
+        f"<p>Access token: {bool(saved.get('accessToken') or saved.get('access_token'))}, "
+        f"refresh token: {bool(saved.get('refreshToken') or saved.get('refresh_token'))}.</p>",
+        status_code=200
     )
 
 # === End FoxBot Bot Connection Routes v1 (Sub-phase E) ===
