@@ -20482,10 +20482,76 @@ def foxbot_bot_connect_login_v1():
     if not _foxbot_bot_connect_enabled_v1():
         return _foxbot_bot_connect_disabled_response_v1()
 
-    return HTMLResponse(
-        "<h1>Bot Connect Login</h1><p>Not implemented yet (Stage 2).</p>",
-        status_code=501
-    )
+    client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    redirect_uri = os.getenv(
+        "FOXBOT_BOT_CONNECT_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
+    ).strip()
+
+    if not client_id or not client_secret:
+        return HTMLResponse(
+            "<h1>Bot Connect Missing Config</h1>"
+            "<p>Add BLAZE_CLIENT_ID and BLAZE_CLIENT_SECRET in Render first.</p>",
+            status_code=500
+        )
+
+    # Same posting scopes as tenant-zero's own /auth/blaze/login
+    # (app.py:19423) -- a second creator's bot needs to be able to do
+    # everything tenant-zero's bot can do on their own channel.
+    scopes = ["users.read", "offline.access", "channel.moderate", "users.bot"]
+
+    try:
+        data = _foxbot_blaze_oauth_post_json_v1(
+            "https://blaze.stream/bapi/oauth2/generate-auth-url",
+            {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "redirectUri": redirect_uri,
+                "scopes": scopes
+            }
+        )
+    except Exception as e:
+        return HTMLResponse(
+            f"<h1>Bot Connect Error</h1><p>Could not generate auth URL.</p><pre>{e}</pre>",
+            status_code=500
+        )
+
+    state = data.get("state")
+    code_verifier = data.get("codeVerifier")
+    url = data.get("url")
+
+    if not state or not code_verifier or not url:
+        return HTMLResponse(
+            f"<h1>Bot Connect Error</h1><p>Blaze did not return state/codeVerifier/url.</p><pre>{data}</pre>",
+            status_code=500
+        )
+
+    response = RedirectResponse(url)
+
+    # Distinct cookie names from BOTH other flows -- foxbot_oauth_* (the
+    # tenant-zero bot flow) and foxbot_dashboard_oauth_* (dashboard
+    # login) -- so a browser mid-way through any one of the three never
+    # cross-contaminates another. A creator with an active dashboard
+    # session starting a bot-connect flow in the same browser is exactly
+    # the case this guards against.
+    try:
+        response.set_cookie(
+            "foxbot_botconnect_oauth_state", state,
+            max_age=900, httponly=True, secure=True, samesite="lax"
+        )
+        response.set_cookie(
+            "foxbot_botconnect_oauth_verifier", code_verifier,
+            max_age=900, httponly=True, secure=True, samesite="lax"
+        )
+        response.set_cookie(
+            "foxbot_botconnect_oauth_redirect", redirect_uri,
+            max_age=900, httponly=True, secure=True, samesite="lax"
+        )
+    except Exception:
+        pass
+
+    return response
 
 
 @app.get("/auth/bot-connect/callback")
