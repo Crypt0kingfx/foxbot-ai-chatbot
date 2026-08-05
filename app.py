@@ -21100,7 +21100,7 @@ def foxbot_blaze_oauth_refresh_status_v1():
 
 # === FoxBot Blaze OAuth Debug Routes v1 ===
 
-def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes):
+def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes, redirect_uri=None):
 
     import json
 
@@ -21116,13 +21116,11 @@ def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes):
 
     client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
 
-    redirect_uri = os.getenv(
-
-        "BLAZE_REDIRECT_URI",
-
-        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
-
-    ).strip()
+    if redirect_uri is None:
+        redirect_uri = os.getenv(
+            "BLAZE_REDIRECT_URI",
+            "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
+        ).strip()
 
 
 
@@ -21294,6 +21292,51 @@ def foxbot_blaze_oauth_debug_v1():
 
         ]
 
+    }
+
+
+@app.get("/api/blaze/oauth/bot-connect/debug")
+def foxbot_blaze_oauth_bot_connect_debug_v1():
+    """Mirrors foxbot_blaze_oauth_debug_v1 above, but exercises the
+    /auth/bot-connect/login redirect_uri instead of the tenant-zero
+    /auth/blaze/callback one -- so the two can be diffed directly. Reads
+    FOXBOT_BOT_CONNECT_REDIRECT_URI the exact same way
+    foxbot_bot_connect_login_v1 (app.py:20522) does, so if that env var
+    is set to something unexpected in Render, this shows the same value
+    the real login route would actually send to Blaze.
+    """
+    bot_connect_redirect_uri = os.getenv(
+        "FOXBOT_BOT_CONNECT_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
+    ).strip()
+
+    full = _foxbot_blaze_oauth_generate_auth_debug_v1(
+        ["users.read", "offline.access", "channel.moderate", "users.bot"],
+        redirect_uri=bot_connect_redirect_uri
+    )
+
+    basic = _foxbot_blaze_oauth_generate_auth_debug_v1(
+        ["users.read", "offline.access"],
+        redirect_uri=bot_connect_redirect_uri
+    )
+
+    return {
+        "ok": True,
+        "redirect_uri_used": bot_connect_redirect_uri,
+        "full_scope_test": full,
+        "basic_scope_test": basic,
+        "what_to_check": [
+            "redirect_uri_used above is EXACTLY what /auth/bot-connect/login sends -- "
+            "compare it byte-for-byte against what /api/blaze/oauth/debug uses for the "
+            "working blaze flow, and against what's registered in Blaze Developers.",
+            "If FOXBOT_BOT_CONNECT_REDIRECT_URI is unset in Render, this falls back to "
+            "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback -- that exact "
+            "URI must be registered as an additional redirect URI on the FoxBot AI app in Blaze.",
+            "If basic_scope_test succeeds but full_scope_test fails, Blaze is rejecting "
+            "channel.moderate or users.bot for this redirect_uri specifically.",
+            "If both fail here but /api/blaze/oauth/debug succeeds, the bot-connect "
+            "redirect_uri itself is the problem (not registered, or a mismatch)."
+        ]
     }
 
 # === End FoxBot Blaze OAuth Debug Routes v1 ===
