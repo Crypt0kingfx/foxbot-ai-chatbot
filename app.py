@@ -20443,6 +20443,64 @@ def foxbot_blaze_oauth_refresh_v1():
 # === End FoxBot Blaze OAuth Routes v1 ===
 
 
+# === FoxBot Bot Connection Routes v1 (Sub-phase E) ===
+# Per-creator bot-connect OAuth: lets a SECOND creator register their own
+# Blaze bot identity into a by_creator token slot, using the same posting
+# scopes tenant-zero's own /auth/blaze/login already uses. Reuses proven
+# pieces rather than reinventing them:
+#   - _foxbot_blaze_exchange_code_v3     code -> tokens (Stage 3)
+#   - _foxbot_blaze_oauth_save_tokens_v1 Sub-phase B.2's self-service
+#     by_creator[actual_id] write, UNCHANGED -- still takes exactly one
+#     argument, slot key still derived only from Blaze's own /v1/users/
+#     profile response, never from anything this flow hands it (Stage 3)
+#   - _foxbot_connect_set_blaze_id_v1    Sub-phase D's join write (Stage 3)
+#
+# Flag-gated behind FOXBOT_BOT_CONNECT_ENABLED (default OFF/unset). Both
+# routes exist even while OFF -- on purpose, so the redirect URI can be
+# registered in Blaze's console ahead of time -- but do nothing until the
+# flag is on. Neither route sits on tenant-zero's own OAuth path
+# (/auth/blaze/login + /auth/blaze/callback, above), so tenant-zero's
+# flow is unaffected regardless of this flag's value.
+#
+# Stage 1 (this): flag + route scaffolding only. No Blaze HTTP calls, no
+# cookies, no token writes yet -- those land in Stages 2-3.
+
+def _foxbot_bot_connect_enabled_v1() -> bool:
+    return os.getenv("FOXBOT_BOT_CONNECT_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_bot_connect_disabled_response_v1():
+    return HTMLResponse(
+        "<h1>Bot Connection Not Enabled</h1>"
+        "<p>This feature is not turned on for this deployment yet.</p>",
+        status_code=404
+    )
+
+
+@app.get("/auth/bot-connect/login")
+def foxbot_bot_connect_login_v1():
+    if not _foxbot_bot_connect_enabled_v1():
+        return _foxbot_bot_connect_disabled_response_v1()
+
+    return HTMLResponse(
+        "<h1>Bot Connect Login</h1><p>Not implemented yet (Stage 2).</p>",
+        status_code=501
+    )
+
+
+@app.get("/auth/bot-connect/callback")
+def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str = ""):
+    if not _foxbot_bot_connect_enabled_v1():
+        return _foxbot_bot_connect_disabled_response_v1()
+
+    return HTMLResponse(
+        "<h1>Bot Connect Callback</h1><p>Not implemented yet (Stage 3).</p>",
+        status_code=501
+    )
+
+# === End FoxBot Bot Connection Routes v1 (Sub-phase E) ===
+
+
 # === FoxBot Blaze OAuth Scheduled Refresh v1 ===
 # Calls the existing, identity-locked foxbot_blaze_oauth_refresh_v1() on a
 # timer so the bot's Blaze access token gets renewed automatically instead
