@@ -17990,6 +17990,41 @@ def _foxbot_connect_set_blaze_id_v1(handle, blaze_id, display_name=None):
     return creator
 
 
+def _foxbot_connect_clear_blaze_id_v1(blaze_id):
+    """Bot Connection Sub-phase E, stage 4: the symmetric inverse of
+    _foxbot_connect_set_blaze_id_v1 above -- unsets the blaze_id join
+    field on every connected_creators.json record that carries it,
+    without deleting the record itself (a creator's handle/messages/
+    foxcoins/badges history isn't tied to whether a bot-connect OAuth
+    slot currently exists; revoking the bot connection shouldn't erase
+    it). Returns the number of records updated, 0 if none matched.
+
+    blaze_id here is caller-supplied by design -- unlike Sub-phase B/D's
+    write-side invariant (identity must come from Blaze's own
+    verification, never a caller value), this is a targeted ADMIN
+    cleanup operation, not a registration. The route calling this
+    (foxbot_bot_connect_revoke_v1) is gated by the existing studio admin
+    auth middleware; an admin choosing which slot to remove is the
+    correct shape for a revoke, the mirror image of a creator's own
+    OAuth completion being what's trusted for a register."""
+    if not blaze_id:
+        return 0
+
+    raw = _foxbot_connect_load_raw_v1()
+    blaze_id = str(blaze_id).strip()
+    updated = 0
+
+    for key, creator in raw.items():
+        if isinstance(creator, dict) and str(creator.get("blaze_id") or "").strip() == blaze_id:
+            creator.pop("blaze_id", None)
+            updated += 1
+
+    if updated:
+        _foxbot_connect_save_raw_v1(raw)
+
+    return updated
+
+
 def _foxbot_resolve_blaze_id_for_handle_v1(creator_handle):
     """Bot Connection Sub-phase D, stage 1: the read side of the join --
     given a chat-side creator_handle, returns the mapped blaze_id from
@@ -20680,6 +20715,90 @@ def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str 
         f"refresh token: {bool(saved.get('refreshToken') or saved.get('refresh_token'))}.</p>",
         status_code=200
     )
+
+
+@app.post("/api/blaze/oauth/bot-connect/revoke")
+def foxbot_bot_connect_revoke_v1(creator_id: str = ""):
+    """Bot Connection Sub-phase E, stage 4: B.2's structural inverse.
+
+    ADMIN-gated, not self-service. This path (/api/blaze/oauth/...)
+    already matches FOXBOT_ADMIN_GATED_PREFIXES (app.py:994), so the
+    existing studio admin auth middleware (foxbot_studio_admin_auth_gate_v1,
+    app.py:1035) already requires Basic Auth or an approved Blaze
+    dashboard session before this function body ever runs -- no separate
+    auth check needed here, same as every other /api/blaze/oauth/*
+    route in this file.
+
+    Deliberately NOT gated behind FOXBOT_BOT_CONNECT_ENABLED -- this is
+    a standalone cleanup lever an admin may need even with the feature
+    flag off (e.g. to purge a slot registered while the flag was
+    briefly on).
+
+    Unlike registration (Stage 3), where the slot key MUST come only
+    from Blaze's own OAuth verification, revocation is an admin
+    operation targeting an EXISTING slot the admin selects -- creator_id
+    here is caller-supplied by design, the mirror image of Stage 3's
+    invariant, not a violation of it. What stays true in both
+    directions: this function only ever reads/writes
+    by_creator[creator_id] -- it has no code path that touches the flat
+    top-level token keys (tenant-zero's live credentials), regardless of
+    what creator_id is passed.
+
+    Refuses outright to touch tenant-zero's own id (checked against
+    BOTH _tenant_zero_id() and the configured bot identity from
+    _foxbot_blaze_bot_expected_id_v1(), since either could in principle
+    be handed here) -- revoking the live bot's own connection isn't
+    this lever's job and isn't allowed to be one accidental admin click.
+    """
+    import json
+
+    creator_id = (creator_id or "").strip()
+
+    if not creator_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": "creator_id is required."}, status_code=400)
+
+    protected_ids = {x for x in (_tenant_zero_id(), _foxbot_blaze_bot_expected_id_v1()) if x}
+    if creator_id in protected_ids:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Refusing to revoke tenant-zero's own bot connection through this endpoint.",
+            },
+            status_code=400
+        )
+
+    # Token slot removal. ONLY by_creator[creator_id] is ever read or
+    # written below -- the flat top-level keys are never touched by this
+    # function, by construction, no matter what creator_id was passed.
+    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+    removed_token_slot = False
+
+    if token_path.exists():
+        try:
+            existing = json.loads(token_path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            existing = {}
+
+        by_creator = existing.get("by_creator") or {}
+        if creator_id in by_creator:
+            del by_creator[creator_id]
+            existing["by_creator"] = by_creator
+            token_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+            removed_token_slot = True
+
+    # Join removal -- symmetric with Stage 3's join write, so no
+    # connected_creators.json record is left pointing at a blaze_id that
+    # no longer has a token slot.
+    removed_join_entries = _foxbot_connect_clear_blaze_id_v1(creator_id)
+
+    return {
+        "ok": True,
+        "creator_id": creator_id,
+        "removed_token_slot": removed_token_slot,
+        "removed_join_entries": removed_join_entries,
+    }
 
 # === End FoxBot Bot Connection Routes v1 (Sub-phase E) ===
 
