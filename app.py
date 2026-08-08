@@ -1109,6 +1109,25 @@ async def foxbot_studio_admin_auth_gate_v1(request, call_next):
                 headers={"WWW-Authenticate": 'Basic realm="FoxBot Studio Admin"'},
             )
 
+        # Bot Connection C2, Step 0: is_admin / scoped_creator_id, computed
+        # once the auth outcome above is final -- purely additive, nothing
+        # downstream reads either field yet, so this changes no existing
+        # behavior. Basic Auth (blaze_id never set above) and a Blaze
+        # session whose blaze_id IS tenant-zero's own both mean full admin,
+        # exactly like today's single "authorized" bit already treated
+        # them -- unchanged. Only a Blaze session whose blaze_id is NOT
+        # tenant-zero's own is a genuinely scoped creator: request.state.blaze_id
+        # is Blaze-verified (see the comment above where it's set), so
+        # scoped_creator_id inherits that same guarantee -- never a
+        # caller-supplied value.
+        session_blaze_id = getattr(request.state, "blaze_id", None)
+        if session_blaze_id and session_blaze_id != _tenant_zero_id():
+            request.state.is_admin = False
+            request.state.scoped_creator_id = session_blaze_id
+        else:
+            request.state.is_admin = True
+            request.state.scoped_creator_id = None
+
     return await call_next(request)
 
 # === End FoxBot Studio Admin Auth Gate v1 ===
