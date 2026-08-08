@@ -981,6 +981,13 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     "/api/blaze/test-auto-chat-event", "/api/blaze/event",
     "/api/foxbot/events", "/api/foxbot/onboarding",
 
+    # /api/blaze/service-test doesn't match the "/api/blaze/service/" prefix
+    # below (no trailing slash before "-test"), so it fell through the gate
+    # entirely despite triggering a real side effect (blaze_listener.connect()).
+    # Listed here explicitly rather than fixing the prefix, since the prefix
+    # is correct for the real /api/blaze/service/* routes it's meant to match.
+    "/api/blaze/service-test",
+
     "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards",
     "/recognition", "/community-quest", "/streaks", "/custom-commands",
 
