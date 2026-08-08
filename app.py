@@ -21339,6 +21339,44 @@ def foxbot_blaze_oauth_bot_connect_debug_v1():
         ]
     }
 
+
+@app.get("/api/blaze/oauth/dashboard/debug")
+def foxbot_blaze_oauth_dashboard_debug_v1():
+    """Mirrors foxbot_blaze_oauth_bot_connect_debug_v1 above, but exercises the
+    /auth/dashboard/login redirect_uri -- so all three (tenant-zero, dashboard,
+    bot-connect) can be diffed side by side. Reads STUDIO_DASHBOARD_REDIRECT_URI
+    the exact same way foxbot_dashboard_login_v1 (app.py:20109) does, and
+    requests only users.read since that's the only scope the real dashboard
+    login route ever sends.
+    """
+    dashboard_redirect_uri = os.getenv(
+        "STUDIO_DASHBOARD_REDIRECT_URI",
+        "https://foxbot-ai-chatbot.onrender.com/auth/dashboard/callback"
+    ).strip()
+
+    read_scope_test = _foxbot_blaze_oauth_generate_auth_debug_v1(
+        ["users.read"],
+        redirect_uri=dashboard_redirect_uri
+    )
+
+    return {
+        "ok": True,
+        "redirect_uri_used": dashboard_redirect_uri,
+        "read_scope_test": read_scope_test,
+        "what_to_check": [
+            "redirect_uri_used above is EXACTLY what /auth/dashboard/login sends -- "
+            "compare it byte-for-byte against /api/blaze/oauth/debug (tenant-zero, working) "
+            "and /api/blaze/oauth/bot-connect/debug, and against what's registered in Blaze Developers.",
+            "If STUDIO_DASHBOARD_REDIRECT_URI is unset in Render, this falls back to "
+            "https://foxbot-ai-chatbot.onrender.com/auth/dashboard/callback -- that exact "
+            "URI must be registered as an additional redirect URI on the FoxBot AI app in Blaze.",
+            "If this fails the same way bot-connect/debug does, while /api/blaze/oauth/debug "
+            "(the original, single registered URI) succeeds, that points at Blaze not "
+            "actually persisting/enforcing any redirect URI beyond the first one saved on "
+            "this client ID -- not a typo in this codebase."
+        ]
+    }
+
 # === End FoxBot Blaze OAuth Debug Routes v1 ===
 
 
