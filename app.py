@@ -19603,7 +19603,23 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
     from fastapi.responses import HTMLResponse
 
-
+    # Dashboard-login multiplex: STUDIO_DASHBOARD_REDIRECT_URI can be
+    # pointed at this route -- the one redirect URI Blaze actually honors
+    # (the other two, /auth/dashboard/callback and /auth/bot-connect/callback,
+    # hit "invalid redirect_uri" even though they're registered in Blaze's
+    # console -- see docs/blaze-dashboard-auth-plan.md). Checked FIRST, before
+    # any tenant-zero state (the pending-lookup below) is touched, so a
+    # request with no valid foxbot_dashboard_oauth_state cookie falls straight
+    # through to the unmodified tenant-zero logic below -- byte-identical to
+    # before this branch existed. This branch never calls
+    # _foxbot_blaze_oauth_save_tokens_v1 and never touches
+    # blaze_oauth_tokens.json or by_creator state -- it's pure delegation to
+    # the same identity-only handler /auth/dashboard/callback already uses
+    # (_foxbot_dashboard_oauth_callback_handle_v1, app.py, dashboard login
+    # section below).
+    dashboard_cookie_state = request.cookies.get("foxbot_dashboard_oauth_state")
+    if dashboard_cookie_state and dashboard_cookie_state == state:
+        return _foxbot_dashboard_oauth_callback_handle_v1(request, code, state)
 
     if not code:
 
@@ -20175,8 +20191,16 @@ def foxbot_dashboard_login_v1():
     return response
 
 
-@app.get("/auth/dashboard/callback")
-def foxbot_dashboard_callback_v1(request: Request, code: str = "", state: str = ""):
+def _foxbot_dashboard_oauth_callback_handle_v1(request: Request, code: str = "", state: str = ""):
+    """Shared body for the dashboard-login OAuth callback. Reused by both
+    /auth/dashboard/callback (foxbot_dashboard_callback_v1, below) and the
+    dashboard branch multiplexed through /auth/blaze/callback
+    (foxbot_blaze_oauth_callback_v1, app.py:19598) -- STUDIO_DASHBOARD_REDIRECT_URI
+    can point at either path, so both routes must run this exact same logic.
+    Identity-only, unchanged from before this was factored out: never calls
+    _foxbot_blaze_oauth_save_tokens_v1, never touches blaze_oauth_tokens.json
+    or by_creator state.
+    """
     from fastapi.responses import HTMLResponse, RedirectResponse
 
     if not code:
@@ -20296,6 +20320,11 @@ def foxbot_dashboard_callback_v1(request: Request, code: str = "", state: str = 
     response.delete_cookie("foxbot_dashboard_oauth_redirect")
 
     return response
+
+
+@app.get("/auth/dashboard/callback")
+def foxbot_dashboard_callback_v1(request: Request, code: str = "", state: str = ""):
+    return _foxbot_dashboard_oauth_callback_handle_v1(request, code, state)
 
 # === End FoxBot Studio Dashboard Login ===
 
