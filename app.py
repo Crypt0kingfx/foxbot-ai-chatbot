@@ -3859,7 +3859,7 @@ def is_admin(username: str):
 
 @app.get("/chat")
 
-def chat(message: str = "", username: str = "viewer", creator_handle: str = None):
+def chat(message: str = "", username: str = "viewer", creator_handle: str = None, allow_admin: bool = True):
 
     global giveaway_entries
 
@@ -4017,7 +4017,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
                     "response": f"🦊 Shop category command loaded, but reward menu failed: {type(e2).__name__}"
                 }
 
-    admin = is_admin(username)
+    # allow_admin=False forces this to False regardless of what is_admin(username)
+    # would say -- used by public, unauthenticated callers (the Blaze Chat Bridge,
+    # app.py:18186/18274) where username is caller-supplied and can't be trusted
+    # to grant admin authority. Every trusted call site (the gated /blaze/*
+    # routes, /api/foxbot/admin-command, the real chat-listener pipelines) keeps
+    # the allow_admin=True default and is unaffected.
+    admin = allow_admin and is_admin(username)
 
 
 
@@ -18235,9 +18241,13 @@ async def blaze_chat_bridge_v1(payload: dict):
 
         }
 
-
-
-    result = chat(message=message, username=username)
+    # Public, unauthenticated route (docs/FOXBOT_CONNECT_INTEGRATION.md) --
+    # username is caller-supplied and must never be able to buy admin
+    # authority through chat()'s privileged commands. allow_admin=False
+    # forces admin=False in chat() regardless of what username is passed;
+    # ordinary viewer commands (!connect, !profile, !rank, etc.) are
+    # unaffected, since those don't check the admin flag at all.
+    result = chat(message=message, username=username, allow_admin=False)
 
 
 
@@ -18273,7 +18283,8 @@ async def blaze_chat_bridge_v1(payload: dict):
 
 def blaze_chat_bridge_test_v1(message: str = "!connect", username: str = "testviewer"):
 
-    result = chat(message=message, username=username)
+    # Public, unauthenticated route -- see blaze_chat_bridge_v1 above.
+    result = chat(message=message, username=username, allow_admin=False)
 
 
 
