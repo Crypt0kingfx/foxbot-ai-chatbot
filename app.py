@@ -1039,6 +1039,35 @@ def _foxbot_studio_path_is_gated(path: str) -> bool:
     return any(normalized.startswith(prefix.rstrip("/")) for prefix in FOXBOT_ADMIN_GATED_PREFIXES)
 
 
+def _foxbot_require_admin_v1(request: Request):
+    """Bot Connection C2, Step 2: second-layer scope check, layered AFTER
+    the existing auth gate (foxbot_studio_admin_auth_gate_v1, immediately
+    below) -- that gate already required Basic Auth or an approved Blaze
+    session before any route body using this helper is ever reached; this
+    only narrows WHICH of those already-approved sessions may proceed.
+    request.state.is_admin is set by that same gate (Bot Connection C2,
+    Step 0) -- True for Basic Auth or tenant-zero's own Blaze session,
+    False for an approved-but-non-tenant-zero (scoped) creator.
+
+    Usage at the top of a route body:
+        guard = _foxbot_require_admin_v1(request)
+        if guard:
+            return guard
+
+    Apply only to posting/infra/unmigrated-shared-state routes that must
+    stay admin-only for now -- never to Tier 1 creator-data routes, which
+    scoped creators must be able to reach.
+    """
+    from fastapi.responses import JSONResponse
+
+    if not getattr(request.state, "is_admin", False):
+        return JSONResponse(
+            {"ok": False, "error": "This action requires full admin access, not a scoped creator session."},
+            status_code=403,
+        )
+    return None
+
+
 @app.middleware("http")
 async def foxbot_studio_admin_auth_gate_v1(request, call_next):
 
@@ -7247,7 +7276,10 @@ def find_blaze_channel():
 
 @app.get("/blaze/send-test-message")
 
-def send_test_blaze_message():
+def send_test_blaze_message(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     result = send_blaze_chat_message("FoxBot is officially connected to Blaze chat!")
 
@@ -14833,9 +14865,12 @@ def recognition_test(event_type: str):
 
 # === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
 @app.get("/api/studio/debug/viewer-fallback-captures")
-async def foxbot_viewer_fallback_debug_captures_v1():
+async def foxbot_viewer_fallback_debug_captures_v1(request: Request):
     """Gated by the existing /api/studio/ Basic Auth prefix. Read-only view
     of viewer_fallback_debug_log -- see its definition for what this is."""
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
     return {
         "ok": True,
         "note": "TEMP diagnostic for the @viewer thank-you bug. Remove this route once a real payload has been captured.",
@@ -15240,7 +15275,10 @@ async def foxbot_recognition_history():
 
 @app.get("/api/recognition/config")
 
-async def foxbot_recognition_config():
+async def foxbot_recognition_config(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return {
 
@@ -15480,7 +15518,10 @@ async def blaze_service_test():
 
 @app.post("/api/blaze/service/connect")
 
-async def blaze_service_connect():
+async def blaze_service_connect(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     listener = blaze_listener.connect()
 
@@ -15504,7 +15545,10 @@ async def blaze_service_connect():
 
 @app.post("/api/blaze/service/disconnect")
 
-async def blaze_service_disconnect():
+async def blaze_service_disconnect(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     listener = blaze_listener.disconnect()
 
@@ -15528,7 +15572,10 @@ async def blaze_service_disconnect():
 
 @app.get("/api/blaze/service/status")
 
-async def blaze_service_status():
+async def blaze_service_status(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return {
 
@@ -15544,7 +15591,10 @@ async def blaze_service_status():
 
 @app.post("/api/blaze/service/event")
 
-async def blaze_service_event(raw_event: dict):
+async def blaze_service_event(raw_event: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     event_name = str(raw_event.get("type", "")).lower().strip()
 
@@ -16530,7 +16580,10 @@ def automation_event_enabled(event_type: str):
 
 @app.get("/api/automation/status")
 
-def automation_control_status():
+def automation_control_status(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     settings = ensure_automation_settings()
 
@@ -16556,7 +16609,10 @@ def automation_control_status():
 
 @app.post("/api/automation/recognition/{state}")
 
-def automation_control_recognition(state: str):
+def automation_control_recognition(state: str, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     settings = ensure_automation_settings()
 
@@ -16584,7 +16640,10 @@ def automation_control_recognition(state: str):
 
 @app.post("/api/automation/event/{event_type}/{state}")
 
-def automation_control_event_toggle(event_type: str, state: str):
+def automation_control_event_toggle(event_type: str, state: str, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     settings = ensure_automation_settings()
 
@@ -16953,7 +17012,10 @@ async def foxbot_connected_creators_demo():
 
 @app.post("/api/connected-creators/{handle}/foxcoins")
 
-async def foxbot_connected_creators_award(handle: str, payload: _FoxDict[str, _FoxAny]):
+async def foxbot_connected_creators_award(handle: str, payload: _FoxDict[str, _FoxAny], request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     amount = int(payload.get("amount", 25) or 25)
 
@@ -16965,7 +17027,10 @@ async def foxbot_connected_creators_award(handle: str, payload: _FoxDict[str, _F
 
 @app.post("/api/connected-creators/{handle}/message")
 
-async def foxbot_connected_creators_message(handle: str, payload: _FoxDict[str, _FoxAny]):
+async def foxbot_connected_creators_message(handle: str, payload: _FoxDict[str, _FoxAny], request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     amount = int(payload.get("amount", 1) or 1)
 
@@ -18679,7 +18744,10 @@ def foxbot_blaze_native_status_v1():
 
 @app.post("/api/blaze/native/start")
 
-def foxbot_blaze_native_start_v1():
+def foxbot_blaze_native_start_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     from services.blaze_native_connector import start_listener
 
@@ -18705,7 +18773,10 @@ def foxbot_blaze_native_start_v1():
 
 @app.post("/api/blaze/native/stop")
 
-def foxbot_blaze_native_stop_v1():
+def foxbot_blaze_native_stop_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     from services.blaze_native_connector import stop_listener
 
@@ -18717,7 +18788,10 @@ def foxbot_blaze_native_stop_v1():
 
 @app.post("/api/blaze/native/send")
 
-async def foxbot_blaze_native_send_v1(payload: dict):
+async def foxbot_blaze_native_send_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     from services.blaze_native_connector import send_blaze_chat
 
@@ -20370,7 +20444,10 @@ def foxbot_dashboard_callback_v1(request: Request, code: str = "", state: str = 
 
 @app.get("/api/blaze/oauth/status")
 
-def foxbot_blaze_oauth_status_v1():
+def foxbot_blaze_oauth_status_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     import os
 
@@ -20432,7 +20509,10 @@ def foxbot_blaze_oauth_status_v1():
 
 @app.post("/api/blaze/oauth/refresh")
 
-def foxbot_blaze_oauth_refresh_v1():
+def foxbot_blaze_oauth_refresh_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     import os
 
@@ -20785,16 +20865,17 @@ def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str 
 
 
 @app.post("/api/blaze/oauth/bot-connect/revoke")
-def foxbot_bot_connect_revoke_v1(creator_id: str = ""):
+def foxbot_bot_connect_revoke_v1(request: Request, creator_id: str = ""):
     """Bot Connection Sub-phase E, stage 4: B.2's structural inverse.
 
     ADMIN-gated, not self-service. This path (/api/blaze/oauth/...)
     already matches FOXBOT_ADMIN_GATED_PREFIXES (app.py:994), so the
     existing studio admin auth middleware (foxbot_studio_admin_auth_gate_v1,
     app.py:1035) already requires Basic Auth or an approved Blaze
-    dashboard session before this function body ever runs -- no separate
-    auth check needed here, same as every other /api/blaze/oauth/*
-    route in this file.
+    dashboard session before this function body ever runs. Bot Connection
+    C2, Step 2 additionally requires that session be full admin (not a
+    scoped, non-tenant-zero creator) -- see the _foxbot_require_admin_v1
+    call below, same as every other /api/blaze/oauth/* route in this file.
 
     Deliberately NOT gated behind FOXBOT_BOT_CONNECT_ENABLED -- this is
     a standalone cleanup lever an admin may need even with the feature
@@ -20817,6 +20898,10 @@ def foxbot_bot_connect_revoke_v1(creator_id: str = ""):
     be handed here) -- revoking the live bot's own connection isn't
     this lever's job and isn't allowed to be one accidental admin click.
     """
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     import json
 
     creator_id = (creator_id or "").strip()
@@ -21151,12 +21236,16 @@ def foxbot_auto_start_oauth_refresh_v1():
 
 
 @app.get("/api/blaze/oauth/refresh-status")
-def foxbot_blaze_oauth_refresh_status_v1():
+def foxbot_blaze_oauth_refresh_status_v1(request: Request):
     """Read-only view of the scheduled refresh loop's own in-process state
     (cycles/last_attempt_at/last_ok/last_error) -- gated by the existing
     /api/blaze/oauth/ Basic Auth prefix, same as /api/blaze/oauth/status.
     Does not touch the worker, the refresh endpoint, or the identity lock;
     it only reads blaze_oauth_refresh_status."""
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     return {
         "ok": True,
         "thread_alive": bool(_blaze_oauth_refresh_thread and _blaze_oauth_refresh_thread.is_alive()),
@@ -21313,7 +21402,10 @@ def _foxbot_blaze_oauth_generate_auth_debug_v1(scopes, redirect_uri=None):
 
 @app.get("/api/blaze/oauth/debug")
 
-def foxbot_blaze_oauth_debug_v1():
+def foxbot_blaze_oauth_debug_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     full = _foxbot_blaze_oauth_generate_auth_debug_v1([
 
@@ -21363,7 +21455,7 @@ def foxbot_blaze_oauth_debug_v1():
 
 
 @app.get("/api/blaze/oauth/bot-connect/debug")
-def foxbot_blaze_oauth_bot_connect_debug_v1():
+def foxbot_blaze_oauth_bot_connect_debug_v1(request: Request):
     """Mirrors foxbot_blaze_oauth_debug_v1 above, but exercises the
     /auth/bot-connect/login redirect_uri instead of the tenant-zero
     /auth/blaze/callback one -- so the two can be diffed directly. Reads
@@ -21372,6 +21464,10 @@ def foxbot_blaze_oauth_bot_connect_debug_v1():
     is set to something unexpected in Render, this shows the same value
     the real login route would actually send to Blaze.
     """
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     bot_connect_redirect_uri = os.getenv(
         "FOXBOT_BOT_CONNECT_REDIRECT_URI",
         "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
@@ -21408,7 +21504,7 @@ def foxbot_blaze_oauth_bot_connect_debug_v1():
 
 
 @app.get("/api/blaze/oauth/dashboard/debug")
-def foxbot_blaze_oauth_dashboard_debug_v1():
+def foxbot_blaze_oauth_dashboard_debug_v1(request: Request):
     """Mirrors foxbot_blaze_oauth_bot_connect_debug_v1 above, but exercises the
     /auth/dashboard/login redirect_uri -- so all three (tenant-zero, dashboard,
     bot-connect) can be diffed side by side. Reads STUDIO_DASHBOARD_REDIRECT_URI
@@ -21416,6 +21512,10 @@ def foxbot_blaze_oauth_dashboard_debug_v1():
     requests only users.read since that's the only scope the real dashboard
     login route ever sends.
     """
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     dashboard_redirect_uri = os.getenv(
         "STUDIO_DASHBOARD_REDIRECT_URI",
         "https://foxbot-ai-chatbot.onrender.com/auth/dashboard/callback"
@@ -21452,7 +21552,10 @@ def foxbot_blaze_oauth_dashboard_debug_v1():
 
 @app.get("/api/blaze/native/diagnostics")
 
-def foxbot_blaze_native_diagnostics_route_v1():
+def foxbot_blaze_native_diagnostics_route_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     from services import blaze_native_connector as native
 
@@ -21640,7 +21743,10 @@ def _foxbot_oauth_pop_pending_v2(state):
 
 @app.post("/api/blaze/oauth/reset")
 
-def foxbot_blaze_oauth_reset_v2():
+def foxbot_blaze_oauth_reset_v2(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     try:
 
@@ -21848,9 +21954,14 @@ def _foxbot_blaze_exchange_code_v3(client_id, client_secret, code, code_verifier
 # === FoxBot Blaze Live Safety Test Route v1 ===
 @app.get("/api/blaze/native/safety-test")
 def foxbot_blaze_native_safety_test_route_v1(
+    request: Request,
     username: str = "viewer",
     message: str = "!connect"
 ):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from services import blaze_native_connector as native
 
     fake_event = {
@@ -22132,16 +22243,25 @@ def _foxbot_blaze_send_app_token_v1(message, channel_id=None):
 
 
 @app.get("/api/blaze/native/send-app-test")
-def foxbot_blaze_native_send_app_test_v1(message: str = "FoxBot app-token send test - safe mode still OFF."):
+def foxbot_blaze_native_send_app_test_v1(request: Request, message: str = "FoxBot app-token send test - safe mode still OFF."):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     return _foxbot_blaze_send_app_token_v1(message)
 # === End FoxBot Blaze App Token Send Test v1 ===
 
 # === FoxBot Blaze Live Reply Test Route v2 ===
 @app.get("/api/blaze/native/live-reply-test")
 def foxbot_blaze_native_live_reply_test_v2(
+    request: Request,
     username: str = "crypt0k1ng96",
     message: str = "!connect"
 ):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from services import blaze_native_connector as native
 
     fake_event = {
@@ -22172,11 +22292,16 @@ def foxbot_blaze_native_live_reply_test_v2(
 # === FoxBot Blaze Event Thanks Test Route v1 ===
 @app.get("/api/blaze/native/event-thanks-test")
 def foxbot_blaze_native_event_thanks_test_v1(
+    request: Request,
     event_type: str = "channel.follow",
     username: str = "crypt0k1ng96",
     send: bool = False,
     amount: str = ""
 ):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     import time
     from services import blaze_native_connector as native
 
@@ -22253,7 +22378,11 @@ def foxbot_blaze_native_event_thanks_test_v1(
 
 # === FoxBot Live Control Routes v1 ===
 @app.get("/api/blaze/native/live-control")
-def foxbot_live_control_api_status_v1():
+def foxbot_live_control_api_status_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from services import blaze_native_connector as native
 
     if hasattr(native, "foxbot_live_control_status_v1"):
@@ -22263,7 +22392,11 @@ def foxbot_live_control_api_status_v1():
 
 
 @app.post("/api/blaze/native/live-control/on")
-def foxbot_live_control_api_on_v1():
+def foxbot_live_control_api_on_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from services import blaze_native_connector as native
 
     if hasattr(native, "foxbot_live_control_set_v1"):
@@ -22273,7 +22406,11 @@ def foxbot_live_control_api_on_v1():
 
 
 @app.post("/api/blaze/native/live-control/off")
-def foxbot_live_control_api_off_v1():
+def foxbot_live_control_api_off_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from services import blaze_native_connector as native
 
     if hasattr(native, "foxbot_live_control_set_v1"):
@@ -22283,7 +22420,11 @@ def foxbot_live_control_api_off_v1():
 
 
 @app.post("/api/blaze/native/live-control/env")
-def foxbot_live_control_api_env_v1():
+def foxbot_live_control_api_env_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from services import blaze_native_connector as native
 
     if hasattr(native, "foxbot_live_control_set_v1"):
@@ -23276,7 +23417,11 @@ def foxbot_studio_giveaway_status_v3():
 
 
 @app.post("/api/studio/giveaways/start")
-async def foxbot_studio_giveaway_start_v3(payload: dict):
+async def foxbot_studio_giveaway_start_v3(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     state = foxbot_studio_giveaway_state_v3()
     entries = foxbot_studio_giveaway_entries_v3()
 
@@ -23301,7 +23446,11 @@ async def foxbot_studio_giveaway_start_v3(payload: dict):
 
 
 @app.post("/api/studio/giveaways/announce")
-async def foxbot_studio_giveaway_announce_v3(payload: dict = None):
+async def foxbot_studio_giveaway_announce_v3(request: Request, payload: dict = None):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     state = foxbot_studio_giveaway_state_v3()
     entries = foxbot_studio_giveaway_entries_v3()
 
@@ -23313,7 +23462,11 @@ async def foxbot_studio_giveaway_announce_v3(payload: dict = None):
 
 
 @app.post("/api/studio/giveaways/close")
-async def foxbot_studio_giveaway_close_v3(payload: dict = None):
+async def foxbot_studio_giveaway_close_v3(request: Request, payload: dict = None):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     state = foxbot_studio_giveaway_state_v3()
     entries = foxbot_studio_giveaway_entries_v3()
 
@@ -23327,7 +23480,11 @@ async def foxbot_studio_giveaway_close_v3(payload: dict = None):
 
 
 @app.post("/api/studio/giveaways/add")
-async def foxbot_studio_giveaway_add_v3(payload: dict):
+async def foxbot_studio_giveaway_add_v3(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     state = foxbot_studio_giveaway_state_v3()
     entries = foxbot_studio_giveaway_entries_v3()
 
@@ -23347,7 +23504,11 @@ async def foxbot_studio_giveaway_add_v3(payload: dict):
 
 
 @app.post("/api/studio/giveaways/remove")
-async def foxbot_studio_giveaway_remove_v3(payload: dict):
+async def foxbot_studio_giveaway_remove_v3(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     entries = foxbot_studio_giveaway_entries_v3()
     username = str(payload.get("username", "")).strip().lstrip("@")
 
@@ -23358,7 +23519,11 @@ async def foxbot_studio_giveaway_remove_v3(payload: dict):
 
 
 @app.post("/api/studio/giveaways/pick")
-async def foxbot_studio_giveaway_pick_v3(payload: dict):
+async def foxbot_studio_giveaway_pick_v3(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     import random
 
     state = foxbot_studio_giveaway_state_v3()
@@ -23382,7 +23547,11 @@ async def foxbot_studio_giveaway_pick_v3(payload: dict):
 
 
 @app.post("/api/studio/giveaways/clear")
-async def foxbot_studio_giveaway_clear_v3(payload: dict = None):
+async def foxbot_studio_giveaway_clear_v3(request: Request, payload: dict = None):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     state = foxbot_studio_giveaway_state_v3()
     entries = foxbot_studio_giveaway_entries_v3()
 
@@ -23395,7 +23564,11 @@ async def foxbot_studio_giveaway_clear_v3(payload: dict = None):
 
 
 @app.post("/api/studio/giveaways/send")
-async def foxbot_studio_giveaway_send_route_v3(payload: dict):
+async def foxbot_studio_giveaway_send_route_v3(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     message = str(payload.get("message", "")).strip()
     sent = foxbot_studio_giveaway_send_v3(message)
     return {"ok": bool(sent.get("ok") or sent.get("success")), "message": message, "sent_to_blaze": sent}
