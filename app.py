@@ -1026,13 +1026,14 @@ def _foxbot_studio_path_is_gated(path: str) -> bool:
         return True
 
     # /api/connected-creators/{handle}/foxcoins mints FoxCoins for an
-    # arbitrary handle and has no admin check of its own. The handle
-    # segment is dynamic, so it can't go in the exact-path set above --
-    # matched by suffix instead. Everything else under
-    # /api/connected-creators/ (list, connect, message, chat-test, me)
-    # stays public; connect is the creator self-registration path and
-    # must never be gated.
-    if normalized.startswith("/api/connected-creators/") and normalized.endswith("/foxcoins"):
+    # arbitrary handle and has no admin check of its own. /message has the
+    # same shape -- records an attacker-controlled `amount` of messages
+    # against any handle, no admin check either. Both handle segments are
+    # dynamic, so neither can go in the exact-path set above -- matched by
+    # suffix instead. Everything else under /api/connected-creators/ (list,
+    # connect, chat-test, me) stays public; connect is the creator
+    # self-registration path and must never be gated.
+    if normalized.startswith("/api/connected-creators/") and normalized.endswith(("/foxcoins", "/message")):
         return True
 
     return any(normalized.startswith(prefix.rstrip("/")) for prefix in FOXBOT_ADMIN_GATED_PREFIXES)
