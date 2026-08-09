@@ -9820,9 +9820,19 @@ def arcade_stats_endpoint():
 
 @app.get("/foxcoins")
 
-def foxcoins_endpoint():
+def foxcoins_endpoint(request: Request):
 
-    economy = _tenant_zero_economy()
+    # Bot Connection C2 Step 1, Tier 1: same resolution path as
+    # /api/studio/stats/live (the reference pattern) -- blaze_id absent
+    # (Basic Auth, or no Blaze session) falls back to tenant-zero via
+    # _foxbot_resolve_creator_id_v1, keeping this byte-identical to
+    # today's _tenant_zero_economy() call for every caller until a
+    # second creator is actually approved and mapped.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    economy = _creator_economy_v1(resolved_creator_id)
 
     return {
 
