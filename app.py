@@ -1055,6 +1055,18 @@ FOXBOT_ADMIN_GATED_PREFIXES = (
     "/api/blaze/native/", "/api/blaze/oauth/", "/api/blaze/service/",
     "/api/blaze/listener/", "/api/recognition/", "/blaze/",
 
+    # Security hotfix: /auto-event/{event_type} is a dynamic path
+    # (sub/vote/follow/giftsub/tip/raid), so a single exact-path entry
+    # can't cover it -- needs a prefix. Was reachable with ZERO auth
+    # (not in any gate set at all): a live, unauthenticated currency-mint
+    # exploit -- anyone could hit /auto-event/sub?username=x&amount=999
+    # and credit real FoxCoins to any username in tenant-zero's economy.
+    # Self-documented as a test/debug endpoint (/recognition's own
+    # response calls it "auto_test_endpoints"), so admin-only is the
+    # correct fix, not connector-auth: it's not a real ingest path,
+    # unlike /api/blaze/native/event or /api/blaze/event-bridge.
+    "/auto-event/",
+
 )
 
 # Paths that would otherwise be gated above, but are fetched directly by a
@@ -14839,7 +14851,13 @@ def recognition_endpoint(request: Request):
 
 @app.get("/auto-event/{event_type}")
 
-def auto_event_endpoint(event_type: str, username: str, amount: float = 1):
+def auto_event_endpoint(event_type: str, username: str, request: Request, amount: float = 1):
+    # Security hotfix: was fully public (see FOXBOT_ADMIN_GATED_PREFIXES
+    # entry above for the exploit this closes). Admin-only, matching its
+    # own documented purpose as a test/debug endpoint.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     message = recognition_response(event_type.lower(), username, amount)
 
