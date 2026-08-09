@@ -991,6 +991,14 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards",
     "/recognition", "/community-quest", "/streaks", "/custom-commands",
 
+    # Same shape as its Tier 1 siblings above (read-only, no by_creator
+    # storage of its own -- see redemption_queue) but was left out of this
+    # set entirely, so it fell through every check below to fully public.
+    # Listed here so the intent is explicit -- see the matching entry in
+    # FOXBOT_ADMIN_PUBLIC_EXCEPTIONS below for why it stays reachable
+    # anyway.
+    "/redemptions",
+
     "/api/connected-creators/demo",
 
 }
@@ -1003,14 +1011,23 @@ FOXBOT_ADMIN_GATED_PREFIXES = (
 
 )
 
-# Paths that would otherwise match a gated prefix above, but are fetched
-# directly by a public /overlay/* page (OBS browser source — can't answer
-# a Basic Auth prompt). Carved out of /api/studio/ specifically so the
-# rest of that prefix (action dispatch, activity clear/demo, the other
-# /api/studio/giveaways/* admin writes) stays gated.
+# Paths that would otherwise be gated above, but are fetched directly by a
+# public /overlay/* page (OBS browser source — can't answer a Basic Auth
+# prompt). /api/studio/giveaways/status is carved out of the /api/studio/
+# prefix so the rest of that prefix (action dispatch, activity clear/demo,
+# the other /api/studio/giveaways/* admin writes) stays gated.
+# /redemptions is carved out of its own FOXBOT_ADMIN_GATED_EXACT_PATHS
+# entry above for the same reason: /overlay/redemptions's embedded script
+# fetches it directly (app.py's redemptions_overlay_html), and there is no
+# way to gate the exact same path for an anonymous caller while leaving it
+# open for OBS -- both hit this URL with no way to tell them apart. Not a
+# real exposure: the payload (username/reward/cost) is exactly what the
+# bot already announces in chat when a redemption happens, nothing the
+# overlay wouldn't otherwise show on stream anyway.
 FOXBOT_ADMIN_PUBLIC_EXCEPTIONS = {
 
     "/api/studio/giveaways/status",
+    "/redemptions",
 
 }
 
