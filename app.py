@@ -981,6 +981,13 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     "/api/blaze/test-auto-chat-event", "/api/blaze/event",
     "/api/foxbot/events", "/api/foxbot/onboarding",
 
+    # Step 2b security hotfix: "/api/foxbot/onboarding/dismiss" is a
+    # distinct literal path from "/api/foxbot/onboarding" above -- the
+    # exact-path check doesn't prefix-match -- so this POST fell through
+    # the gate entirely and was reachable with zero auth. Listed here
+    # explicitly; also admin-gated in-route (unmigrated shared state).
+    "/api/foxbot/onboarding/dismiss",
+
     # /api/blaze/service-test doesn't match the "/api/blaze/service/" prefix
     # below (no trailing slash before "-test"), so it fell through the gate
     # entirely despite triggering a real side effect (blaze_listener.connect()).
@@ -17031,7 +17038,15 @@ async def foxbot_connected_creators_connect(payload: _FoxDict[str, _FoxAny]):
 
 @app.post("/api/connected-creators/demo")
 
-async def foxbot_connected_creators_demo():
+async def foxbot_connected_creators_demo(request: Request):
+    # Step 2b security hotfix: was Layer-1 gated (any approved session)
+    # only, with no admin check of its own -- any approved scoped creator
+    # could seed 7 fake creators (with balances) into the shared
+    # connected_creators store. Same unmigrated-shared-state shape as
+    # Step 2's Tier 2/3 batch.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     demo_names = ["demo_creator", "der_bruder", "mistersupercool", "vroski55", "jt_squared2", "agent00zani", "hollowgames"]
 
@@ -23029,7 +23044,20 @@ setInterval(loadAll, 10000);
 
 # === FoxBot Admin Command Send v1 ===
 @app.post("/api/foxbot/admin-command")
-async def foxbot_admin_command_send_v1(payload: dict):
+async def foxbot_admin_command_send_v1(payload: dict, request: Request):
+    # Bot Connection C2 Step 2b security hotfix: this is the generic
+    # command-injection endpoint every dashboard action button (Rewards,
+    # Economy, Stream Events, Giveaways, Boss, Community Quest, Streaks)
+    # POSTs through. chat() below never receives creator_handle, so it
+    # always mutates tenant-zero's real global state and, when
+    # send_to_blaze is true (every UI caller passes it), posts to
+    # tenant-zero's live Blaze chat. Unmigrated shared state -- same
+    # shape as Step 2's Tier 4/5 batch -- so admin-only until per-creator
+    # routing exists.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     username = str(payload.get("username") or "crypt0k1ng96").strip()
     message = str(payload.get("message") or "").strip()
     send_to_blaze = bool(payload.get("send_to_blaze", True))
@@ -24597,7 +24625,17 @@ def foxbot_onboarding_read_v1(creator_handle: str = ""):
 
 
 @app.post("/api/foxbot/onboarding/dismiss")
-def foxbot_onboarding_dismiss_v1(creator_handle: str = ""):
+def foxbot_onboarding_dismiss_v1(request: Request, creator_handle: str = ""):
+    # Bot Connection C2 Step 2b security hotfix: this path previously fell
+    # through the outer auth gate entirely -- "/api/foxbot/onboarding/dismiss"
+    # doesn't match the exact-path entry "/api/foxbot/onboarding" -- so it
+    # was reachable with zero auth. Now added to FOXBOT_ADMIN_GATED_EXACT_PATHS
+    # (requires an approved session) and admin-gated here on top, matching
+    # its sibling reads until per-creator dismissal is real.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
 
     if not _foxbot_creator_access_v1.is_registered(handle):
