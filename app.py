@@ -979,7 +979,7 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
 
     "/api/blaze/event-bridge", "/api/blaze/parse-auto-event",
     "/api/blaze/test-auto-chat-event", "/api/blaze/event",
-    "/api/foxbot/events", "/api/foxbot/onboarding",
+    "/api/foxbot/events", "/api/foxbot/onboarding", "/api/foxbot/session",
 
     # Step 2b security hotfix: "/api/foxbot/onboarding/dismiss" is a
     # distinct literal path from "/api/foxbot/onboarding" above -- the
@@ -998,6 +998,13 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     "/foxcoins", "/viewer-stats", "/arcade-stats", "/rewards",
     "/recognition", "/community-quest", "/streaks", "/custom-commands",
 
+    # Read-leak batch: unlike /boss and /overlay/giveaway-data (both
+    # confirmed genuinely public-overlay-facing via grep), no /overlay/*
+    # page reads /stream-event -- it was reachable with zero auth by
+    # oversight, not by design. Gated here for the first time, on top of
+    # the in-route is_admin guard below.
+    "/stream-event",
+
     # Same shape as its Tier 1 siblings above (read-only, no by_creator
     # storage of its own -- see redemption_queue) but was left out of this
     # set entirely, so it fell through every check below to fully public.
@@ -1005,6 +1012,18 @@ FOXBOT_ADMIN_GATED_EXACT_PATHS = {
     # FOXBOT_ADMIN_PUBLIC_EXCEPTIONS below for why it stays reachable
     # anyway.
     "/redemptions",
+
+    # Read-leak batch: same shape as /redemptions above -- /overlay/boss's
+    # embedded script fetches /boss directly from an anonymous OBS browser
+    # source (grep-confirmed), so it can't be gated outright. Listed here
+    # so the intent is explicit; see the matching entry in
+    # FOXBOT_ADMIN_PUBLIC_EXCEPTIONS below for why it stays reachable.
+    "/boss",
+
+    # Same shape again -- /overlay/giveaway's embedded script fetches
+    # /overlay/giveaway-data directly from an anonymous OBS browser source
+    # (grep-confirmed).
+    "/overlay/giveaway-data",
 
     "/api/connected-creators/demo",
 
@@ -1031,10 +1050,24 @@ FOXBOT_ADMIN_GATED_PREFIXES = (
 # real exposure: the payload (username/reward/cost) is exactly what the
 # bot already announces in chat when a redemption happens, nothing the
 # overlay wouldn't otherwise show on stream anyway.
+# /boss and /overlay/giveaway-data join the same list for the same reason
+# (read-leak batch): /overlay/boss and /overlay/giveaway each fetch their
+# data path directly from an anonymous OBS browser source, with no way to
+# tell that caller apart from anyone else hitting the same URL. Not a real
+# exposure either -- /boss returns boss_battle's damage log and leaderboard
+# (viewer usernames + numbers the bot already reads out in chat and the
+# stream overlay already shows), and /overlay/giveaway-data returns the
+# giveaway's active flag/prize/entries (plain usernames from !enter,
+# already announced via !entries). Both are tenant-zero's own single
+# global state, not per-creator, so there's no OTHER creator's data these
+# could leak even in principle -- the per-creator version of this data is
+# a Sub-phase F / migration concern, not a confidentiality gap today.
 FOXBOT_ADMIN_PUBLIC_EXCEPTIONS = {
 
     "/api/studio/giveaways/status",
     "/redemptions",
+    "/boss",
+    "/overlay/giveaway-data",
 
 }
 
@@ -1131,6 +1164,14 @@ async def foxbot_studio_admin_auth_gate_v1(request, call_next):
                     # via getattr(request.state, "blaze_id", None), never
                     # assume it exists.
                     request.state.blaze_id = identity.get("blaze_id")
+                    # Studio v2 identity-block fix: the Blaze username
+                    # captured at login time (_foxbot_dashboard_oauth_callback_handle_v1),
+                    # signed into the session cookie itself -- not a fresh
+                    # per-request lookup, so it's available even before any
+                    # connected_creators.json join exists. Same guarantee as
+                    # blaze_id above: only set on a verified session, never
+                    # caller-supplied.
+                    request.state.display_name = identity.get("display_name") or ""
 
         if not authorized and auth_mode in ("basic", "both"):
             expected_user = os.getenv("STUDIO_ADMIN_USER")
@@ -9828,7 +9869,14 @@ def judge_demo_page():
 
 @app.get("/arcade-stats")
 
-def arcade_stats_endpoint():
+def arcade_stats_endpoint(request: Request):
+    # Read-leak batch: arcade_stats is a flat global (no by_creator
+    # storage), dashboard-only (no public overlay reads this path --
+    # confirmed via grep across every /overlay/* page), so a clean
+    # is_admin lock is the right shape rather than a scoping migration.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return {
 
@@ -13100,7 +13148,14 @@ def ranks_endpoint():
 
 @app.get("/stream-event")
 
-def stream_event_endpoint():
+def stream_event_endpoint(request: Request):
+    # Read-leak batch: stream_event is a flat global, dashboard-only --
+    # no /overlay/* page reads this path (grep-confirmed), unlike /boss
+    # and giveaway-data. Newly added to FOXBOT_ADMIN_GATED_EXACT_PATHS
+    # above; this is the second, is_admin layer on top of that.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return {
 
@@ -13138,7 +13193,12 @@ def stream_event_endpoint():
 
 @app.get("/community-quest")
 
-def community_quest_endpoint():
+def community_quest_endpoint(request: Request):
+    # Read-leak batch: community_quest is a flat global, dashboard-only
+    # (no /overlay/* page reads this path -- grep-confirmed).
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return {
 
@@ -14631,7 +14691,15 @@ def foxbot_admin_page():
 
 @app.get("/recognition")
 
-def recognition_endpoint():
+def recognition_endpoint(request: Request):
+    # Read-leak batch: recognition_settings/recognition_log are flat
+    # globals, dashboard-only (no /overlay/* page reads this path --
+    # grep-confirmed). /api/automation/recognition/{state} (the toggle
+    # action) was already admin-gated in Step 2; this closes the matching
+    # read side.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return {
 
@@ -18219,6 +18287,52 @@ def _foxbot_resolve_blaze_id_for_handle_v1(creator_handle):
                 return str(blaze_id).strip()
 
     return None
+
+
+def _foxbot_resolve_handle_for_blaze_id_v1(blaze_id):
+    """The reverse join of _foxbot_resolve_blaze_id_for_handle_v1 above --
+    given a session's Blaze-verified blaze_id, returns the mapped
+    creator_handle from connected_creators.json, or None if unmapped.
+    Written at dashboard-login time (_foxbot_dashboard_oauth_callback_handle_v1
+    calls _foxbot_connect_set_blaze_id_v1 on every approved login), so any
+    session that reaches a route using this already has the join written.
+    Used by read endpoints keyed on creator_handle (foxbot_events.py's
+    by_creator table) rather than creator_id, where
+    _foxbot_resolve_creator_id_v1's tenant-zero fallback would be wrong:
+    an unmapped SCOPED session must get nothing, never tenant-zero's
+    handle -- see _foxbot_resolve_event_handle_v1's caller-facing contract."""
+    target = str(blaze_id or "").strip()
+
+    if not target:
+        return None
+
+    raw = _foxbot_connect_load_raw_v1()
+
+    for key, creator in raw.items():
+        if isinstance(creator, dict) and str(creator.get("blaze_id") or "").strip() == target:
+            return str(creator.get("handle") or key or "").strip() or None
+
+    return None
+
+
+def _foxbot_resolve_event_handle_v1(blaze_id):
+    """Session blaze_id -> creator_handle for the foxbot_events by-creator
+    table (services/foxbot_events.py). Basic Auth or tenant-zero's own
+    Blaze session (blaze_id unset, or equal to _tenant_zero_id()) resolves
+    via resolve_owner_handle() -- unchanged, byte-identical to before this
+    function existed. A genuinely scoped session (blaze_id set, not
+    tenant-zero's own) resolves ONLY via the connected_creators.json join;
+    unmapped returns "" rather than falling back to tenant-zero's handle --
+    unlike _foxbot_resolve_creator_id_v1's tenant-zero fallback, doing that
+    here would leak tenant-zero's real event log to a scoped session,
+    exactly the bug this closes. Callers must treat "" as "no events for
+    this session", never re-resolve it to the owner handle themselves."""
+    session_id = str(blaze_id or "").strip()
+
+    if not session_id or session_id == _tenant_zero_id():
+        return _foxbot_events_v1.resolve_owner_handle()
+
+    return _foxbot_resolve_handle_for_blaze_id_v1(session_id) or ""
 
 
 
@@ -24555,11 +24669,52 @@ def foxbot_storage_status_v1():
 
 # === FoxBot Studio v2 Read Endpoints v1 ===
 
+@app.get("/api/foxbot/session")
+def foxbot_session_read_v1(request: Request):
+    """Backs the /studio-v2 rail-foot identity block, which used to be a
+    hardcoded "crypt0k1ng96 · Live / posting as @foxbotai" string in the
+    template -- served identically to every visitor regardless of who they
+    were. No downstream service call here (unlike /events and /onboarding),
+    so no hidden tenant-zero-fallback risk: everything returned comes
+    straight off request.state, set exclusively by the auth-gate
+    middleware from a verified session, never a request param.
+
+    is_admin true (Basic Auth or tenant-zero's own Blaze session): no
+    identity fields returned at all -- the client leaves today's static
+    "crypt0k1ng96 · Live / posting as @foxbotai" text untouched, byte-
+    identical to before this endpoint existed. is_admin false (scoped
+    creator): returns their own handle (the Blaze username captured at
+    login time, signed into their session cookie) so the client can
+    render THEIR identity instead of tenant-zero's -- never the bot's.
+    """
+    is_admin = bool(getattr(request.state, "is_admin", False))
+
+    if is_admin:
+        return {"ok": True, "is_admin": True}
+
+    handle = str(getattr(request.state, "display_name", "") or "").strip()
+    return {"ok": True, "is_admin": False, "handle": handle}
+
+
 @app.get("/api/foxbot/events")
-def foxbot_events_read_v1(creator_handle: str = "", limit: int = 20):
+def foxbot_events_read_v1(request: Request, limit: int = 20):
+    # Read-leak fix: creator_handle used to be a caller-supplied query
+    # param, defaulting to resolve_owner_handle() (tenant-zero) when
+    # absent -- which the dashboard's own fetch() never sent, so every
+    # viewer got tenant-zero's feed, and any caller could pass
+    # ?creator_handle=<anyone> to read that creator's private events
+    # (IDOR). Identity now comes exclusively from the verified session
+    # (request.state.blaze_id, set by the auth-gate middleware), same
+    # invariant as the Step 1 by_creator routes -- never from a request
+    # param. A scoped session with no join yet resolves to "", which
+    # means "no events", not tenant-zero's.
     from datetime import timezone
 
-    handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not handle:
+        return {"ok": True, "creator_handle": "", "events": []}
+
     rows = _foxbot_events_v1.fetch_events(handle, limit)
 
     if rows is None:
@@ -24581,28 +24736,36 @@ def foxbot_events_read_v1(creator_handle: str = "", limit: int = 20):
 
 
 @app.get("/api/foxbot/onboarding")
-def foxbot_onboarding_read_v1(creator_handle: str = ""):
-    handle = str(creator_handle or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+def foxbot_onboarding_read_v1(request: Request):
+    # Read-leak fix: same root cause and same fix shape as
+    # /api/foxbot/events -- creator_handle query param dropped entirely,
+    # identity resolved solely from the verified session via the shared
+    # _foxbot_resolve_event_handle_v1 helper (no tenant-zero fallback on
+    # a miss). A scoped session with no join yet gets handle="" here; every
+    # per-creator lookup below is guarded to skip entirely on that case --
+    # is_registered/event_exists/fetch_onboarding_dismissal each have their
+    # OWN internal resolve_owner_handle()-on-empty fallback (see
+    # services/foxbot_events.py), so calling them with handle="" would
+    # silently leak tenant-zero's onboarding state right back in.
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
 
-    registered = _foxbot_creator_access_v1.is_registered(handle)
+    registered = bool(handle) and _foxbot_creator_access_v1.is_registered(handle)
+    posted = _foxbot_events_v1.event_exists(handle, "bot_reply") if handle else False
+    giveaway_done = _foxbot_events_v1.event_exists(handle, "giveaway_complete") if handle else False
+    dismissal = _foxbot_events_v1.fetch_onboarding_dismissal(handle) if handle else {"dismissed": False}
 
-    posted = _foxbot_events_v1.event_exists(handle, "bot_reply")
-    giveaway_done = _foxbot_events_v1.event_exists(handle, "giveaway_complete")
-    dismissal = _foxbot_events_v1.fetch_onboarding_dismissal(handle)
-
-    if posted is None or giveaway_done is None or dismissal is None:
+    if handle and (posted is None or giveaway_done is None or dismissal is None):
         return {"ok": False, "error": "onboarding data unavailable"}
 
     # Bot Connection Sub-phase D, stage 2: the first call site migrated
     # off the tenant-zero-only helper. `handle` is already resolved above
-    # (line 23768) and used by every other check in this function --
-    # this was the one place that ignored it. Falls back to
-    # tenant-zero automatically via _foxbot_resolve_creator_id_v1 for as
-    # long as `handle` has no blaze_id mapping (today's real state for
-    # everyone), so this is byte-identical to the old
-    # _tenant_zero_commands() call until a real join exists for this
-    # handle.
-    command_added = bool(_creator_commands_v1(_foxbot_resolve_creator_id_v1(creator_handle=handle)))
+    # and used by every other check in this function -- this was the one
+    # place that ignored it. _foxbot_resolve_creator_id_v1(creator_handle=handle)
+    # re-derives the SAME blaze_id the reverse lookup above came from (a
+    # mapped handle round-trips), so this already lands on the right
+    # creator's commands once handle itself is correctly scoped -- guarded
+    # to skip on handle="" for the same no-leak-on-a-miss reason as above.
+    command_added = bool(handle) and bool(_creator_commands_v1(_foxbot_resolve_creator_id_v1(creator_handle=handle)))
     reward_added = bool(set(reward_shop.keys()) - {"hug", "hype", "flex", "mysterybox", "sponsor"})
 
     items = [

@@ -788,8 +788,8 @@ body::before {
     </nav>
 
     <div class="rail-foot">
-      <div class="who"><b>crypt0k1ng96</b> · Live</div>
-      <div class="as">posting as @foxbotai</div>
+      <div class="who" id="railWho"><b>crypt0k1ng96</b> · Live</div>
+      <div class="as" id="railAs">posting as @foxbotai</div>
     </div>
   </aside>
 
@@ -1723,6 +1723,43 @@ document.querySelectorAll('.item').forEach(function (item) {
   poll();
   setInterval(poll, POLL_MS);
   if (!reduced) setInterval(tickClock, 1000);
+})();
+</script>
+
+<script>
+/* ═══ RAIL IDENTITY ═══
+   Fetches /api/foxbot/session once on load. Admin (Basic Auth or
+   tenant-zero's own Blaze session) gets is_admin:true and no identity
+   fields -- the static "crypt0k1ng96 · Live / posting as @foxbotai"
+   markup already in the HTML is left untouched. A scoped creator gets
+   is_admin:false plus their own handle, and this rewrites the block to
+   show THEIR identity instead -- never tenant-zero's or the bot's. */
+(function () {
+  var whoEl = document.getElementById('railWho');
+  var asEl = document.getElementById('railAs');
+
+  async function loadIdentity() {
+    try {
+      var res = await fetch('/api/foxbot/session', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      if (!data.ok || data.is_admin) return;
+
+      var handle = (data.handle || '').trim();
+      whoEl.innerHTML = '<b>' + (handle ? escapeRailHtml(handle) : 'Your account') + '</b>';
+      asEl.textContent = 'no bot connected yet';
+    } catch (err) {
+      /* Leave the default markup in place -- never worse than today. */
+    }
+  }
+
+  function escapeRailHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  loadIdentity();
 })();
 </script>
 
