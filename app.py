@@ -9045,9 +9045,18 @@ def bot_mode_endpoint():
 
 @app.get("/custom-commands")
 
-def custom_commands_endpoint():
+def custom_commands_endpoint(request: Request):
 
-    tenant_commands = _tenant_zero_commands()
+    # Bot Connection C2 Step 1, Tier 1: same resolution path as /foxcoins
+    # and /api/studio/stats/live. blaze_id absent (Basic Auth, or no Blaze
+    # session) falls back to tenant-zero, keeping this byte-identical to
+    # today's _tenant_zero_commands() call until a second creator is
+    # actually approved and mapped.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    tenant_commands = _creator_commands_v1(resolved_creator_id)
 
     return {
 
