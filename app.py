@@ -8968,9 +8968,18 @@ def giveaway_overlay_data():
 
 @app.get("/viewer-stats")
 
-def viewer_stats_endpoint():
+def viewer_stats_endpoint(request: Request):
 
-    tenant_stats = _tenant_zero_viewer_stats()
+    # Bot Connection C2 Step 1, Tier 1: same resolution path as /foxcoins
+    # and /api/studio/stats/live. blaze_id absent (Basic Auth, or no Blaze
+    # session) falls back to tenant-zero, keeping this byte-identical to
+    # today's _tenant_zero_viewer_stats() call until a second creator is
+    # actually approved and mapped.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    tenant_stats = _creator_viewer_stats_v1(resolved_creator_id)
 
     return {
 
