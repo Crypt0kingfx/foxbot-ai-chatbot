@@ -186,6 +186,14 @@ stream_info = {
 
 arcade_stats = {
 
+    # Arcade-stats migration: OLD flat shape, frozen in place during the
+    # transition -- same additive-then-cleanup discipline as
+    # docs/phase-1-economy-migration.md. Nothing after this migration
+    # writes to these top-level keys again; they exist only as a rollback
+    # safety net and as the one-time hydration-copy source in
+    # apply_persistent_snapshot(). Real per-creator reads/writes go
+    # through _creator_arcade_stats_v1()/by_creator below. Removed in a
+    # later cleanup commit once live-verified.
     "plays": 0,
 
     "coinflip": 0,
@@ -202,7 +210,9 @@ arcade_stats = {
 
     "rps_ties": 0,
 
-    "foxhunt": 0
+    "foxhunt": 0,
+
+    "by_creator": {}
 
 }
 
@@ -631,6 +641,16 @@ def apply_persistent_snapshot(data):
     if isinstance(data.get("arcade_stats"), dict):
 
         arcade_stats.update(data["arcade_stats"])
+
+        # Same minimal shape as foxcoin_economy's hydration block: one new
+        # setdefault so a pre-migration snapshot doesn't KeyError on first
+        # read. The one-time flat-to-by_creator copy itself lives in
+        # _creator_arcade_stats_v1() instead of here, deliberately --
+        # apply_persistent_snapshot() runs during load_persistent_data()
+        # at module-import time (app.py:978), before _tenant_zero_id()'s
+        # own def has executed (app.py:2951+), so calling it from this
+        # block is a real forward-reference bug, not just a style choice.
+        arcade_stats.setdefault("by_creator", {})
 
 
 
@@ -3005,6 +3025,49 @@ def _creator_economy_v1(creator_id):
 
 def _tenant_zero_economy():
     return _creator_economy_v1(_tenant_zero_id())
+
+
+def _creator_arcade_stats_v1(creator_id):
+
+    # Lazy setdefault, same reference-preserving contract as
+    # _creator_economy_v1()/_creator_streaks_v1(): first access always
+    # succeeds, and callers mutating the returned dict's values in place
+    # (arcade_stats[key] += 1 style) mutate the real by_creator storage
+    # directly, not a copy.
+    existing = arcade_stats["by_creator"].get(creator_id)
+    if existing is not None:
+        return existing
+
+    bucket = {
+        "plays": 0,
+        "coinflip": 0,
+        "roll": 0,
+        "eightball": 0,
+        "rps": 0,
+        "rps_wins": 0,
+        "rps_losses": 0,
+        "rps_ties": 0,
+        "foxhunt": 0,
+    }
+
+    # Arcade-stats migration: one-time copy of the pre-migration flat
+    # counters into tenant-zero's bucket, on first-ever access for
+    # tenant-zero's id. Deliberately done here, at request time, not in
+    # apply_persistent_snapshot() (module-import time) -- see the comment
+    # there for why calling _tenant_zero_id() from that path is unsafe.
+    # Naturally idempotent: this whole branch is only reached once, since
+    # every later call for this creator_id hits the `existing is not
+    # None` return above instead.
+    if creator_id == _tenant_zero_id():
+        for key in bucket:
+            bucket[key] = arcade_stats.get(key, 0)
+
+    arcade_stats["by_creator"][creator_id] = bucket
+    return bucket
+
+
+def _tenant_zero_arcade_stats():
+    return _creator_arcade_stats_v1(_tenant_zero_id())
 
 
 def _creator_streaks_v1(creator_id):
@@ -6365,9 +6428,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!foxhunt":
 
-        arcade_stats["plays"] += 1
+        arcade_bucket = _creator_arcade_stats_v1(resolved_creator_id)
 
-        arcade_stats["foxhunt"] += 1
+        arcade_bucket["plays"] += 1
+
+        arcade_bucket["foxhunt"] += 1
 
         add_quest_progress("foxhunt", 1)
 
@@ -6441,11 +6506,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!coinflip":
 
-        arcade_stats["plays"] += 1
+        arcade_bucket = _creator_arcade_stats_v1(resolved_creator_id)
+
+        arcade_bucket["plays"] += 1
 
         add_quest_progress("arcade", 1)
 
-        arcade_stats["coinflip"] += 1
+        arcade_bucket["coinflip"] += 1
 
 
 
@@ -6463,11 +6530,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message.startswith("!roll"):
 
-        arcade_stats["plays"] += 1
+        arcade_bucket = _creator_arcade_stats_v1(resolved_creator_id)
+
+        arcade_bucket["plays"] += 1
 
         add_quest_progress("arcade", 1)
 
-        arcade_stats["roll"] += 1
+        arcade_bucket["roll"] += 1
 
 
 
@@ -6527,11 +6596,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message.startswith("!8ball"):
 
-        arcade_stats["plays"] += 1
+        arcade_bucket = _creator_arcade_stats_v1(resolved_creator_id)
+
+        arcade_bucket["plays"] += 1
 
         add_quest_progress("arcade", 1)
 
-        arcade_stats["eightball"] += 1
+        arcade_bucket["eightball"] += 1
 
 
 
@@ -6585,11 +6656,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message.startswith("!rps"):
 
-        arcade_stats["plays"] += 1
+        arcade_bucket = _creator_arcade_stats_v1(resolved_creator_id)
+
+        arcade_bucket["plays"] += 1
 
         add_quest_progress("arcade", 1)
 
-        arcade_stats["rps"] += 1
+        arcade_bucket["rps"] += 1
 
 
 
@@ -6629,7 +6702,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         if player_choice == bot_choice:
 
-            arcade_stats["rps_ties"] += 1
+            arcade_bucket["rps_ties"] += 1
 
             result = "It's a tie!"
 
@@ -6643,13 +6716,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         ):
 
-            arcade_stats["rps_wins"] += 1
+            arcade_bucket["rps_wins"] += 1
 
             result = f"@{username} wins!"
 
         else:
 
-            arcade_stats["rps_losses"] += 1
+            arcade_bucket["rps_losses"] += 1
 
             result = "FoxBot wins!"
 
@@ -9870,13 +9943,16 @@ def judge_demo_page():
 @app.get("/arcade-stats")
 
 def arcade_stats_endpoint(request: Request):
-    # Read-leak batch: arcade_stats is a flat global (no by_creator
-    # storage), dashboard-only (no public overlay reads this path --
-    # confirmed via grep across every /overlay/* page), so a clean
-    # is_admin lock is the right shape rather than a scoping migration.
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
+    # Arcade-stats migration: real per-creator scoping replaces the
+    # read-leak batch's interim is_admin lock. Same resolution path as
+    # /foxcoins (the reference pattern) -- blaze_id absent (Basic Auth,
+    # or no Blaze session) falls back to tenant-zero via
+    # _foxbot_resolve_creator_id_v1, keeping this byte-identical to
+    # today's flat-dict read for every caller until a second creator is
+    # actually approved and mapped.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
 
     return {
 
@@ -9900,7 +9976,7 @@ def arcade_stats_endpoint(request: Request):
 
         ],
 
-        "stats": arcade_stats
+        "stats": _creator_arcade_stats_v1(resolved_creator_id)
 
     }
 
