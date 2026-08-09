@@ -13156,9 +13156,23 @@ def community_quest_endpoint():
 
 @app.get("/streaks")
 
-def streaks_endpoint():
+def streaks_endpoint(request: Request):
 
-    tenant_streaks = _tenant_zero_streaks()
+    # Bot Connection C2 Step 1, Tier 1: same resolution path as /foxcoins,
+    # /viewer-stats, /custom-commands. Two call sites need the resolved id
+    # here, not one: the direct by_creator dict lookup, AND
+    # format_streak_leaderboard(), which independently defaults to
+    # tenant-zero via its own creator_id=None param (see its other caller
+    # at the !streak chat command, which already passes creator_id
+    # explicitly). Missing either leaves that piece stuck on tenant-zero
+    # even after the other is fixed. blaze_id=None still falls through to
+    # tenant-zero for both, so this stays byte-identical for every caller
+    # today.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    tenant_streaks = _creator_streaks_v1(resolved_creator_id)
 
     return {
 
@@ -13168,7 +13182,7 @@ def streaks_endpoint():
 
         "streaks": tenant_streaks,
 
-        "leaderboard": format_streak_leaderboard(),
+        "leaderboard": format_streak_leaderboard(creator_id=resolved_creator_id),
 
         "commands": [
 
