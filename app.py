@@ -347,6 +347,13 @@ stream_event = {
 
 community_quest = {
 
+    # Community-quest migration: OLD flat shape, frozen in place during the
+    # transition -- same additive-then-cleanup discipline as
+    # arcade_stats/recognition_settings. Nothing after this migration
+    # writes to these top-level keys again; they exist only as a rollback
+    # safety net and as the one-time hydration-copy source in
+    # apply_persistent_snapshot(). Real per-creator reads/writes go
+    # through _creator_quest_v1()/by_creator below.
     "active": False,
 
     "type": None,
@@ -359,7 +366,9 @@ community_quest = {
 
     "claimed": {},
 
-    "completed": False
+    "completed": False,
+
+    "by_creator": {}
 
 }
 
@@ -725,6 +734,8 @@ def apply_persistent_snapshot(data):
         community_quest.setdefault("claimed", {})
 
         community_quest.setdefault("completed", False)
+
+        community_quest.setdefault("by_creator", {})
 
 
 
@@ -2829,7 +2840,7 @@ def finish_boss_if_defeated(creator_id: str = None):
 
     boss_battle["defeated_count"] = int(boss_battle.get("defeated_count", 0)) + 1
 
-    add_quest_progress("boss", 1)
+    add_quest_progress("boss", 1, creator_id=creator_id)
 
     boss_battle["last_winner"] = top_player
 
@@ -3175,6 +3186,48 @@ def _creator_recognition_settings_v1(creator_id):
 
 def _tenant_zero_recognition_settings():
     return _creator_recognition_settings_v1(_tenant_zero_id())
+
+
+def _creator_quest_v1(creator_id):
+
+    # Same lazy-setdefault, live-reference contract as
+    # _creator_arcade_stats_v1(): first access always succeeds, and
+    # callers mutating the returned dict's values/keys in place (e.g.
+    # bucket["progress"] += 1, bucket["claimed"][key] = True) mutate the
+    # real by_creator storage directly, not a copy. Copy-on-first-access
+    # is tenant-zero-only, done here at request time -- never in
+    # apply_persistent_snapshot(), same forward-reference hazard as every
+    # other accessor in this cluster (_tenant_zero_id() isn't defined yet
+    # at module-import time).
+    existing = community_quest["by_creator"].get(creator_id)
+    if existing is not None:
+        return existing
+
+    bucket = {
+        "active": False,
+        "type": None,
+        "goal": 0,
+        "progress": 0,
+        "reward": 100,
+        "claimed": {},
+        "completed": False,
+    }
+
+    if creator_id == _tenant_zero_id():
+        bucket["active"] = community_quest.get("active", False)
+        bucket["type"] = community_quest.get("type")
+        bucket["goal"] = community_quest.get("goal", 0)
+        bucket["progress"] = community_quest.get("progress", 0)
+        bucket["reward"] = community_quest.get("reward", 100)
+        bucket["claimed"] = dict(community_quest.get("claimed", {}))
+        bucket["completed"] = community_quest.get("completed", False)
+
+    community_quest["by_creator"][creator_id] = bucket
+    return bucket
+
+
+def _tenant_zero_quest():
+    return _creator_quest_v1(_tenant_zero_id())
 
 
 def _creator_streaks_v1(creator_id):
@@ -3718,27 +3771,29 @@ def format_streak_leaderboard(limit: int = 5, creator_id: str = None):
 
 
 
-def format_quest_status():
+def format_quest_status(creator_id: str = None):
+
+    quest = _creator_quest_v1(creator_id or _tenant_zero_id())
 
     currency = get_currency_name()
 
 
 
-    if not community_quest.get("active"):
+    if not quest.get("active"):
 
         return "No community quest is active. Admins can start one with !startquest foxhunt 10"
 
 
 
-    quest_type = community_quest.get("type", "unknown")
+    quest_type = quest.get("type", "unknown")
 
-    progress = int(community_quest.get("progress", 0))
+    progress = int(quest.get("progress", 0))
 
-    goal = int(community_quest.get("goal", 0))
+    goal = int(quest.get("goal", 0))
 
-    reward = int(community_quest.get("reward", 100))
+    reward = int(quest.get("reward", 100))
 
-    completed = community_quest.get("completed", False)
+    completed = quest.get("completed", False)
 
 
 
@@ -3754,35 +3809,39 @@ def format_quest_status():
 
 
 
-def add_quest_progress(quest_type: str, amount: int = 1):
+def add_quest_progress(quest_type: str, amount: int = 1, creator_id: str = None):
 
-    if not community_quest.get("active"):
-
-        return None
+    quest = _creator_quest_v1(creator_id or _tenant_zero_id())
 
 
 
-    if community_quest.get("completed"):
+    if not quest.get("active"):
 
         return None
 
 
 
-    if community_quest.get("type") != quest_type:
+    if quest.get("completed"):
 
         return None
 
 
 
-    community_quest["progress"] = int(community_quest.get("progress", 0)) + int(amount)
+    if quest.get("type") != quest_type:
+
+        return None
 
 
 
-    if int(community_quest.get("progress", 0)) >= int(community_quest.get("goal", 0)):
+    quest["progress"] = int(quest.get("progress", 0)) + int(amount)
 
-        community_quest["progress"] = int(community_quest.get("goal", 0))
 
-        community_quest["completed"] = True
+
+    if int(quest.get("progress", 0)) >= int(quest.get("goal", 0)):
+
+        quest["progress"] = int(quest.get("goal", 0))
+
+        quest["completed"] = True
 
         return "completed"
 
@@ -5059,7 +5118,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": format_quest_status()
+            "response": format_quest_status(creator_id=resolved_creator_id)
 
         }
 
@@ -5169,19 +5228,21 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        community_quest["active"] = True
+        quest = _creator_quest_v1(resolved_creator_id)
 
-        community_quest["type"] = quest_type
+        quest["active"] = True
 
-        community_quest["goal"] = goal
+        quest["type"] = quest_type
 
-        community_quest["progress"] = 0
+        quest["goal"] = goal
 
-        community_quest["reward"] = reward
+        quest["progress"] = 0
 
-        community_quest["claimed"] = {}
+        quest["reward"] = reward
 
-        community_quest["completed"] = False
+        quest["claimed"] = {}
+
+        quest["completed"] = False
 
 
 
@@ -5209,17 +5270,19 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        community_quest["active"] = False
+        quest = _creator_quest_v1(resolved_creator_id)
 
-        community_quest["type"] = None
+        quest["active"] = False
 
-        community_quest["goal"] = 0
+        quest["type"] = None
 
-        community_quest["progress"] = 0
+        quest["goal"] = 0
 
-        community_quest["claimed"] = {}
+        quest["progress"] = 0
 
-        community_quest["completed"] = False
+        quest["claimed"] = {}
+
+        quest["completed"] = False
 
 
 
@@ -5275,7 +5338,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        if not community_quest.get("active"):
+        quest = _creator_quest_v1(resolved_creator_id)
+
+        if not quest.get("active"):
 
             return {
 
@@ -5285,21 +5350,21 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        community_quest["progress"] = int(community_quest.get("progress", 0)) + amount
+        quest["progress"] = int(quest.get("progress", 0)) + amount
 
 
 
-        if int(community_quest["progress"]) >= int(community_quest.get("goal", 0)):
+        if int(quest["progress"]) >= int(quest.get("goal", 0)):
 
-            community_quest["progress"] = int(community_quest.get("goal", 0))
+            quest["progress"] = int(quest.get("goal", 0))
 
-            community_quest["completed"] = True
+            quest["completed"] = True
 
 
 
         return {
 
-            "response": format_quest_status()
+            "response": format_quest_status(creator_id=resolved_creator_id)
 
         }
 
@@ -5307,7 +5372,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!claimquest":
 
-        if not community_quest.get("active"):
+        quest = _creator_quest_v1(resolved_creator_id)
+
+        if not quest.get("active"):
 
             return {
 
@@ -5317,11 +5384,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        if not community_quest.get("completed"):
+        if not quest.get("completed"):
 
             return {
 
-                "response": "The community quest is not complete yet. " + format_quest_status()
+                "response": "The community quest is not complete yet. " + format_quest_status(creator_id=resolved_creator_id)
 
             }
 
@@ -5331,7 +5398,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        if key in community_quest.get("claimed", {}):
+        if key in quest.get("claimed", {}):
 
             return {
 
@@ -5341,15 +5408,15 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        reward = int(community_quest.get("reward", 100))
+        reward = int(quest.get("reward", 100))
 
         currency = get_currency_name()
 
-        new_balance = add_points(username, reward, f"claimed community quest {community_quest.get('type')}", creator_id=resolved_creator_id)
+        new_balance = add_points(username, reward, f"claimed community quest {quest.get('type')}", creator_id=resolved_creator_id)
 
 
 
-        community_quest.setdefault("claimed", {})[key] = True
+        quest.setdefault("claimed", {})[key] = True
 
 
 
@@ -5795,7 +5862,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         reward = int(support_rewards.get("chat_message", 10))
 
-        add_quest_progress("chat", 1)
+        add_quest_progress("chat", 1, creator_id=resolved_creator_id)
 
         currency = get_currency_name()
 
@@ -6333,7 +6400,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
                 add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
-                add_quest_progress("redeem", 1)
+                add_quest_progress("redeem", 1, creator_id=resolved_creator_id)
 
                 return {
 
@@ -6353,7 +6420,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
                 add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
-                add_quest_progress("redeem", 1)
+                add_quest_progress("redeem", 1, creator_id=resolved_creator_id)
 
                 return {
 
@@ -6369,7 +6436,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
                 add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
-                add_quest_progress("redeem", 1)
+                add_quest_progress("redeem", 1, creator_id=resolved_creator_id)
 
                 return {
 
@@ -6383,7 +6450,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
-            add_quest_progress("redeem", 1)
+            add_quest_progress("redeem", 1, creator_id=resolved_creator_id)
 
             return {
 
@@ -6397,7 +6464,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         add_redemption(username, reward_name, redeem_message, cost, creator_handle=creator_handle)
 
-        add_quest_progress("redeem", 1)
+        add_quest_progress("redeem", 1, creator_id=resolved_creator_id)
 
 
 
@@ -6559,7 +6626,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         arcade_bucket["foxhunt"] += 1
 
-        add_quest_progress("foxhunt", 1)
+        add_quest_progress("foxhunt", 1, creator_id=resolved_creator_id)
 
 
 
@@ -6635,7 +6702,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         arcade_bucket["plays"] += 1
 
-        add_quest_progress("arcade", 1)
+        add_quest_progress("arcade", 1, creator_id=resolved_creator_id)
 
         arcade_bucket["coinflip"] += 1
 
@@ -6659,7 +6726,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         arcade_bucket["plays"] += 1
 
-        add_quest_progress("arcade", 1)
+        add_quest_progress("arcade", 1, creator_id=resolved_creator_id)
 
         arcade_bucket["roll"] += 1
 
@@ -6725,7 +6792,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         arcade_bucket["plays"] += 1
 
-        add_quest_progress("arcade", 1)
+        add_quest_progress("arcade", 1, creator_id=resolved_creator_id)
 
         arcade_bucket["eightball"] += 1
 
@@ -6785,7 +6852,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         arcade_bucket["plays"] += 1
 
-        add_quest_progress("arcade", 1)
+        add_quest_progress("arcade", 1, creator_id=resolved_creator_id)
 
         arcade_bucket["rps"] += 1
 
@@ -13402,17 +13469,23 @@ def stream_event_endpoint(request: Request):
 @app.get("/community-quest")
 
 def community_quest_endpoint(request: Request):
-    # Read-leak batch: community_quest is a flat global, dashboard-only
-    # (no /overlay/* page reads this path -- grep-confirmed).
+    # Community-quest migration: same resolution path as /streaks --
+    # blaze_id=None still falls through to tenant-zero, so this stays
+    # byte-identical for every admin today until real per-creator blaze_id
+    # mapping exists.
     guard = _foxbot_require_admin_v1(request)
     if guard:
         return guard
 
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
     return {
 
-        "community_quest": community_quest,
+        "community_quest": _creator_quest_v1(resolved_creator_id),
 
-        "status": format_quest_status(),
+        "status": format_quest_status(creator_id=resolved_creator_id),
 
         "commands": [
 
