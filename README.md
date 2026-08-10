@@ -24,7 +24,7 @@ It combines a polished public website, guided creator onboarding, Blaze OAuth, a
 
 - Real Blaze OAuth login and refreshable token storage
 - Owner, subscription-control, and active creator channel targets
-- Seven-day creator trial through `!join`
+- Seven-day creator trial through `!joinfox`
 - Blaze subscription verification through `!verify`
 - Viewer recognition for follows, votes, subscriptions, gifts, and tips
 - FoxCoins balances, daily claims, leaderboards, rewards, and redemptions
@@ -40,7 +40,7 @@ FoxBot's public website does not display invented creator, revenue, uptime, view
 
 FoxBot uses a straightforward Blaze-native access model:
 
-1. Type `!join` in the FoxBot Blaze profile chat.
+1. Type `!joinfox` in the FoxBot Blaze profile chat.
 2. Receive full creator access for seven days.
 3. Type `!access` to check the current access state.
 4. Subscribe at <https://blaze.stream/foxbotai> for continued access at $5 per month.
@@ -134,7 +134,7 @@ See [INSTALLATION.md](INSTALLATION.md) for complete configuration, verification,
 ### Creator access
 
 ```text
-!join
+!joinfox
 !access
 !verify
 !profile

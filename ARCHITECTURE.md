@@ -38,7 +38,7 @@ flowchart TD
 ```mermaid
 stateDiagram-v2
     [*] --> NotStarted
-    NotStarted --> Trialing: !join
+    NotStarted --> Trialing: !joinfox
     Trialing --> Active: subscribe and !verify
     Trialing --> Expired: seven days pass
     Active --> Grace: subscription window ends

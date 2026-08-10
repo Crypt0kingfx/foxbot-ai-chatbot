@@ -93,7 +93,7 @@ def _ensure_creator(document: dict[str, Any], handle: str, display_name: str | N
         creator = {
             "handle": clean,
             "status": "connected",
-            "commands": ["!join", "!connect", "!profile", "!rank", "!access", "!verify"],
+            "commands": ["!joinfox", "!connect", "!profile", "!rank", "!access", "!verify"],
             "badges": ["FoxBot Connected"],
             "foxcoins": 0,
             "stars": 0,

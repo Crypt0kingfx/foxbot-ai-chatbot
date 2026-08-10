@@ -57,7 +57,7 @@ Use the demo interface for a safe walkthrough:
 Creator access commands:
 
 ```text
-!join
+!joinfox
 !access
 !verify
 ```
@@ -65,7 +65,7 @@ Creator access commands:
 ## Creator access model
 
 - Seven-day free trial
-- Trial starts with `!join` in the FoxBot Blaze profile chat
+- Trial starts with `!joinfox` in the FoxBot Blaze profile chat
 - Continued access through a $5 monthly Blaze subscription
 - Subscription verification with `!verify`
 - Owner access remains active without a subscription

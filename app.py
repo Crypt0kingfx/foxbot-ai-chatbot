@@ -4336,7 +4336,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     # Handles !connect, !profile, !rank, and !disconnect through the normal /chat route.
 
-    if lower_message.split(" ", 1)[0] in ["!join", "!connect", "!profile", "!rank", "!access", "!verify", "!disconnect"]:
+    if lower_message.split(" ", 1)[0] in ["!joinfox", "!connect", "!profile", "!rank", "!access", "!verify", "!disconnect"]:
 
         try:
 
@@ -24198,7 +24198,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
     clean_message = str(message or "").strip()
     command = clean_message.split()[0].lower() if clean_message.startswith("!") else ""
 
-    if command == "!join":
+    if command == "!joinfox":
         existing = _foxbot_connect_get_creator_v1(clean_handle)
         if not existing:
             _foxbot_connect_process_command_without_access_v1(
@@ -24222,7 +24222,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
         return {
             "ok": True,
             "handled": True,
-            "command": "!join",
+            "command": "!joinfox",
             "access": access,
             "reply": reply,
         }
@@ -24230,7 +24230,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
     if command == "!access":
         access = _foxbot_creator_access_v1.get_access(clean_handle)
         if access.get("status") == "not_started":
-            reply = f"@{clean_handle}, type !join to start your free 7-day FoxBot trial."
+            reply = f"@{clean_handle}, type !joinfox to start your free 7-day FoxBot trial."
         else:
             reply = (
                 f"@{clean_handle} FoxBot Access | Status: {access.get('status')} | "
@@ -24253,7 +24253,7 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
                 "Use !access to check its status."
             )
         else:
-            reply = f"@{clean_handle}, type !join before requesting verification."
+            reply = f"@{clean_handle}, type !joinfox before requesting verification."
         return {
             "ok": True,
             "handled": True,
@@ -24653,7 +24653,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
     # already covers it, so this still holds if that env var is ever misconfigured.
     known_bot_handles = {"foxbotai", "blazeian_bot_ai"}
     subscription_commands = {
-        "!join",
+        "!joinfox",
         "!connect",
         "!verify",
         "!access",
@@ -24686,7 +24686,7 @@ def _foxbot_process_channel_rows_v1(target, rows):
 
                 if not access.get("has_access"):
                     send_blaze_chat_message(
-                        f"@{clean_username}, start your free 7-day FoxBot trial by typing !join.",
+                        f"@{clean_username}, start your free 7-day FoxBot trial by typing !joinfox.",
                         channel_id=channel_id,
                     )
                     processed_count += 1
@@ -24907,7 +24907,7 @@ def foxbot_subscription_config_v1():
         "trial_days": _foxbot_creator_access_v1.TRIAL_DAYS,
         "price_usd_monthly": FOXBOT_SUBSCRIPTION_PRICE_USD_V1,
         "blaze_profile": FOXBOT_SUBSCRIPTION_PROFILE_V1,
-        "join_command": "!join",
+        "join_command": "!joinfox",
         "verify_command": "!verify",
     }
 

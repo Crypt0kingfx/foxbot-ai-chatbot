@@ -73,7 +73,7 @@ Expected storage result: Neon configured and connected. Expected channel targets
 
 ## Creator access model
 
-1. A creator types `!join` in the FoxBot Blaze profile chat.
+1. A creator types `!joinfox` in the FoxBot Blaze profile chat.
 2. FoxBot starts a seven-day free trial.
 3. The creator can check the trial with `!access`.
 4. The creator subscribes at `blaze.stream/foxbotai` for continued access.
