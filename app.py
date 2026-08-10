@@ -277,17 +277,35 @@ RECOGNITION_MAX_REWARD = 5000
 
 recognition_settings = {
 
+    # Recognition migration: OLD flat shape, frozen in place -- same
+    # additive-then-cleanup discipline as arcade_stats/foxcoin_economy.
+    # Real per-creator reads/writes go through
+    # _creator_recognition_settings_v1()/by_creator below.
     "enabled": True,
 
     "surprise_bonus_enabled": True,
 
-    "surprise_bonus_chance": 15
+    "surprise_bonus_chance": 15,
+
+    "by_creator": {}
 
 }
 
 
 
-recognition_log = []
+# Recognition migration: recognition_log was a bare list, unlike every
+# other migrated store (all already dicts) -- can't just add a
+# "by_creator" key to a list. Reshaped into a dict with the OLD flat list
+# frozen under "flat" (rollback safety net + one-time hydration-copy
+# source, same role arcade_stats' frozen top-level counters play) and the
+# new per-creator lists under "by_creator".
+recognition_log = {
+
+    "flat": [],
+
+    "by_creator": {}
+
+}
 
 
 
@@ -714,11 +732,28 @@ def apply_persistent_snapshot(data):
 
         recognition_settings.update(data["recognition_settings"])
 
+        recognition_settings.setdefault("by_creator", {})
 
 
+
+    # Recognition migration: recognition_log used to be a bare list, so
+    # this block used to do list-slice-assignment (recognition_log[:] = ...).
+    # Now that it's a dict, that syntax would TypeError (slice isn't a
+    # valid dict key) -- handle both the OLD saved shape (a real
+    # production snapshot predating this migration, still a plain list)
+    # and the NEW shape (a snapshot saved after this migration deployed,
+    # already a dict) explicitly rather than assuming one or the other.
     if isinstance(data.get("recognition_log"), list):
 
-        recognition_log[:] = data["recognition_log"][:25]
+        recognition_log["flat"] = data["recognition_log"][:25]
+
+    elif isinstance(data.get("recognition_log"), dict):
+
+        recognition_log.update(data["recognition_log"])
+
+    recognition_log.setdefault("flat", [])
+
+    recognition_log.setdefault("by_creator", {})
 
 
 
@@ -3082,6 +3117,66 @@ def _tenant_zero_arcade_stats():
     return _creator_arcade_stats_v1(_tenant_zero_id())
 
 
+def _creator_recognition_log_v1(creator_id):
+
+    # Same lazy-setdefault, live-reference contract as
+    # _creator_arcade_stats_v1(). The one-time copy-on-first-access is
+    # tenant-zero-only, done here (request time), never in
+    # apply_persistent_snapshot() -- that runs during
+    # load_persistent_data() at module-import time, before
+    # _tenant_zero_id()'s own def has executed (see the comment on that
+    # function's arcade_stats equivalent for the exact bug this avoids).
+    existing = recognition_log["by_creator"].get(creator_id)
+    if existing is not None:
+        return existing
+
+    bucket = []
+
+    if creator_id == _tenant_zero_id():
+        bucket = list(recognition_log.get("flat", []))
+
+    recognition_log["by_creator"][creator_id] = bucket
+    return bucket
+
+
+def _tenant_zero_recognition_log():
+    return _creator_recognition_log_v1(_tenant_zero_id())
+
+
+def _creator_recognition_settings_v1(creator_id):
+
+    # Same contract again. AUTOMATION_EVENT_DEFAULTS is defined later in
+    # the file (app.py:16723+) but that's fine -- this function is only
+    # ever CALLED at request time, well after the whole module has
+    # loaded, same as every other accessor here.
+    existing = recognition_settings["by_creator"].get(creator_id)
+    if existing is not None:
+        return existing
+
+    bucket = {
+        "enabled": True,
+        "surprise_bonus_enabled": True,
+        "surprise_bonus_chance": 15,
+        "enabled_events": AUTOMATION_EVENT_DEFAULTS.copy(),
+    }
+
+    if creator_id == _tenant_zero_id():
+        bucket["enabled"] = recognition_settings.get("enabled", True)
+        bucket["surprise_bonus_enabled"] = recognition_settings.get("surprise_bonus_enabled", True)
+        bucket["surprise_bonus_chance"] = recognition_settings.get("surprise_bonus_chance", 15)
+
+        old_events = recognition_settings.get("enabled_events")
+        if isinstance(old_events, dict):
+            bucket["enabled_events"] = {**AUTOMATION_EVENT_DEFAULTS, **old_events}
+
+    recognition_settings["by_creator"][creator_id] = bucket
+    return bucket
+
+
+def _tenant_zero_recognition_settings():
+    return _creator_recognition_settings_v1(_tenant_zero_id())
+
+
 def _creator_streaks_v1(creator_id):
 
     # Lazy setdefault, same reasoning as _creator_economy_v1(): works
@@ -3251,7 +3346,7 @@ def format_redemptions(limit: int = 5):
 
 
 
-def add_recognition_log(event_type: str, username: str, message: str, reward: int = 0):
+def add_recognition_log(event_type: str, username: str, message: str, reward: int = 0, creator_id: str = None):
 
     item = {
 
@@ -3267,9 +3362,19 @@ def add_recognition_log(event_type: str, username: str, message: str, reward: in
 
 
 
-    recognition_log.insert(0, item)
+    # Recognition migration: default to tenant-zero on a missing
+    # creator_id, same fallback convention as _foxbot_resolve_creator_id_v1
+    # -- belt-and-suspenders for any caller not yet updated to pass it
+    # explicitly, never a silent crash. Every call site inside
+    # recognition_response() passes creator_id=creator_id explicitly (the
+    # SAME variable already used for that event's add_points() call --
+    # see the migration commit message for the verified pairing), so this
+    # fallback should only ever trigger for a caller this migration missed.
+    log = _creator_recognition_log_v1(creator_id or _tenant_zero_id())
 
-    del recognition_log[25:]
+    log.insert(0, item)
+
+    del log[25:]
 
 
 
@@ -3281,13 +3386,15 @@ def add_recognition_log(event_type: str, username: str, message: str, reward: in
 
 def surprise_bonus(username: str, creator_id: str = None):
 
-    if not recognition_settings.get("surprise_bonus_enabled", True):
+    settings = _creator_recognition_settings_v1(creator_id or _tenant_zero_id())
+
+    if not settings.get("surprise_bonus_enabled", True):
 
         return ""
 
 
 
-    chance = int(recognition_settings.get("surprise_bonus_chance", 15))
+    chance = int(settings.get("surprise_bonus_chance", 15))
 
     roll = random.randint(1, 100)
 
@@ -3319,9 +3426,11 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
     currency = get_currency_name()
 
+    settings = _creator_recognition_settings_v1(creator_id or _tenant_zero_id())
 
 
-    if not recognition_settings.get("enabled", True):
+
+    if not settings.get("enabled", True):
 
         return f"Recognition is currently disabled. Event received for @{target}: {event_type}."
 
@@ -3339,7 +3448,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg += surprise_bonus(target, creator_id=creator_id)
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3357,7 +3466,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg += surprise_bonus(target, creator_id=creator_id)
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3377,7 +3486,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg += surprise_bonus(target, creator_id=creator_id)
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3397,7 +3506,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg += surprise_bonus(target, creator_id=creator_id)
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3417,7 +3526,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg += surprise_bonus(target, creator_id=creator_id)
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3435,7 +3544,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg += surprise_bonus(target, creator_id=creator_id)
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3451,7 +3560,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg = f"MVP SHOUTOUT: @{target} is carrying the stream today! +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -3467,7 +3576,7 @@ def recognition_response(event_type: str, target: str, amount=None, creator_id: 
 
         msg = f"OG FOX SPIRIT: @{target} has been here from the jump. Respect to one of the real ones. +{reward} {currency}. Balance: {new_balance} {currency}."
 
-        add_recognition_log(event_type, target, msg, reward)
+        add_recognition_log(event_type, target, msg, reward, creator_id=creator_id)
 
         return msg
 
@@ -5444,9 +5553,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!recognition":
 
-        status = "ON" if recognition_settings.get("enabled", True) else "OFF"
+        settings = _creator_recognition_settings_v1(resolved_creator_id)
 
-        bonus = "ON" if recognition_settings.get("surprise_bonus_enabled", True) else "OFF"
+        status = "ON" if settings.get("enabled", True) else "OFF"
+
+        bonus = "ON" if settings.get("surprise_bonus_enabled", True) else "OFF"
 
         return {
 
@@ -5458,7 +5569,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!recognitionlog":
 
-        if not recognition_log:
+        log = _creator_recognition_log_v1(resolved_creator_id)
+
+        if not log:
 
             return {"response": "No recognition events logged yet."}
 
@@ -5466,7 +5579,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         parts = []
 
-        for item in recognition_log[:5]:
+        for item in log[:5]:
 
             parts.append(f"{item['event_type']} @{item['username']} +{item['reward']}")
 
@@ -5482,7 +5595,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             return {"response": f"@{username}, only creator/mods can change recognition settings."}
 
-        recognition_settings["enabled"] = True
+        _creator_recognition_settings_v1(resolved_creator_id)["enabled"] = True
 
         return {"response": "FoxBot automatic recognition is now ON."}
 
@@ -5494,7 +5607,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             return {"response": f"@{username}, only creator/mods can change recognition settings."}
 
-        recognition_settings["enabled"] = False
+        _creator_recognition_settings_v1(resolved_creator_id)["enabled"] = False
 
         return {"response": "FoxBot automatic recognition is now OFF."}
 
@@ -14780,20 +14893,18 @@ def foxbot_admin_page():
 @app.get("/recognition")
 
 def recognition_endpoint(request: Request):
-    # Read-leak batch: recognition_settings/recognition_log are flat
-    # globals, dashboard-only (no /overlay/* page reads this path --
-    # grep-confirmed). /api/automation/recognition/{state} (the toggle
-    # action) was already admin-gated in Step 2; this closes the matching
-    # read side.
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
+    # Recognition migration: real per-creator scoping replaces the
+    # read-leak batch's interim is_admin lock. Same resolution path as
+    # /foxcoins/arcade-stats.
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
 
     return {
 
-        "settings": recognition_settings,
+        "settings": _creator_recognition_settings_v1(resolved_creator_id),
 
-        "recent_log": recognition_log[:10],
+        "recent_log": _creator_recognition_log_v1(resolved_creator_id)[:10],
 
         "manual_commands": [
 
@@ -14871,7 +14982,11 @@ def auto_event_endpoint(event_type: str, username: str, request: Request, amount
 
         "message": message,
 
-        "settings": recognition_settings
+        # Recognition migration: this admin-only debug tool never passes
+        # creator_id to recognition_response() above, so it always
+        # implicitly targets tenant-zero -- matching that here rather
+        # than showing the frozen (increasingly stale) flat snapshot.
+        "settings": _tenant_zero_recognition_settings()
 
     }
 
@@ -16580,7 +16695,7 @@ def handle_auto_chat_event(message_id: str, message_text: str, username: str = "
 
 
 
-    if not automation_event_enabled(event.get("event_type")):
+    if not automation_event_enabled(event.get("event_type"), creator_id=creator_id):
 
         return {
 
@@ -16762,33 +16877,41 @@ AUTOMATION_EVENT_DEFAULTS = {
 
 
 
-def ensure_automation_settings():
+def ensure_automation_settings(creator_id: str = None):
 
-    recognition_settings.setdefault("enabled", True)
+    # Recognition migration: settings is already per-creator by the time
+    # this runs (_creator_recognition_settings_v1() builds a full default
+    # bucket, including enabled_events, on first access) -- the
+    # setdefault calls here just backfill any NEWER default keys added to
+    # AUTOMATION_EVENT_DEFAULTS after a creator's bucket was first
+    # created, same role they played on the flat global before migration.
+    settings = _creator_recognition_settings_v1(creator_id or _tenant_zero_id())
 
-    recognition_settings.setdefault("surprise_bonus_enabled", True)
+    settings.setdefault("enabled", True)
 
-    recognition_settings.setdefault("surprise_bonus_chance", 15)
+    settings.setdefault("surprise_bonus_enabled", True)
 
-    recognition_settings.setdefault("enabled_events", AUTOMATION_EVENT_DEFAULTS.copy())
+    settings.setdefault("surprise_bonus_chance", 15)
+
+    settings.setdefault("enabled_events", AUTOMATION_EVENT_DEFAULTS.copy())
 
 
 
     for event_type, enabled in AUTOMATION_EVENT_DEFAULTS.items():
 
-        recognition_settings["enabled_events"].setdefault(event_type, enabled)
+        settings["enabled_events"].setdefault(event_type, enabled)
 
 
 
-    return recognition_settings
+    return settings
 
 
 
 
 
-def automation_event_enabled(event_type: str):
+def automation_event_enabled(event_type: str, creator_id: str = None):
 
-    settings = ensure_automation_settings()
+    settings = ensure_automation_settings(creator_id)
 
 
 
@@ -16813,7 +16936,17 @@ def automation_control_status(request: Request):
     if guard:
         return guard
 
-    settings = ensure_automation_settings()
+    # Recognition migration: resolved via blaze_id like every other
+    # by_creator route, rather than hardcoded tenant-zero -- no behavior
+    # change today (is_admin-gated, so the only caller who ever reaches
+    # this is tenant-zero/Basic Auth), but consistent with the rest of
+    # the codebase and correct once a scoped creator can be admin of
+    # their OWN tenant (Sub-phase F territory).
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    settings = ensure_automation_settings(resolved_creator_id)
 
 
 
@@ -16825,7 +16958,7 @@ def automation_control_status(request: Request):
 
         "polling": polling_status,
 
-        "recent_log": recognition_log[:10],
+        "recent_log": _creator_recognition_log_v1(resolved_creator_id)[:10],
 
         "supported_events": list(AUTOMATION_EVENT_DEFAULTS.keys())
 
@@ -16842,7 +16975,11 @@ def automation_control_recognition(state: str, request: Request):
     if guard:
         return guard
 
-    settings = ensure_automation_settings()
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    settings = ensure_automation_settings(resolved_creator_id)
 
     enabled = str(state).lower() in ["on", "true", "1", "enabled", "enable"]
 
@@ -16873,7 +17010,11 @@ def automation_control_event_toggle(event_type: str, state: str, request: Reques
     if guard:
         return guard
 
-    settings = ensure_automation_settings()
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    settings = ensure_automation_settings(resolved_creator_id)
 
 
 
@@ -16991,9 +17132,15 @@ def foxbot_v1_status():
 
         "automation": {
 
-            "recognition_enabled": recognition_settings.get("enabled", True),
+            # Recognition migration: this route is fully public (no
+            # session, not in any gate set -- same shape as /boss and
+            # /overlay/giveaway-data), so it can only ever show
+            # tenant-zero's own data. Explicit tenant-zero resolution,
+            # not a scoping bug -- there's no caller identity to scope by
+            # here at all.
+            "recognition_enabled": _tenant_zero_recognition_settings().get("enabled", True),
 
-            "surprise_bonus_enabled": recognition_settings.get("surprise_bonus_enabled", True),
+            "surprise_bonus_enabled": _tenant_zero_recognition_settings().get("surprise_bonus_enabled", True),
 
             "polling_running": polling_status.get("running", False),
 
@@ -17037,7 +17184,7 @@ def foxbot_v1_status():
 
         },
 
-        "recent_recognition": recognition_log[:10]
+        "recent_recognition": _tenant_zero_recognition_log()[:10]
 
     }
 
