@@ -331,6 +331,15 @@ fox_spirit_ranks = [
 
 stream_event = {
 
+    # Stream-event migration: OLD flat shape, frozen in place during the
+    # transition -- same additive-then-cleanup discipline as
+    # arcade_stats/recognition_settings/community_quest. Nothing after
+    # this migration writes to these top-level keys again; they exist
+    # only as a rollback safety net and as the one-time hydration-copy
+    # source in apply_persistent_snapshot(). Real per-creator reads/writes
+    # go through _creator_stream_event_v1()/by_creator below.
+    # stream_event_templates (below) is a separate, deliberately SHARED
+    # catalog -- it never gets a by_creator dimension.
     "active": False,
 
     "name": None,
@@ -339,7 +348,9 @@ stream_event = {
 
     "description": None,
 
-    "claimed": {}
+    "claimed": {},
+
+    "by_creator": {}
 
 }
 
@@ -700,6 +711,8 @@ def apply_persistent_snapshot(data):
         stream_event.setdefault("description", None)
 
         stream_event.setdefault("claimed", {})
+
+        stream_event.setdefault("by_creator", {})
 
 
 
@@ -3230,6 +3243,42 @@ def _tenant_zero_quest():
     return _creator_quest_v1(_tenant_zero_id())
 
 
+def _creator_stream_event_v1(creator_id):
+
+    # Same lazy-setdefault, live-reference contract as _creator_quest_v1().
+    # Copy-on-first-access is tenant-zero-only, done here at request time --
+    # never in apply_persistent_snapshot(), same forward-reference hazard
+    # as every other accessor in this cluster. stream_event_templates (the
+    # catalog) is NOT touched here -- it stays a shared global, no
+    # by_creator dimension, since nothing in the codebase ever writes to
+    # it at runtime (grep-confirmed: no admin edit-command exists).
+    existing = stream_event["by_creator"].get(creator_id)
+    if existing is not None:
+        return existing
+
+    bucket = {
+        "active": False,
+        "name": None,
+        "key": None,
+        "description": None,
+        "claimed": {},
+    }
+
+    if creator_id == _tenant_zero_id():
+        bucket["active"] = stream_event.get("active", False)
+        bucket["name"] = stream_event.get("name")
+        bucket["key"] = stream_event.get("key")
+        bucket["description"] = stream_event.get("description")
+        bucket["claimed"] = dict(stream_event.get("claimed", {}))
+
+    stream_event["by_creator"][creator_id] = bucket
+    return bucket
+
+
+def _tenant_zero_stream_event():
+    return _creator_stream_event_v1(_tenant_zero_id())
+
+
 def _creator_streaks_v1(creator_id):
 
     # Lazy setdefault, same reasoning as _creator_economy_v1(): works
@@ -3853,21 +3902,23 @@ def add_quest_progress(quest_type: str, amount: int = 1, creator_id: str = None)
 
 
 
-def format_stream_event():
+def format_stream_event(creator_id: str = None):
 
-    if not stream_event.get("active"):
+    event = _creator_stream_event_v1(creator_id or _tenant_zero_id())
+
+    if not event.get("active"):
 
         return "No stream event is active. Admins can start one with !startevent goldenfox, spiritstorm, treasuredrop, or foxfrenzy."
 
 
 
-    return f"Active Event: {stream_event.get('name')} | {stream_event.get('description')} | Type !event to check or claim."
+    return f"Active Event: {event.get('name')} | {event.get('description')} | Type !event to check or claim."
 
 
 
 
 
-def activate_stream_event(event_key: str):
+def activate_stream_event(event_key: str, creator_id: str = None):
 
     key = (event_key or "").strip().lower()
 
@@ -3891,15 +3942,17 @@ def activate_stream_event(event_key: str):
 
 
 
-    stream_event["active"] = True
+    event = _creator_stream_event_v1(creator_id or _tenant_zero_id())
 
-    stream_event["key"] = key
+    event["active"] = True
 
-    stream_event["name"] = template["name"]
+    event["key"] = key
 
-    stream_event["description"] = template["description"]
+    event["name"] = template["name"]
 
-    stream_event["claimed"] = {}
+    event["description"] = template["description"]
+
+    event["claimed"] = {}
 
 
 
@@ -3909,15 +3962,17 @@ def activate_stream_event(event_key: str):
 
 
 
-def current_event_multiplier(command_name: str):
+def current_event_multiplier(command_name: str, creator_id: str = None):
 
-    if not stream_event.get("active"):
+    event = _creator_stream_event_v1(creator_id or _tenant_zero_id())
+
+    if not event.get("active"):
 
         return 1
 
 
 
-    key = stream_event.get("key")
+    key = event.get("key")
 
 
 
@@ -4870,7 +4925,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         reward = random.randint(5, 18)
 
-        multiplier = current_event_multiplier("!attack")
+        multiplier = current_event_multiplier("!attack", creator_id=resolved_creator_id)
 
         reward = reward * multiplier
 
@@ -4946,7 +5001,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         reward = random.randint(15, 35)
 
-        multiplier = current_event_multiplier("!powerattack")
+        multiplier = current_event_multiplier("!powerattack", creator_id=resolved_creator_id)
 
         reward = reward * multiplier
 
@@ -5440,11 +5495,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!event":
 
-        if not stream_event.get("active"):
+        event = _creator_stream_event_v1(resolved_creator_id)
+
+        if not event.get("active"):
 
             return {
 
-                "response": format_stream_event()
+                "response": format_stream_event(creator_id=resolved_creator_id)
 
             }
 
@@ -5454,29 +5511,29 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        reward = int(stream_event_templates.get(stream_event.get("key"), {}).get("claim_reward", 25))
+        reward = int(stream_event_templates.get(event.get("key"), {}).get("claim_reward", 25))
 
 
 
-        if key in stream_event.get("claimed", {}):
+        if key in event.get("claimed", {}):
 
             return {
 
-                "response": f"@{username}, you already claimed the {stream_event.get('name')} event reward. {stream_event.get('description')}"
+                "response": f"@{username}, you already claimed the {event.get('name')} event reward. {event.get('description')}"
 
             }
 
 
 
-        stream_event.setdefault("claimed", {})[key] = True
+        event.setdefault("claimed", {})[key] = True
 
-        new_balance = add_points(username, reward, f"stream event {stream_event.get('key')}", creator_id=resolved_creator_id)
+        new_balance = add_points(username, reward, f"stream event {event.get('key')}", creator_id=resolved_creator_id)
 
 
 
         return {
 
-            "response": f"@{username} claimed the {stream_event.get('name')} event reward: +{reward} {currency}. Balance: {new_balance} {currency}."
+            "response": f"@{username} claimed the {event.get('name')} event reward: +{reward} {currency}. Balance: {new_balance} {currency}."
 
         }
 
@@ -5506,7 +5563,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        template = activate_stream_event(event_key)
+        template = activate_stream_event(event_key, creator_id=resolved_creator_id)
 
 
 
@@ -5520,9 +5577,13 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
+        event = _creator_stream_event_v1(resolved_creator_id)
+
+
+
         return {
 
-            "response": f"Stream Event Started: {stream_event.get('name')} | {stream_event.get('description')} Type !event to claim/check."
+            "response": f"Stream Event Started: {event.get('name')} | {event.get('description')} Type !event to claim/check."
 
         }
 
@@ -5540,19 +5601,21 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
-        old_name = stream_event.get("name") or "current event"
+        event = _creator_stream_event_v1(resolved_creator_id)
+
+        old_name = event.get("name") or "current event"
 
 
 
-        stream_event["active"] = False
+        event["active"] = False
 
-        stream_event["name"] = None
+        event["name"] = None
 
-        stream_event["key"] = None
+        event["key"] = None
 
-        stream_event["description"] = None
+        event["description"] = None
 
-        stream_event["claimed"] = {}
+        event["claimed"] = {}
 
 
 
@@ -6656,7 +6719,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         event, reward = random.choice(outcomes)
 
-        multiplier = current_event_multiplier("!foxhunt")
+        multiplier = current_event_multiplier("!foxhunt", creator_id=resolved_creator_id)
 
         reward = reward * multiplier
 
@@ -6672,9 +6735,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         bonus_text = ""
 
-        if current_event_multiplier("!foxhunt") > 1:
+        if current_event_multiplier("!foxhunt", creator_id=resolved_creator_id) > 1:
 
-            bonus_text = f" {stream_event.get('name')} bonus active!"
+            bonus_text = f" {_creator_stream_event_v1(resolved_creator_id).get('name')} bonus active!"
 
 
 
@@ -13424,21 +13487,26 @@ def ranks_endpoint():
 @app.get("/stream-event")
 
 def stream_event_endpoint(request: Request):
-    # Read-leak batch: stream_event is a flat global, dashboard-only --
-    # no /overlay/* page reads this path (grep-confirmed), unlike /boss
-    # and giveaway-data. Newly added to FOXBOT_ADMIN_GATED_EXACT_PATHS
-    # above; this is the second, is_admin layer on top of that.
+    # Stream-event migration: same resolution path as /streaks and
+    # /community-quest -- blaze_id=None still falls through to
+    # tenant-zero, so this stays byte-identical for every admin today.
+    # event_templates stays the raw SHARED catalog (no by_creator) --
+    # nothing in the codebase ever writes to it at runtime.
     guard = _foxbot_require_admin_v1(request)
     if guard:
         return guard
 
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
     return {
 
-        "active_event": stream_event,
+        "active_event": _creator_stream_event_v1(resolved_creator_id),
 
         "event_templates": stream_event_templates,
 
-        "status": format_stream_event(),
+        "status": format_stream_event(creator_id=resolved_creator_id),
 
         "commands": [
 
@@ -15333,7 +15401,8 @@ async def foxbot_studio_stats_live(request: Request):
 
     # A short name/"None", not format_stream_event()'s full sentence --
     # that reads fine as a chat reply but overflows a landing-page tile.
-    current_event = stream_event.get("name") if stream_event.get("active") else "None"
+    tenant_stream_event = _creator_stream_event_v1(resolved_creator_id)
+    current_event = tenant_stream_event.get("name") if tenant_stream_event.get("active") else "None"
 
     from services import blaze_native_connector as native
 
