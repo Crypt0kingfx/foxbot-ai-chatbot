@@ -7366,9 +7366,16 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
 
 
+    # Stay silent on any !-prefixed message that isn't one of FoxBot's own
+    # built-in or custom commands -- e.g. another bot's !start/!enter/!play
+    # in the same chat. Every caller does
+    # result.get("response", "FoxBot had no response.") then
+    # `if foxbot_reply: send(...)` -- an EMPTY STRING is required here, not
+    # a missing "response" key, or that default text would get sent
+    # instead (worse than the "Unknown command" noise this replaces).
     return {
 
-        "response": "Unknown command. Type !foxhelp"
+        "response": ""
 
     }
 
@@ -24729,6 +24736,15 @@ def _foxbot_process_channel_rows_v1(target, rows):
                     "status": access.get("status"),
                 }
                 processed_count += 1
+                continue
+
+            # Same !-gate as the main (non-subscription) channel path below
+            # (app.py:24799-24800) -- without it, ANY message from a
+            # subscriber with access (not just a foreign bot's !command,
+            # a genuinely plain chat message) got sent into chat() and
+            # risked the "Unknown command" reply. Same root cause as the
+            # main-path fix, just unguarded here until now.
+            if not str(message_text).startswith("!"):
                 continue
 
             _foxbot_events_v1.emit_event(
