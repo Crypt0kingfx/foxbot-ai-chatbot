@@ -30,7 +30,10 @@ test_*.py
 app_backup_*.py
 foxbot-studio_backup_*.js
 foxbot_studio_backup_*.html
-data/snapshots/
+
+# FoxBot data directory -- oauth tokens, connected-creator mappings, and
+# other live/secret state must never land in the public repo.
+data/
 
 # Virtual environments
 .venv/

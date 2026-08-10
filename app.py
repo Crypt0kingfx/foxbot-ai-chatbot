@@ -20442,16 +20442,6 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
 
 
-    env_text = (
-
-        "BLAZE_ACCESS_TOKEN=" + access_token + "\n"
-
-        "BLAZE_REFRESH_TOKEN=" + refresh_token
-
-    )
-
-
-
     # Personal touch: greet the person who just logged in by their Blaze name
 
     # and register them as a connected creator so their den is ready.
@@ -20690,21 +20680,9 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
 
             <b>Refresh token:</b> {_foxbot_blaze_oauth_mask_v1(refresh_token)}</p>
 
-            <p>Add these to <b>Render → foxbot-ai-chatbot → Environment</b>. Do not share them publicly.</p>
+            <p>Tokens are saved and auto-refreshed automatically — no manual Render paste needed.</p>
 
-            <textarea readonly>{env_text}</textarea>
-
-            <ol>
-
-                <li>Add the two variables above to Render.</li>
-
-                <li>Keep <code>FOXBOT_BLAZE_AUTO_SEND=false</code> for now.</li>
-
-                <li>Redeploy.</li>
-
-                <li>Open <a href="/api/blaze/native/status">/api/blaze/native/status</a>.</li>
-
-            </ol>
+            <p>Open <a href="/api/blaze/native/status">/api/blaze/native/status</a> to confirm the connection.</p>
 
         </details>
 
