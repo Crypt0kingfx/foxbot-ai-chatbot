@@ -24622,13 +24622,21 @@ def foxbot_multichannel_targets_v1():
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
 
 # === FoxBot OAuth Token Priority Fix v1 ===
-def send_blaze_chat_message(text: str, channel_id=None):
+def send_blaze_chat_message(text: str, channel_id=None, creator_id=None):
     """Send with the newest OAuth callback token."""
     import requests
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token, token_source = resolve_blaze_access_token()
+
+    # Bot Connection Sub-phase F, stage 3: same additive, two-gate contract
+    # as get_recent_blaze_messages (stage 2) -- every existing caller
+    # passes no creator_id, unchanged. Even when given, it only takes
+    # effect if BOTH gates pass: this function's own allowlist check and
+    # F.0's resolver finding a real by_creator slot. A creator_id that
+    # isn't activated is treated exactly like None.
+    effective_creator_id = creator_id if _foxbot_bot_connect_creator_active_v1(creator_id) else None
+    access_token, token_source = resolve_blaze_access_token(creator_id=effective_creator_id)
 
     if not client_id or not target_channel_id or not access_token:
         return {
@@ -24922,6 +24930,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
                     send_blaze_chat_message(
                         f"@{clean_username}, start your free 7-day FoxBot trial by typing !joinfox.",
                         channel_id=channel_id,
+                        creator_id=resolved_creator_id,
                     )
                     processed_count += 1
                     continue
@@ -24959,7 +24968,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
                         "Subscribe at blaze.stream/foxbotai, then type !verify again here."
                     )
 
-                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id, creator_id=resolved_creator_id)
                 _foxbot_events_v1.emit_event(
                     creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
                 )
@@ -24987,7 +24996,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
             foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
             foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
             if foxbot_reply:
-                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id, creator_id=resolved_creator_id)
                 _foxbot_events_v1.emit_event(
                     creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
                 )
@@ -25024,7 +25033,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
                 )
 
             if foxbot_reply:
-                send_blaze_chat_message(foxbot_reply, channel_id=channel_id)
+                send_blaze_chat_message(foxbot_reply, channel_id=channel_id, creator_id=resolved_creator_id)
                 _foxbot_events_v1.emit_event(
                     creator_handle,
                     "bot_reply",
@@ -25056,6 +25065,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
             send_result = send_blaze_chat_message(
                 foxbot_reply,
                 channel_id=channel_id,
+                creator_id=resolved_creator_id,
             )
 
             polling_status["last_multichannel_send"] = {
