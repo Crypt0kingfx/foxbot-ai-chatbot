@@ -21207,6 +21207,25 @@ def _foxbot_bot_connect_enabled_v1() -> bool:
     return os.getenv("FOXBOT_BOT_CONNECT_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _foxbot_bot_connect_active_creator_ids_v1():
+    # Bot Connection Sub-phase F, stage 2: the SECOND, independent
+    # activation gate -- same allowlist shape as ADMIN_USERNAMES. A
+    # creator_id having a real, refreshed by_creator token slot (Sub-
+    # phases A/C/E) does not by itself turn on per-creator reads; both
+    # this allowlist AND a real slot (F.0's resolver, its own separate
+    # gate) must be true. Ships empty by default -- every target stays on
+    # today's shared token until an admin explicitly lists a creator_id
+    # here, one at a time, per the rollout-safety design.
+    raw = os.getenv("FOXBOT_BOT_CONNECT_ACTIVE_CREATOR_IDS", "") or ""
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _foxbot_bot_connect_creator_active_v1(creator_id) -> bool:
+    if not creator_id:
+        return False
+    return str(creator_id).strip() in _foxbot_bot_connect_active_creator_ids_v1()
+
+
 def _foxbot_bot_connect_disabled_response_v1():
     return HTMLResponse(
         "<h1>Bot Connection Not Enabled</h1>"
@@ -24457,6 +24476,7 @@ def _foxbot_multichannel_target_status_v1(channel_id):
             "last_error": None,
             "messages_seen": 0,
             "commands_processed": 0,
+            "token_source": None,
         },
     )
 
@@ -24499,11 +24519,27 @@ def blaze_polling_worker():
                 target_status["last_attempt_at"] = time.time()
                 target_status["cycles"] += 1
 
+                # Sub-phase F, stage 2: resolve the SAME creator_id Sub-
+                # phase D already resolves per channel, once, here --
+                # BEFORE the fetch, not after -- so it can pick the read
+                # token AND be handed unchanged into
+                # _foxbot_process_channel_rows_v1 below. Never re-derived
+                # a second time: one value, one source, both call sites.
+                # This is what structurally rules out reading channel A's
+                # messages through a token resolved for a different
+                # creator B -- there is only one resolution per target
+                # per cycle, not two that merely happen to agree.
+                creator_handle_for_target = (
+                    str(target.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+                )
+                resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle_for_target)
+
                 try:
-                    data = get_recent_blaze_messages(channel_id=channel_id)
+                    data = get_recent_blaze_messages(channel_id=channel_id, creator_id=resolved_creator_id)
                     polling_status["checks"] += 1
                     polling_status["last_response"] = data
                     channels_checked += 1
+                    target_status["token_source"] = data.get("token_source") if isinstance(data, dict) else None
 
                     if isinstance(data, dict) and data.get("success") is False:
                         error_message = (
@@ -24516,7 +24552,9 @@ def blaze_polling_worker():
 
                     rows = extract_rows_from_blaze_response(data)
                     target_messages = len(rows)
-                    target_processed = _foxbot_process_channel_rows_v1(target, rows)
+                    target_processed = _foxbot_process_channel_rows_v1(
+                        target, rows, resolved_creator_id=resolved_creator_id
+                    )
                     cycle_messages += target_messages
                     cycle_processed += target_processed
 
@@ -24633,13 +24671,24 @@ def send_blaze_chat_message(text: str, channel_id=None):
         }
 
 
-def get_recent_blaze_messages(channel_id=None):
+def get_recent_blaze_messages(channel_id=None, creator_id=None):
     """Read chat with the newest OAuth callback token."""
     import requests
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
-    access_token, token_source = resolve_blaze_access_token()
+
+    # Bot Connection Sub-phase F, stage 2: creator_id is optional and
+    # additive -- every existing caller passes none. Even when given, it
+    # only takes effect if BOTH gates pass: this function's own allowlist
+    # check (is this creator_id activated for F) and F.0's resolver
+    # finding a real by_creator slot for it (resolve_blaze_access_token's
+    # own, separate gate). A creator_id that isn't activated is treated
+    # exactly like None -- can never diverge from today's shared-token
+    # behavior until an admin explicitly adds it to
+    # FOXBOT_BOT_CONNECT_ACTIVE_CREATOR_IDS.
+    effective_creator_id = creator_id if _foxbot_bot_connect_creator_active_v1(creator_id) else None
+    access_token, token_source = resolve_blaze_access_token(creator_id=effective_creator_id)
 
     if not client_id or not target_channel_id or not access_token:
         return {
@@ -24777,7 +24826,7 @@ def _foxbot_multichannel_targets_v1():
     )
 
 
-def _foxbot_process_channel_rows_v1(target, rows):
+def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
     channel_id = str(target.get("channel_id") or "").strip()
     channel_slug = str(target.get("channel_slug") or "").strip()
     channel_key = channel_id or channel_slug
@@ -24793,7 +24842,18 @@ def _foxbot_process_channel_rows_v1(target, rows):
     # back to tenant-zero automatically for as long as creator_handle has
     # no blaze_id mapping (today's real state for every channel), so the
     # auto-recognition path stays byte-identical until a real join exists.
-    resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+    #
+    # Sub-phase F, stage 2: the poll loop now resolves this SAME value
+    # before it fetches the channel's messages (so it can pick the read
+    # token too) and passes it in here instead of this function deriving
+    # its own second copy -- "whose channel" and "whose token" are
+    # structurally the same value, computed once, not two independently-
+    # computed values that merely happen to agree today. Falls back to
+    # the original self-resolution when no value is passed in (every
+    # caller before this stage, and any future caller that doesn't have
+    # one to hand in), so this is unchanged for anyone who doesn't opt in.
+    if resolved_creator_id is None:
+        resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
 
     # On first discovery of a channel, seed only messages older than the
     # discovery moment (minus a small clock-skew grace window) so a redeploy
