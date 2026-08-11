@@ -24432,10 +24432,33 @@ _FOXBOT_MULTICHANNEL_STATE_V1 = {
     "targets": [],
     "last_error": None,
     "last_cycle_at": None,
+    "per_target": {},
 }
 _FOXBOT_MULTICHANNEL_INITIALIZED_V1 = set()
 
 
+def _foxbot_multichannel_target_status_v1(channel_id):
+    # Bot Connection Sub-phase F, stage 1: per-target status entry, same
+    # shape/setdefault contract as blaze_oauth_refresh_status["per_creator"]
+    # (Sub-phase C, app.py:21638) -- proven pattern, not a new design.
+    # Keyed by channel_id (stable identity, matches what actually fetches/
+    # sends), not handle (less guaranteed stable). Purely additive: nothing
+    # reads this yet outside the worker itself, and the existing top-level
+    # _FOXBOT_MULTICHANNEL_STATE_V1 fields keep their exact current
+    # semantics untouched by this map's existence.
+    return _FOXBOT_MULTICHANNEL_STATE_V1["per_target"].setdefault(
+        channel_id,
+        {
+            "handle": None,
+            "channel_slug": None,
+            "cycles": 0,
+            "last_attempt_at": None,
+            "last_ok": None,
+            "last_error": None,
+            "messages_seen": 0,
+            "commands_processed": 0,
+        },
+    )
 
 
 def blaze_polling_worker():
@@ -24470,20 +24493,51 @@ def blaze_polling_worker():
                     break
 
                 channel_id = target.get("channel_id")
-                data = get_recent_blaze_messages(channel_id=channel_id)
-                polling_status["checks"] += 1
-                polling_status["last_response"] = data
-                channels_checked += 1
+                target_status = _foxbot_multichannel_target_status_v1(channel_id)
+                target_status["handle"] = target.get("handle")
+                target_status["channel_slug"] = target.get("channel_slug")
+                target_status["last_attempt_at"] = time.time()
+                target_status["cycles"] += 1
 
-                if isinstance(data, dict) and data.get("success") is False:
-                    _FOXBOT_MULTICHANNEL_STATE_V1["last_error"] = (
-                        data.get("error") or data.get("message") or "Blaze message fetch failed."
-                    )
-                    continue
+                try:
+                    data = get_recent_blaze_messages(channel_id=channel_id)
+                    polling_status["checks"] += 1
+                    polling_status["last_response"] = data
+                    channels_checked += 1
 
-                rows = extract_rows_from_blaze_response(data)
-                cycle_messages += len(rows)
-                cycle_processed += _foxbot_process_channel_rows_v1(target, rows)
+                    if isinstance(data, dict) and data.get("success") is False:
+                        error_message = (
+                            data.get("error") or data.get("message") or "Blaze message fetch failed."
+                        )
+                        _FOXBOT_MULTICHANNEL_STATE_V1["last_error"] = error_message
+                        target_status["last_ok"] = False
+                        target_status["last_error"] = error_message
+                        continue
+
+                    rows = extract_rows_from_blaze_response(data)
+                    target_messages = len(rows)
+                    target_processed = _foxbot_process_channel_rows_v1(target, rows)
+                    cycle_messages += target_messages
+                    cycle_processed += target_processed
+
+                    target_status["last_ok"] = True
+                    target_status["last_error"] = None
+                    target_status["messages_seen"] += target_messages
+                    target_status["commands_processed"] += target_processed
+
+                except Exception as target_error:
+                    # F.1 isolation: a hard failure on ONE target must never
+                    # abort the rest of the cycle for other targets. Same
+                    # additive discipline as the soft-failure branch above --
+                    # still writes the shared sticky last_error field exactly
+                    # like that branch already does (byte-identical for
+                    # anything watching only that field), while per_target
+                    # adds the attribution that's missing today. Never
+                    # re-raises, so the for-loop always reaches the next
+                    # target.
+                    _FOXBOT_MULTICHANNEL_STATE_V1["last_error"] = str(target_error)
+                    target_status["last_ok"] = False
+                    target_status["last_error"] = str(target_error)
 
             polling_status["messages_seen"] = cycle_messages
             polling_status["commands_processed"] += cycle_processed
