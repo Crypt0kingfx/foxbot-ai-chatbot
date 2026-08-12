@@ -7906,12 +7906,21 @@ def _foxbot_redact_sensitive_debug_v1(value, _depth=0):
 
 def _foxbot_capture_viewer_fallback_debug_v1(event_type, raw_item):
     """TEMP diagnostic only -- records a redacted copy of the raw chat item
-    that produced a 'viewer' fallback name on a vote/follow auto-event, so
-    the next live occurrence gives us a real payload shape to design the
-    actual name-extraction fix against. No fallback/recognition behavior
-    reads from this list. Remove this function, its call site, the
-    viewer_fallback_debug_log global, and the persistence wiring for it
-    once a real payload has been captured."""
+    behind a vote/follow/sub/giftsub/tip/raid auto-event, so a real
+    occurrence of any of these gives us a real payload shape to design
+    proper structural classification against (the same way the vote fix,
+    00473c1, was built from 8 real captures). Originally scoped to
+    vote/follow AND only when the resolved username fell back to
+    "viewer" -- that combination was for debugging name-resolution
+    specifically and is why sub/giftsub/tip/raid have zero real captures
+    anywhere, per the bot_false_recognition_remaining_types memory. Both
+    conditions loosened: every one of the five event types, regardless of
+    whether the sender name resolved correctly (a bot like ScurvyBot
+    resolving to its own name would never have been captured otherwise).
+    No fallback/recognition behavior reads from this list. Remove this
+    function, its call site, the viewer_fallback_debug_log global, and the
+    persistence wiring for it once real payloads have been captured for
+    all five types."""
     from datetime import datetime, timezone
 
     try:
@@ -16707,6 +16716,8 @@ auto_chat_event_seen = set()
 
 def parse_auto_chat_event(message_text: str, username: str = "viewer", item: dict = None):
 
+    import re
+
     text = str(message_text or "").strip()
 
     lower = text.lower()
@@ -16780,27 +16791,31 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer", item: dic
 
 
 
-    elif "tipped" in lower or "tip" in lower or "donated" in lower:
+    elif re.search(r"\btipped\b", lower) or re.search(r"\bdonated\b", lower):
+
+        # Interim mitigation (see bot_false_recognition_remaining_types
+        # memory / _foxbot_item_has_vote_signal_v1 for the pattern this
+        # should eventually follow once a real captured tip payload exists):
+        # this branch used to be "tipped" in lower or "tip" in lower or
+        # "donated" in lower, which the bare "tip" arm matched on ANY
+        # message containing that substring ("tip of the day", "no tip
+        # needed", "tips are great"). Dropped the bare substring --
+        # requires the word "tipped" or "donated" specifically (word-
+        # boundary, past tense = a completed action, not an unrelated use
+        # of the word).
+        #
+        # Also deliberately no longer scans the message text for a dollar
+        # amount to credit. That scan was the real exploit: a chat message
+        # like "tipped 500" got paid out as a genuine $500 tip, with
+        # nothing structured backing the number -- a user could type any
+        # amount into chat and have it credited. amount stays at this
+        # function's default (1) until a real captured tip payload (Part 1
+        # broadens capture to record one) confirms a structured amount
+        # field (Blaze's actionInfo, by analogy to the vote fix) to gate on
+        # instead. Under-crediting a real tip is the acceptable failure
+        # mode here, not crediting a fake one.
 
         event_type = "tip"
-
-        for word in words:
-
-            cleaned = word.replace("$", "").replace(",", "")
-
-            try:
-
-                value = float(cleaned)
-
-                if value > 0:
-
-                    amount = value
-
-                    break
-
-            except Exception:
-
-                pass
 
 
 
@@ -25172,8 +25187,14 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
 
             auto_event = auto_event_result.get("event") or {}
 
-            # === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
-            if clean_username == "viewer" and auto_event.get("event_type") in ("vote", "follow"):
+            # === TEMP DIAGNOSTIC — remove once real payloads have been captured ===
+            # Broadened from vote/follow-only, viewer-fallback-only (see
+            # _foxbot_capture_viewer_fallback_debug_v1's docstring): that
+            # narrow gate is why sub/giftsub/tip/raid have never once been
+            # captured, anywhere, despite the bot running live. Still
+            # purely additive -- records a redacted raw payload for later
+            # inspection, never changes classification or payout.
+            if auto_event.get("event_type") in ("vote", "follow", "sub", "giftsub", "tip", "raid"):
                 _foxbot_capture_viewer_fallback_debug_v1(auto_event.get("event_type"), item)
             # === End TEMP DIAGNOSTIC ===
 
