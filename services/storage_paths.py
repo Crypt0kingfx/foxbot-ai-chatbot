@@ -23,6 +23,7 @@ _STATE_KEYS = {
     "connected_creators.json": "connected_creators",
     "blaze_oauth_tokens.json": "blaze_oauth_tokens",
     "foxbot_data.json": "foxbot_data",
+    "bot_connect_f_access.json": "bot_connect_f_access",
 }
 _hydrated_state_keys: set[str] = set()
 _failed_state_keys: set[str] = set()

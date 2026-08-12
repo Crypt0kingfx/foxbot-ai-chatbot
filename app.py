@@ -21220,10 +21220,160 @@ def _foxbot_bot_connect_active_creator_ids_v1():
     return {part.strip() for part in raw.split(",") if part.strip()}
 
 
+# === FoxBot Bot Connection Sub-phase F -- Expiring Subscription Grant v1 ===
+# A second, independent way to satisfy the activation gate below, alongside
+# the static FOXBOT_BOT_CONNECT_ACTIVE_CREATOR_IDS allowlist: a time-boxed
+# grant that auto-expires, so a creator's F-access can track "currently
+# subscribed" instead of needing a permanent admin add/remove per creator.
+#
+# Lives in its own store, data/bot_connect_f_access.json
+# (by_creator[blaze_id]-shaped, same id-space as blaze_oauth_tokens.json's
+# by_creator) -- deliberately NOT inside connected_creators.json (that file
+# is an unwrapped flat handle->record dict; a new top-level sibling key
+# there would be misread as a phantom creator handle by
+# creator_access._creator_map(), which treats the whole document as the
+# handle map when there's no "creators" wrapper) and NOT inside
+# blaze_oauth_tokens.json's by_creator slots (whose revoke path does
+# `del by_creator[creator_id]` -- coupling a grant's lifecycle to OAuth
+# token presence would silently wipe a paid grant the moment a creator's
+# bot-connect token is disconnected or goes stale).
+#
+# Registered in services/storage_paths.py's _STATE_KEYS so it's Neon-
+# mirrored like connected_creators.json/blaze_oauth_tokens.json -- without
+# that, a grant would silently evaporate on the next Render redeploy.
+#
+# Dormant today: nothing calls _foxbot_grant_f_access_v1 yet. The eventual
+# Blaze sub-event handler will, once Blaze confirms the payload shape --
+# out of scope here, this is only the grant/check/revoke machinery.
+from services.creator_access import (
+    GRACE_DAYS as _foxbot_f_access_grace_days_v1,
+    SUBSCRIPTION_ACCESS_DAYS as _foxbot_f_access_default_days_v1,
+    _parse as _foxbot_f_access_parse_ts_v1,
+    _iso as _foxbot_f_access_iso_ts_v1,
+)
+
+
+def _foxbot_f_access_path_v1():
+    return _foxbot_storage_path_v1("bot_connect_f_access.json", "FOXBOT_F_ACCESS_FILE")
+
+
+def _foxbot_f_access_load_v1():
+    import json
+
+    path = _foxbot_f_access_path_v1()
+    if not path.exists():
+        return {}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8") or "{}")
+        return document if isinstance(document, dict) else {}
+    except Exception:
+        return {}
+
+
+def _foxbot_f_access_save_v1(document):
+    import json
+
+    _foxbot_f_access_path_v1().write_text(json.dumps(document, indent=2), encoding="utf-8")
+
+
+def _foxbot_grant_f_access_v1(creator_id, days=_foxbot_f_access_default_days_v1, source="manual"):
+    """Grant or extend a creator's time-boxed F-access window.
+
+    Resub behavior copies creator_access.mark_subscriber's window-extension
+    formula exactly: extends from the current expiry if it's still in the
+    future, from now otherwise -- a resub never stacks on top of unused
+    time, it just pushes the same end date further out.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    cid = str(creator_id or "").strip()
+    if not cid:
+        return {"ok": False, "error": "Missing creator_id."}
+
+    now = datetime.now(timezone.utc)
+    document = _foxbot_f_access_load_v1()
+    by_creator = document.setdefault("by_creator", {})
+    slot = dict(by_creator.get(cid) or {})
+
+    current_end = _foxbot_f_access_parse_ts_v1(slot.get("f_access_expires_at"))
+    base = current_end if current_end and current_end > now else now
+    new_end = base + timedelta(days=max(1, int(days)))
+
+    slot["f_access_expires_at"] = _foxbot_f_access_iso_ts_v1(new_end)
+    slot["f_access_granted_at"] = slot.get("f_access_granted_at") or _foxbot_f_access_iso_ts_v1(now)
+    slot["f_access_source"] = str(source or "manual")
+    by_creator[cid] = slot
+    document["by_creator"] = by_creator
+    _foxbot_f_access_save_v1(document)
+
+    return {
+        "ok": True,
+        "creator_id": cid,
+        "f_access_expires_at": slot["f_access_expires_at"],
+        "f_access_granted_at": slot["f_access_granted_at"],
+        "f_access_source": slot["f_access_source"],
+    }
+
+
+def _foxbot_revoke_f_access_v1(creator_id) -> bool:
+    """Clears the expiry so the grant path stops counting this creator as
+    active. Keeps f_access_granted_at/f_access_source as history -- a
+    revoke isn't an erase, the same discipline
+    _foxbot_connect_clear_blaze_id_v1 uses for the join field (unsets the
+    field, leaves the rest of the record intact). Returns whether anything
+    actually changed.
+    """
+    cid = str(creator_id or "").strip()
+    if not cid:
+        return False
+
+    document = _foxbot_f_access_load_v1()
+    by_creator = document.get("by_creator") or {}
+    slot = by_creator.get(cid)
+    if not isinstance(slot, dict) or not slot.get("f_access_expires_at"):
+        return False
+
+    slot.pop("f_access_expires_at", None)
+    by_creator[cid] = slot
+    document["by_creator"] = by_creator
+    _foxbot_f_access_save_v1(document)
+    return True
+
+
+def _foxbot_f_access_expiry_v1(creator_id):
+    """Read-only: the parsed f_access_expires_at for creator_id, or None if
+    there's no grant at all (no slot, or a revoked/never-granted one)."""
+    cid = str(creator_id or "").strip()
+    if not cid:
+        return None
+
+    document = _foxbot_f_access_load_v1()
+    slot = (document.get("by_creator") or {}).get(cid)
+    if not isinstance(slot, dict):
+        return None
+    return _foxbot_f_access_parse_ts_v1(slot.get("f_access_expires_at"))
+# === End FoxBot Bot Connection Sub-phase F -- Expiring Subscription Grant v1 ===
+
+
 def _foxbot_bot_connect_creator_active_v1(creator_id) -> bool:
     if not creator_id:
         return False
-    return str(creator_id).strip() in _foxbot_bot_connect_active_creator_ids_v1()
+    cid = str(creator_id).strip()
+
+    # Path 1: static admin override -- unchanged from F.2/F.3.
+    if cid in _foxbot_bot_connect_active_creator_ids_v1():
+        return True
+
+    # Path 2: time-boxed grant (new). Lazy check, no background job -- just
+    # "is expires_at (plus a grace buffer) in the future". Empty/missing
+    # grants file means every creator_id falls through to False here,
+    # exactly like path 1 does against an empty allowlist.
+    from datetime import datetime, timedelta, timezone
+
+    expiry = _foxbot_f_access_expiry_v1(cid)
+    if not expiry:
+        return False
+    return datetime.now(timezone.utc) < expiry + timedelta(days=_foxbot_f_access_grace_days_v1)
 
 
 def _foxbot_bot_connect_disabled_response_v1():
