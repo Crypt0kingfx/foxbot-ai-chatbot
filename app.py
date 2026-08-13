@@ -20326,6 +20326,22 @@ def foxbot_blaze_oauth_callback_v1(request: Request, code: str = "", state: str 
     if dashboard_cookie_state and dashboard_cookie_state == state:
         return _foxbot_dashboard_oauth_callback_handle_v1(request, code, state)
 
+    # Bot-connect multiplex, same reasoning as the dashboard branch above:
+    # FOXBOT_BOT_CONNECT_REDIRECT_URI now defaults to this same
+    # /auth/blaze/callback URI (foxbot_bot_connect_login_v1, app.py:21402),
+    # so a bot-connect login also lands here instead of at its own
+    # rejected /auth/bot-connect/callback path. Own cookie namespace
+    # (foxbot_botconnect_oauth_*), checked against the same unique `state`
+    # param -- cannot collide with the dashboard branch above or the
+    # tenant-zero fallback below. Delegates to the exact same handler
+    # /auth/bot-connect/callback itself calls
+    # (_foxbot_bot_connect_oauth_callback_handle_v1, app.py, bot-connect
+    # section), including that handler's own FOXBOT_BOT_CONNECT_ENABLED
+    # gate -- this branch does not bypass the flag.
+    botconnect_cookie_state = request.cookies.get("foxbot_botconnect_oauth_state")
+    if botconnect_cookie_state and botconnect_cookie_state == state:
+        return _foxbot_bot_connect_oauth_callback_handle_v1(request, code, state)
+
     if not code:
 
         return HTMLResponse("<h1>FoxBot Blaze OAuth Error</h1><p>No code received.</p>", status_code=400)
@@ -21211,9 +21227,19 @@ def foxbot_blaze_oauth_refresh_v1(request: Request):
 # Flag-gated behind FOXBOT_BOT_CONNECT_ENABLED (default OFF/unset). Both
 # routes exist even while OFF -- on purpose, so the redirect URI can be
 # registered in Blaze's console ahead of time -- but do nothing until the
-# flag is on. Neither route sits on tenant-zero's own OAuth path
-# (/auth/blaze/login + /auth/blaze/callback, above), so tenant-zero's
-# flow is unaffected regardless of this flag's value.
+# flag is on.
+#
+# Redirect-URI multiplex (see foxbot_bot_connect_login_v1, below, and the
+# botconnect_cookie_state branch in foxbot_blaze_oauth_callback_v1,
+# app.py:20301): Blaze's validator only honors the first-registered
+# redirect URI per host, so /auth/bot-connect/login now sends
+# /auth/blaze/callback as its redirect_uri instead of its own rejected
+# /auth/bot-connect/callback. /auth/bot-connect/callback still exists and
+# still works as a route (Blaze never redirects there under the
+# multiplex, but nothing stops a direct hit), and tenant-zero's own flow
+# is unaffected either way -- the shared callback's branches are keyed
+# off disjoint cookie namespaces plus each flow's own unique `state`, not
+# off which path Blaze hit.
 #
 # Stage 1 (this): flag + route scaffolding only. No Blaze HTTP calls, no
 # cookies, no token writes yet -- those land in Stages 2-3.
@@ -21406,9 +21432,18 @@ def foxbot_bot_connect_login_v1():
 
     client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
     client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    # Redirect-URI multiplex, same pattern as the dashboard login
+    # (foxbot_dashboard_login_v1, app.py:20802): Blaze's validator only
+    # honors the first-registered redirect URI per host
+    # (/auth/blaze/callback) -- /auth/bot-connect/callback itself hits
+    # "invalid redirect_uri" even though it's registered (see
+    # /api/blaze/oauth/bot-connect/debug). Default now points at the
+    # working URI instead of the rejected one; FOXBOT_BOT_CONNECT_REDIRECT_URI
+    # still overrides if Blaze's validator is ever fixed and this needs
+    # to point back at its own path.
     redirect_uri = os.getenv(
         "FOXBOT_BOT_CONNECT_REDIRECT_URI",
-        "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
+        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
     ).strip()
 
     if not client_id or not client_secret:
@@ -21476,8 +21511,19 @@ def foxbot_bot_connect_login_v1():
     return response
 
 
-@app.get("/auth/bot-connect/callback")
-def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str = ""):
+def _foxbot_bot_connect_oauth_callback_handle_v1(request: Request, code: str = "", state: str = ""):
+    """Shared body for the bot-connect OAuth callback. Reused by both
+    /auth/bot-connect/callback (foxbot_bot_connect_callback_v1, below) and
+    the bot-connect branch multiplexed through /auth/blaze/callback
+    (foxbot_blaze_oauth_callback_v1, app.py:20301) -- same reason the
+    dashboard flow needed this split: FOXBOT_BOT_CONNECT_REDIRECT_URI now
+    defaults to /auth/blaze/callback (the one URI Blaze's validator
+    actually honors), so this handler must be reachable from either path.
+    Unchanged from before this was factored out: same identity-gated save
+    primitive (_foxbot_blaze_oauth_save_tokens_v1), same forged-param
+    protection (actual_id always re-derived from Blaze's own verified
+    tokens, never from a request-supplied value).
+    """
     if not _foxbot_bot_connect_enabled_v1():
         return _foxbot_bot_connect_disabled_response_v1()
 
@@ -21502,9 +21548,14 @@ def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str 
 
     client_id = os.getenv("BLAZE_CLIENT_ID", "").strip()
     client_secret = os.getenv("BLAZE_CLIENT_SECRET", "").strip()
+    # Same redirect_uri multiplex as foxbot_bot_connect_login_v1, above --
+    # cookie_redirect normally carries the exact value login sent, so this
+    # env fallback (same default as login's) only matters if the cookie
+    # is somehow missing. Must stay byte-identical to login's value or
+    # Blaze's token exchange fails with a redirect_uri mismatch.
     redirect_uri = cookie_redirect or os.getenv(
         "FOXBOT_BOT_CONNECT_REDIRECT_URI",
-        "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
+        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
     ).strip()
 
     try:
@@ -21602,6 +21653,11 @@ def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str 
         f"refresh token: {bool(saved.get('refreshToken') or saved.get('refresh_token'))}.</p>",
         status_code=200
     )
+
+
+@app.get("/auth/bot-connect/callback")
+def foxbot_bot_connect_callback_v1(request: Request, code: str = "", state: str = ""):
+    return _foxbot_bot_connect_oauth_callback_handle_v1(request, code, state)
 
 
 @app.post("/api/blaze/oauth/bot-connect/revoke")
