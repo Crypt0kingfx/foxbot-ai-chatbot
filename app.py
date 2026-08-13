@@ -22256,9 +22256,14 @@ def foxbot_blaze_oauth_bot_connect_debug_v1(request: Request):
     /auth/bot-connect/login redirect_uri instead of the tenant-zero
     /auth/blaze/callback one -- so the two can be diffed directly. Reads
     FOXBOT_BOT_CONNECT_REDIRECT_URI the exact same way
-    foxbot_bot_connect_login_v1 (app.py:20522) does, so if that env var
+    foxbot_bot_connect_login_v1 (app.py:21429) does, so if that env var
     is set to something unexpected in Render, this shows the same value
-    the real login route would actually send to Blaze.
+    the real login route would actually send to Blaze. Default kept in
+    sync with foxbot_bot_connect_login_v1's own default (the
+    /auth/blaze/callback multiplex, commit 9fbaa52) -- this route's
+    default had drifted from login's for one deploy after that commit,
+    which made this debug route test the old, no-longer-sent URI instead
+    of the one actually in use.
     """
     guard = _foxbot_require_admin_v1(request)
     if guard:
@@ -22266,7 +22271,7 @@ def foxbot_blaze_oauth_bot_connect_debug_v1(request: Request):
 
     bot_connect_redirect_uri = os.getenv(
         "FOXBOT_BOT_CONNECT_REDIRECT_URI",
-        "https://foxbot-ai-chatbot.onrender.com/auth/bot-connect/callback"
+        "https://foxbot-ai-chatbot.onrender.com/auth/blaze/callback"
     ).strip()
 
     full = _foxbot_blaze_oauth_generate_auth_debug_v1(
