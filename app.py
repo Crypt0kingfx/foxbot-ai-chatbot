@@ -74,6 +74,7 @@ from services.storage_paths import hydration_failed as _foxbot_hydration_failed_
 from services import foxbot_events as _foxbot_events_v1
 from services.blaze_tokens import resolve_blaze_access_token
 from services.blaze_tokens import sync_tenant_zero_slot as _foxbot_blaze_oauth_sync_tenant_zero_slot_v1
+from services.blaze_tokens import by_creator_ids as _foxbot_blaze_by_creator_ids_v1
 
 from fastapi.staticfiles import StaticFiles
 
@@ -21291,6 +21292,7 @@ from services.creator_access import (
     SUBSCRIPTION_ACCESS_DAYS as _foxbot_f_access_default_days_v1,
     _parse as _foxbot_f_access_parse_ts_v1,
     _iso as _foxbot_f_access_iso_ts_v1,
+    get_access as _foxbot_creator_access_get_v1,
 )
 
 
@@ -21415,6 +21417,83 @@ def _foxbot_bot_connect_creator_active_v1(creator_id) -> bool:
     if not expiry:
         return False
     return datetime.now(timezone.utc) < expiry + timedelta(days=_foxbot_f_access_grace_days_v1)
+
+
+# === FoxBot Bot Connection Sub-phase F, Stage 4.1 -- Bot-Connect Target
+# Enumeration (dormant, pure addition, nothing consumes this yet) ===
+#
+# A SEPARATE poll-target class for bot-connect'd + activated creators --
+# deliberately NOT folded into active_creators()/build_targets(). That path
+# resolves identity through the chat creator_handle join, which falls back
+# to tenant-zero the moment a handle is unmapped or trial access has
+# lapsed (confirmed live: princessjamesy's join is correct but their trial
+# expired 2026-07-26, so they never even reach that path today). Enumerating
+# straight from the by_creator token store means a bot-connect'd creator's
+# identity is never ambiguous and never depends on trial status: a real
+# token slot + activation is the whole test.
+
+def _foxbot_bot_connect_targets_v1():
+    """{targets, unresolved, target_count} for activated bot-connect'd
+    creators. Same shape as blaze_multichannel.build_targets() on purpose.
+    Pure reads only -- no network calls, no writes. Each target carries
+    creator_id (the blaze_id itself) and is_bot_connect_target=True.
+    """
+    tenant_zero_id = _tenant_zero_id()
+    targets = []
+    unresolved = []
+
+    for creator_id in sorted(_foxbot_blaze_by_creator_ids_v1()):
+        if creator_id == tenant_zero_id:
+            # Mirror slot (sync_tenant_zero_slot), not a second identity --
+            # already polled via the owner-channel target. Same exclusion
+            # discipline as the refresh worker's own tz skip (app.py:21715).
+            continue
+
+        if not _foxbot_bot_connect_creator_active_v1(creator_id):
+            continue
+
+        handle = _foxbot_resolve_handle_for_blaze_id_v1(creator_id)
+        if not handle:
+            unresolved.append({
+                "creator_id": creator_id,
+                "error": "No connected_creators.json join for this blaze_id.",
+            })
+            continue
+
+        access = _foxbot_creator_access_get_v1(handle)
+        channel_id = str(access.get("channel_id") or "").strip()
+        if not channel_id:
+            unresolved.append({
+                "creator_id": creator_id,
+                "handle": handle,
+                "error": "No channel_id resolved for this creator yet.",
+            })
+            continue
+
+        targets.append({
+            "channel_id": channel_id,
+            "channel_slug": access.get("channel_slug") or handle,
+            "handle": handle,
+            "creator_id": creator_id,
+            "access_status": "bot_connected",
+            "is_owner_channel": False,
+            "is_bot_connect_target": True,
+            "use_own_token": True,
+        })
+
+    return {"ok": True, "targets": targets, "unresolved": unresolved, "target_count": len(targets)}
+
+
+@app.get("/api/foxbot/bot-connect/targets")
+def foxbot_bot_connect_targets_v1(request: Request):
+    """Stage 4.1 verification endpoint -- inspect the enumerated
+    bot-connect target class without touching the live poll loop.
+    Admin-gated like every other /api/blaze/oauth/*-adjacent route."""
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+    return _foxbot_bot_connect_targets_v1()
+# === End FoxBot Bot Connection Sub-phase F, Stage 4.1 ===
 
 
 def _foxbot_bot_connect_disabled_response_v1():
@@ -24670,6 +24749,7 @@ _FOXBOT_MULTICHANNEL_STATE_V1 = {
     "cycles": 0,
     "target_count": 0,
     "active_creator_count": 0,
+    "bot_connect_target_count": 0,
     "channels_checked": 0,
     "messages_seen": 0,
     "commands_processed": 0,
@@ -24726,13 +24806,29 @@ def blaze_polling_worker():
 
         try:
             target_result = _foxbot_multichannel_targets_v1()
-            targets = target_result.get("targets", [])
+            targets = list(target_result.get("targets", []))
+            unresolved = list(target_result.get("unresolved", []))
+
+            # Bot Connection Sub-phase F, stage 4.2: a SECOND, independent
+            # target source, appended after the existing active_creators()-
+            # driven targets -- never merged into that list's own
+            # resolution logic, just concatenated onto it. With the
+            # allowlist empty (today's production value) this contributes
+            # zero targets, so `targets` below is byte-identical to before
+            # this stage existed. See Stage 4.1 for why this class is kept
+            # separate instead of folded into active_creators().
+            bot_connect_result = _foxbot_bot_connect_targets_v1()
+            bot_connect_targets = bot_connect_result.get("targets", [])
+            targets = targets + bot_connect_targets
+            unresolved = unresolved + bot_connect_result.get("unresolved", [])
+
             _FOXBOT_MULTICHANNEL_STATE_V1["targets"] = targets
-            _FOXBOT_MULTICHANNEL_STATE_V1["unresolved"] = target_result.get("unresolved", [])
+            _FOXBOT_MULTICHANNEL_STATE_V1["unresolved"] = unresolved
             _FOXBOT_MULTICHANNEL_STATE_V1["target_count"] = len(targets)
             _FOXBOT_MULTICHANNEL_STATE_V1["active_creator_count"] = target_result.get(
                 "active_creator_count", 0
             )
+            _FOXBOT_MULTICHANNEL_STATE_V1["bot_connect_target_count"] = len(bot_connect_targets)
 
             for target in targets:
                 if not polling_status["running"]:
@@ -24745,20 +24841,32 @@ def blaze_polling_worker():
                 target_status["last_attempt_at"] = time.time()
                 target_status["cycles"] += 1
 
-                # Sub-phase F, stage 2: resolve the SAME creator_id Sub-
-                # phase D already resolves per channel, once, here --
-                # BEFORE the fetch, not after -- so it can pick the read
-                # token AND be handed unchanged into
-                # _foxbot_process_channel_rows_v1 below. Never re-derived
-                # a second time: one value, one source, both call sites.
-                # This is what structurally rules out reading channel A's
-                # messages through a token resolved for a different
-                # creator B -- there is only one resolution per target
-                # per cycle, not two that merely happen to agree.
-                creator_handle_for_target = (
-                    str(target.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
-                )
-                resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle_for_target)
+                if target.get("is_bot_connect_target"):
+                    # Stage 4.2: this target's identity is already
+                    # unambiguous -- it came straight from its own
+                    # by_creator token slot (Stage 4.1), never from the
+                    # chat-handle join. Re-deriving it via
+                    # _foxbot_resolve_creator_id_v1 here would reintroduce
+                    # exactly the fragility Stage 4.1 was built to avoid
+                    # (a handle mismatch silently falling back to
+                    # tenant-zero), so this branch uses target["creator_id"]
+                    # directly and never calls that resolver.
+                    resolved_creator_id = target.get("creator_id")
+                else:
+                    # Sub-phase F, stage 2: resolve the SAME creator_id Sub-
+                    # phase D already resolves per channel, once, here --
+                    # BEFORE the fetch, not after -- so it can pick the read
+                    # token AND be handed unchanged into
+                    # _foxbot_process_channel_rows_v1 below. Never re-derived
+                    # a second time: one value, one source, both call sites.
+                    # This is what structurally rules out reading channel A's
+                    # messages through a token resolved for a different
+                    # creator B -- there is only one resolution per target
+                    # per cycle, not two that merely happen to agree.
+                    creator_handle_for_target = (
+                        str(target.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+                    )
+                    resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle_for_target)
 
                 try:
                     data = get_recent_blaze_messages(channel_id=channel_id, creator_id=resolved_creator_id)

@@ -120,3 +120,14 @@ def sync_tenant_zero_slot(payload, creator_id):
         key: value for key, value in payload.items() if key != "by_creator"
     }
     return payload
+
+
+def by_creator_ids():
+    """Every creator_id that currently has a by_creator token slot -- ids
+    only, never token material. Bot Connection Sub-phase F, stage 4.1: the
+    enumeration source for the bot-connect target class, kept here since
+    this module is the sole owner of by_creator's on-disk shape.
+    """
+    saved = _saved_tokens()
+    by_creator = saved.get("by_creator", {}) if isinstance(saved, dict) else {}
+    return {str(cid) for cid, slot in by_creator.items() if isinstance(slot, dict)}
