@@ -58,6 +58,8 @@ import threading
 
 import time
 
+import uuid
+
 from datetime import date
 
 
@@ -3454,6 +3456,45 @@ def debit_foxcoins_idempotent(name: str, amount: int, idempotency_key: str, reas
     return dict(result)
 
 
+# --- Casino Phase 5: chat-command wiring ------------------------------
+# Imports for the previously-dormant Postgres-backed casino subsystem
+# (Phases 2-4: services/casino_ledger.py, services/casino_config.py,
+# services/casino_rounds.py, providers/promo.py, games/coinflip.py). None
+# of these modules import app.py at their own module level (providers/
+# promo.py's app.debit_foxcoins_idempotent() call is a deferred import
+# inside a function, specifically to avoid a cycle with this import), so
+# importing them here at module load time is safe.
+from services import casino_config as _foxbot_casino_config_v1
+from services import casino_ledger as _foxbot_casino_ledger_v1
+from services import casino_rounds as _foxbot_casino_rounds_v1
+from providers import promo as _foxbot_casino_promo_v1
+from games import coinflip as _foxbot_casino_coinflip_v1
+
+
+def _foxbot_casino_enabled_v1() -> bool:
+    """Platform-wide master switch, same convention as
+    _foxbot_bot_connect_enabled_v1(). Default OFF/unset -- with this off,
+    none of the !convert/!casinoflip/!casino command bodies in chat() even
+    run (they're wrapped in `if _foxbot_casino_enabled_v1():`), so the
+    casino deploys completely inert regardless of any per-creator config,
+    with zero extra DB calls anywhere in chat()."""
+    return os.getenv("FOXBOT_CASINO_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_casino_creator_enabled_v1(creator_id: str) -> bool:
+    """Per-creator opt-in (services/casino_config.py's casino_enabled,
+    default False -- unlike this module's other config defaults, a
+    creator's casino starts OFF, not on, since this is what actually moves
+    real FoxCoins). Both this AND _foxbot_casino_enabled_v1() must be true
+    for a casino command to do anything -- the platform flag alone must
+    not light up gambling in every channel at once the moment it's set."""
+    try:
+        config = _foxbot_casino_config_v1.get_config(creator_id)
+    except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+        return False
+    return bool(config.casino_enabled)
+
+
 def add_redemption(username: str, reward_name: str, message: str, cost: int, creator_handle: str = None):
 
     redemption = {
@@ -4349,7 +4390,7 @@ def is_admin(username: str):
 
 @app.get("/chat")
 
-def chat(message: str = "", username: str = "viewer", creator_handle: str = None, allow_admin: bool = True):
+def chat(message: str = "", username: str = "viewer", creator_handle: str = None, allow_admin: bool = True, dedupe_key: str = None):
 
     global giveaway_entries
 
@@ -4404,6 +4445,18 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
     # every call site below stays byte-identical to its old hardcoded
     # _tenant_zero_*() behavior until a real join exists.
     resolved_creator_id = _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+
+    # Casino Phase 5: the caller's per-message dedupe key (the polling
+    # loop's already-channel-scoped, already-deduplicated message_key),
+    # threaded through so !convert/!casinoflip can derive stable
+    # idempotency_key/round_id values -- the durable Postgres-side safety
+    # net for message replay across a crash/restart, since
+    # processed_polling_messages (the in-memory dedupe set) resets on
+    # every process restart and cannot be relied on alone. Callers that
+    # don't pass one (demo/test/debug call sites) get a fresh, non-
+    # deduplicated key each time -- acceptable there since none of those
+    # paths are real chat needing replay protection.
+    dedupe_key = str(dedupe_key or "").strip() or f"nodedupe-{uuid.uuid4().hex}"
 
     # === FoxBot Studio Giveaway Viewer Entry v3 ===
     # Real stream entry command for the Admin Hub Giveaway Center.
@@ -4773,11 +4826,18 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
     if lower_message == "!foxhelp":
 
+        # Casino commands only ever appear here when the platform flag is
+        # on -- with it off (default/today), this text is byte-identical
+        # to before Casino Phase 5, and this check is a single cheap
+        # os.getenv() read, not a DB call, so !foxhelp's cost is unchanged
+        # either way.
+        casino_help = ", !convert, !casinoflip heads 10, !casino" if _foxbot_casino_enabled_v1() else ""
+
         if admin:
 
             return {
 
-                "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard | Admin: !giveaway, !pickwinner, !resetstreak, !startquest, !endquest, !questadd, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
+                "response": f"FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem, !boss, !attack, !arcade, !socials, !leaderboard{casino_help} | Admin: !giveaway, !pickwinner, !resetstreak, !startquest, !endquest, !questadd, !startevent, !endevent, !goodnight, !endstream, !startboss, !givepoints, !addreward"
 
             }
 
@@ -4785,7 +4845,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         return {
 
-            "response": "FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem hug, !boss, !attack, !arcade, !socials, !leaderboard"
+            "response": f"FoxBot help: !daily, !foxhunt, !balance, !shop, !redeem hug, !boss, !attack, !arcade, !socials, !leaderboard{casino_help}"
 
         }
 
@@ -7250,7 +7310,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
 
-            "!shoutout", "!addcmd", "!delcmd", "!commands"
+            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip"
 
         }
 
@@ -7556,6 +7616,170 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         }
 
 
+
+    # === Casino Phase 5: !convert / !casinoflip / !casino ===
+    # TWO GATES, both must be true or none of this runs:
+    #   1. _foxbot_casino_enabled_v1() -- platform-wide FOXBOT_CASINO_ENABLED,
+    #      default OFF. This whole block is skipped entirely when off, so
+    #      the casino deploys byte-identical to today: no extra DB calls,
+    #      no changed replies, nothing.
+    #   2. _foxbot_casino_creator_enabled_v1(resolved_creator_id) --
+    #      per-creator opt-in (services/casino_config.py's casino_enabled,
+    #      default False). The platform flag alone must not light up
+    #      gambling in every channel the instant it's set.
+    # The wagering coin flip is !casinoflip, deliberately NOT !coinflip --
+    # the free arcade !coinflip above is keyed by command_root() (the
+    # first whitespace-split token, args stripped) into the SAME
+    # cooldown_settings/cooldown_tracker bucket used by
+    # check_command_cooldown() near the top of chat(). "!coinflip heads
+    # 10" and bare "!coinflip" would have shared one cooldown timer --
+    # playing the free game would throttle real-money wagers and vice
+    # versa. Caught by testing, not by inspection; renaming the wagering
+    # command sidesteps it entirely rather than special-casing the
+    # cooldown check.
+    if _foxbot_casino_enabled_v1():
+
+        if lower_message.startswith("!convert"):
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 2:
+                return {"response": "Use !convert amount. Example: !convert 5 converts FoxCoins into casino promo credits."}
+
+            try:
+                promo_amount = int(parts[1])
+            except ValueError:
+                return {"response": "Convert amount must be a whole number. Example: !convert 5"}
+
+            if promo_amount <= 0:
+                return {"response": "Convert amount must be greater than 0."}
+
+            user_id = viewer_key(username)
+            currency = get_currency_name()
+
+            try:
+                config = _foxbot_casino_config_v1.get_config(resolved_creator_id)
+            except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+
+            foxcoin_cost = promo_amount * config.foxcoins_per_promo
+
+            # dedupe_key is the polling loop's already-channel-scoped,
+            # already-deduplicated message_key -- this idempotency_key is
+            # the durable Postgres-side backstop against the SAME chat
+            # message being reprocessed after a crash/restart (the
+            # in-memory processed_polling_messages dedupe resets on every
+            # restart and cannot be relied on alone). A user spamming the
+            # identical !convert message still only converts once.
+            try:
+                provider = _foxbot_casino_promo_v1.PromoProvider()
+                result = provider.deposit(
+                    resolved_creator_id, user_id, promo_amount,
+                    idempotency_key=f"convert:{dedupe_key}", display_name=username,
+                )
+            except InsufficientFoxCoins:
+                balance = get_balance(username, creator_id=resolved_creator_id)
+                return {
+                    "response": f"@{username}, you need {foxcoin_cost} {currency} to convert {promo_amount} promo credits. "
+                                f"Your balance: {balance} {currency}."
+                }
+            except _foxbot_casino_promo_v1.DailyLimitExceeded:
+                return {"response": f"@{username}, you've hit today's conversion limit. Try again tomorrow."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that conversion couldn't be processed."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong converting. Try again shortly."}
+
+            return {
+                "response": (
+                    f"@{username}, converted {foxcoin_cost} {currency} -> {result['promo_amount']} promo credits! "
+                    f"Casino balance: {result['promo_balance']} promo."
+                )
+            }
+
+        if lower_message.startswith("!casinoflip "):
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 3:
+                return {"response": "Use !casinoflip heads|tails amount. Example: !casinoflip heads 10"}
+
+            pick = parts[1].strip().lower()
+            if pick not in ("heads", "tails"):
+                return {"response": "Pick heads or tails. Example: !casinoflip heads 10"}
+
+            try:
+                wager = int(parts[2])
+            except ValueError:
+                return {"response": "Wager must be a whole number of promo credits. Example: !casinoflip heads 10"}
+
+            if wager <= 0:
+                return {"response": "Wager must be greater than 0."}
+
+            user_id = viewer_key(username)
+            round_id = f"casinoflip:{dedupe_key}"
+
+            try:
+                result = _foxbot_casino_coinflip_v1.play_coinflip(
+                    resolved_creator_id, user_id, pick, wager, round_id, display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you don't have enough promo credits for that wager "
+                                f"(balance: {promo_balance}). Convert FoxCoins first with !convert amount."
+                }
+            except _foxbot_casino_rounds_v1.GameDisabled:
+                return {"response": f"@{username}, casinoflip is currently disabled here."}
+            except _foxbot_casino_rounds_v1.BetOutOfRange:
+                return {"response": f"@{username}, that wager is outside the allowed range for casinoflip here."}
+            except _foxbot_casino_rounds_v1.RoundMismatch:
+                return {"response": f"@{username}, that request was already processed."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that wager couldn't be processed."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong with that wager. Try again shortly."}
+
+            roll = str(result.metadata.get("roll", "")).upper()
+            if result.outcome == "win":
+                return {
+                    "response": f"🪙 @{username}, landed {roll} — you won {result.payout} promo! Balance: {result.balance_after} promo."
+                }
+            return {
+                "response": f"🪙 @{username}, landed {roll} — you lost {wager} promo. Balance: {result.balance_after} promo."
+            }
+
+        if lower_message == "!casino":
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            user_id = viewer_key(username)
+            try:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except Exception:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+
+            return {
+                "response": (
+                    f"@{username}, casino balance: {promo_balance} promo. "
+                    f"Convert with !convert amount, play with !casinoflip heads|tails amount."
+                )
+            }
 
     if lower_message in _creator_commands_v1(resolved_creator_id):
 
@@ -25397,7 +25621,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
             _foxbot_events_v1.emit_event(
                 creator_handle, "command", actor=clean_username, detail={"command": command}
             )
-            foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle)
+            foxbot_result = chat(message=message_text, username=clean_username, creator_handle=creator_handle, dedupe_key=message_key)
             foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
             if foxbot_reply:
                 send_blaze_chat_message(foxbot_reply, channel_id=channel_id, creator_id=resolved_creator_id)
@@ -25468,6 +25692,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
             message=message_text,
             username=clean_username,
             creator_handle=creator_handle,
+            dedupe_key=message_key,
         )
         foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
 

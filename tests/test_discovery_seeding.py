@@ -167,7 +167,7 @@ class DiscoverySeedingTests(unittest.TestCase):
 
         self.assertEqual(processed, 1)
         self.mock_chat.assert_called_once_with(
-            message="!help", username="newcreator", creator_handle="testcreator"
+            message="!help", username="newcreator", creator_handle="testcreator", dedupe_key=mock.ANY
         )
 
     def test_missing_timestamp_fails_closed(self):
@@ -228,7 +228,7 @@ class DiscoverySeedingTests(unittest.TestCase):
 
         self.assertEqual(processed, 1)
         self.mock_chat.assert_called_once_with(
-            message="!daily", username="viewer1", creator_handle="testcreator"
+            message="!daily", username="viewer1", creator_handle="testcreator", dedupe_key=mock.ANY
         )
 
 

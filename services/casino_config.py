@@ -35,6 +35,13 @@ DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 DEFAULT_FOXCOINS_PER_PROMO = 100
 DEFAULT_DAILY_PROMO_LIMIT = 5000
 
+# Opt-in, not opt-out (Casino Phase 5 go-live gate) -- unlike the other
+# defaults in this module, a creator's casino is OFF until they explicitly
+# turn it on via set_config(casino_enabled=True). Real FoxCoins start
+# moving the moment this is True (plus the FOXBOT_CASINO_ENABLED platform
+# flag in app.py), so "works out of the box" is the wrong default here.
+DEFAULT_CASINO_ENABLED = False
+
 # Every game enabled with a 1..1000 PROMO bet range by default, until a
 # creator configures otherwise via set_game_config().
 DEFAULT_GAME_ENABLED = True
@@ -52,6 +59,7 @@ class CasinoConfig:
     creator_id: str
     foxcoins_per_promo: int
     daily_promo_limit: int
+    casino_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -100,8 +108,20 @@ def _ensure_schema(connection) -> None:
                 creator_id         TEXT PRIMARY KEY,
                 foxcoins_per_promo BIGINT NOT NULL DEFAULT {DEFAULT_FOXCOINS_PER_PROMO},
                 daily_promo_limit  BIGINT NOT NULL DEFAULT {DEFAULT_DAILY_PROMO_LIMIT},
+                casino_enabled     BOOLEAN NOT NULL DEFAULT {str(DEFAULT_CASINO_ENABLED).upper()},
                 updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
+            """
+        )
+        # casino_enabled was added after this table first shipped (Casino
+        # Phase 3) -- CREATE TABLE IF NOT EXISTS above is a no-op against
+        # an already-existing table, so an explicit migration is needed to
+        # backfill the column on any database where casino_config was
+        # created before this column existed.
+        connection.execute(
+            f"""
+            ALTER TABLE {TABLE_CONFIG}
+            ADD COLUMN IF NOT EXISTS casino_enabled BOOLEAN NOT NULL DEFAULT {str(DEFAULT_CASINO_ENABLED).upper()}
             """
         )
         connection.execute(
@@ -130,13 +150,13 @@ def get_config(creator_id: str, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) 
     with _connect(timeout=timeout) as connection:
         _ensure_schema(connection)
         row = connection.execute(
-            f"SELECT foxcoins_per_promo, daily_promo_limit FROM {TABLE_CONFIG} WHERE creator_id = %s",
+            f"SELECT foxcoins_per_promo, daily_promo_limit, casino_enabled FROM {TABLE_CONFIG} WHERE creator_id = %s",
             (creator_id,),
         ).fetchone()
 
     if row is None:
-        return CasinoConfig(creator_id, DEFAULT_FOXCOINS_PER_PROMO, DEFAULT_DAILY_PROMO_LIMIT)
-    return CasinoConfig(creator_id, int(row[0]), int(row[1]))
+        return CasinoConfig(creator_id, DEFAULT_FOXCOINS_PER_PROMO, DEFAULT_DAILY_PROMO_LIMIT, DEFAULT_CASINO_ENABLED)
+    return CasinoConfig(creator_id, int(row[0]), int(row[1]), bool(row[2]))
 
 
 def set_config(
@@ -144,6 +164,7 @@ def set_config(
     *,
     foxcoins_per_promo: int | None = None,
     daily_promo_limit: int | None = None,
+    casino_enabled: bool | None = None,
     timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS,
 ) -> CasinoConfig:
     _require_available()
@@ -154,6 +175,7 @@ def set_config(
 
     rate = DEFAULT_FOXCOINS_PER_PROMO if foxcoins_per_promo is None else int(foxcoins_per_promo)
     limit = DEFAULT_DAILY_PROMO_LIMIT if daily_promo_limit is None else int(daily_promo_limit)
+    enabled = DEFAULT_CASINO_ENABLED if casino_enabled is None else bool(casino_enabled)
     if rate <= 0:
         raise ValueError("foxcoins_per_promo must be a positive integer.")
     if limit <= 0:
@@ -162,31 +184,34 @@ def set_config(
     with _connect(timeout=timeout) as connection:
         _ensure_schema(connection)
         current = connection.execute(
-            f"SELECT foxcoins_per_promo, daily_promo_limit FROM {TABLE_CONFIG} WHERE creator_id = %s",
+            f"SELECT foxcoins_per_promo, daily_promo_limit, casino_enabled FROM {TABLE_CONFIG} WHERE creator_id = %s",
             (creator_id,),
         ).fetchone()
 
-        # Partial updates (only one of the two kwargs given) should not
-        # silently reset the other field back to the module default.
+        # Partial updates (only some of the kwargs given) should not
+        # silently reset the other fields back to module defaults.
         if current is not None:
             if foxcoins_per_promo is None:
                 rate = int(current[0])
             if daily_promo_limit is None:
                 limit = int(current[1])
+            if casino_enabled is None:
+                enabled = bool(current[2])
 
         connection.execute(
             f"""
-            INSERT INTO {TABLE_CONFIG} (creator_id, foxcoins_per_promo, daily_promo_limit, updated_at)
-            VALUES (%s, %s, %s, NOW())
+            INSERT INTO {TABLE_CONFIG} (creator_id, foxcoins_per_promo, daily_promo_limit, casino_enabled, updated_at)
+            VALUES (%s, %s, %s, %s, NOW())
             ON CONFLICT (creator_id) DO UPDATE
                 SET foxcoins_per_promo = EXCLUDED.foxcoins_per_promo,
                     daily_promo_limit = EXCLUDED.daily_promo_limit,
+                    casino_enabled = EXCLUDED.casino_enabled,
                     updated_at = NOW()
             """,
-            (creator_id, rate, limit),
+            (creator_id, rate, limit, enabled),
         )
 
-    return CasinoConfig(creator_id, rate, limit)
+    return CasinoConfig(creator_id, rate, limit, enabled)
 
 
 def get_game_config(creator_id: str, game_id: str, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) -> GameConfig:
