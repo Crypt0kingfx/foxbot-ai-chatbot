@@ -3384,6 +3384,76 @@ def add_points(name: str, amount: int, reason: str = "activity", creator_id: str
 
 
 
+class InsufficientFoxCoins(Exception):
+    """Raised by debit_foxcoins_idempotent when the balance is too low to
+    cover the requested amount. Unlike add_points()'s clamp-to-zero, this
+    never touches the balance on rejection -- callers (casino conversion)
+    treat "debit succeeded" as proof money actually moved, so a rejected
+    debit must leave the balance completely untouched."""
+
+
+def debit_foxcoins_idempotent(name: str, amount: int, idempotency_key: str, reason: str = "casino_promo_convert", creator_id: str = None):
+    """Idempotent, insufficient-funds-rejecting debit for FoxCoin -> casino
+    PROMO conversion (providers/promo.py). Unlike add_points(): (1) raises
+    InsufficientFoxCoins instead of silently clamping to zero when funds
+    are short, (2) replaying the same idempotency_key returns the original
+    result instead of debiting again.
+
+    The balance mutation and the idempotency marker are written into the
+    SAME per-creator economy dict before this function returns -- the next
+    save_persistent_data() flush captures both or neither, never one
+    without the other. That's what makes it safe for a caller to resume
+    after a crash: whether idempotency_key is present in
+    processed_deductions durably answers "did this debit actually happen",
+    which add_points() alone has no way to answer.
+    """
+    if not idempotency_key:
+        raise ValueError("idempotency_key is required -- this function exists specifically to make FoxCoin debits safe to retry.")
+
+    amount = int(amount)
+    if amount <= 0:
+        raise ValueError("amount must be a positive integer.")
+
+    clean_name = normalize_viewer_name(name)
+    key = viewer_key(clean_name)
+    economy = _creator_economy_v1(creator_id or _tenant_zero_id())
+
+    # Lazy setdefault, same migration-safety contract as the other
+    # _creator_economy_v1() fields (balances/daily_claims/transactions):
+    # an economy dict persisted before this key existed just gets it added
+    # on first use here, no KeyError, no migration step required.
+    processed = economy.setdefault("processed_deductions", {})
+
+    existing = processed.get(idempotency_key)
+    if existing is not None:
+        if existing["viewer"] != key or existing["amount"] != -amount:
+            raise ValueError(
+                f"idempotency_key {idempotency_key!r} was already used for a different "
+                f"debit ({existing['viewer']}, {existing['amount']}) -- refusing to reuse it."
+            )
+        return dict(existing)
+
+    current = int(economy["balances"].get(key, 0))
+    if current < amount:
+        raise InsufficientFoxCoins(f"{key}: balance={current}, requested debit={amount}.")
+
+    new_balance = current - amount
+    economy["balances"][key] = new_balance
+
+    result = {"viewer": key, "amount": -amount, "reason": reason, "balance": new_balance}
+    processed[idempotency_key] = result
+
+    economy["transactions"].append({
+        "viewer": clean_name,
+        "amount": -amount,
+        "reason": reason,
+        "balance": new_balance,
+    })
+    economy["transactions"] = economy["transactions"][-50:]
+
+    return dict(result)
+
+
 def add_redemption(username: str, reward_name: str, message: str, cost: int, creator_handle: str = None):
 
     redemption = {
