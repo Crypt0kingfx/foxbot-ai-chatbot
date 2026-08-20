@@ -3470,6 +3470,7 @@ from services import casino_rounds as _foxbot_casino_rounds_v1
 from providers import promo as _foxbot_casino_promo_v1
 from games import coinflip as _foxbot_casino_coinflip_v1
 from games import roulette as _foxbot_casino_roulette_v1
+from games import crash as _foxbot_casino_crash_v1
 
 
 def _foxbot_casino_enabled_v1() -> bool:
@@ -3480,6 +3481,22 @@ def _foxbot_casino_enabled_v1() -> bool:
     casino deploys completely inert regardless of any per-creator config,
     with zero extra DB calls anywhere in chat()."""
     return os.getenv("FOXBOT_CASINO_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_crash_enabled_v1() -> bool:
+    """Third, crash-specific gate on top of the two casino gates above.
+    Default OFF/unset. Unlike coinflip/roulette, casino_game_config's
+    DEFAULT_GAME_ENABLED=True means crash would otherwise auto-enable the
+    instant a creator's casino_enabled flips true -- exactly like
+    roulette did, deliberately, once its DB-backed proofs (anti-exploit,
+    regression, idempotency) were already green. Crash's proofs need a
+    throwaway/dev Postgres this session doesn't have yet, so this flag
+    lets the command ship DORMANT: !crash falls through to no match at
+    all (never reaches games/crash.py, zero DB calls) until this is
+    explicitly set to true in Render, after the proofs pass. games/
+    crash.py itself is untouched by this -- the gate lives only in
+    chat()'s command routing below."""
+    return os.getenv("FOXBOT_CRASH_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _foxbot_casino_creator_enabled_v1(creator_id: str) -> bool:
@@ -4833,6 +4850,12 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         # os.getenv() read, not a DB call, so !foxhelp's cost is unchanged
         # either way.
         casino_help = ", !convert, !casinoflip heads 10, !casino, !roulette red 10" if _foxbot_casino_enabled_v1() else ""
+        # Crash's own DB-backed proofs (anti-exploit, regression,
+        # idempotency) haven't run against a real database yet -- keep it
+        # out of !foxhelp until FOXBOT_CRASH_ENABLED is explicitly set,
+        # same dormant-by-default reasoning as _foxbot_crash_enabled_v1().
+        if _foxbot_casino_enabled_v1() and _foxbot_crash_enabled_v1():
+            casino_help += ", !crash 10 2.5"
 
         if admin:
 
@@ -7311,7 +7334,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
 
-            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette"
+            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette", "!crash"
 
         }
 
@@ -7836,6 +7859,68 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             return {
                 "response": f"🎡 @{username}, ball landed on {pocket} {color} — you lost {wager} promo. "
                             f"Balance: {result.balance_after} promo."
+            }
+
+        if lower_message.startswith("!crash ") and _foxbot_crash_enabled_v1():
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 3:
+                return {"response": "Use !crash <bet> <target>. Example: !crash 10 2.5 (auto-cashout at 2.5x)."}
+
+            try:
+                bet = int(parts[1])
+            except ValueError:
+                return {"response": "Bet must be a whole number of promo credits."}
+
+            if bet <= 0:
+                return {"response": "Bet must be greater than 0."}
+
+            target_token = parts[2]
+            user_id = viewer_key(username)
+            round_id = f"crash:{dedupe_key}"
+
+            try:
+                result = _foxbot_casino_crash_v1.play_crash(
+                    resolved_creator_id, user_id, bet, target_token, round_id, display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you don't have enough promo credits for that bet "
+                                f"(balance: {promo_balance}). Convert FoxCoins first with !convert amount."
+                }
+            except _foxbot_casino_rounds_v1.GameDisabled:
+                return {"response": f"@{username}, crash is currently disabled here."}
+            except _foxbot_casino_rounds_v1.BetOutOfRange:
+                return {"response": f"@{username}, that bet is outside the allowed range for crash here."}
+            except _foxbot_casino_rounds_v1.RoundMismatch:
+                return {"response": f"@{username}, that request was already processed."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {
+                    "response": f"@{username}, target must be a number greater than 1.00 and at most "
+                                f"{_foxbot_casino_crash_v1.MAX_TARGET} with at most 2 decimal places. "
+                                f"Example: !crash 10 2.5"
+                }
+            except Exception:
+                return {"response": f"@{username}, something went wrong with that bet. Try again shortly."}
+
+            crash_point = result.metadata.get("crash_point", 0.0)
+            target = result.metadata.get("target", 0.0)
+            if result.outcome == "win":
+                return {
+                    "response": f"🚀 @{username}, crashed at {crash_point:.2f}x — cashed out at {target:.2f}x "
+                                f"and won {result.payout} promo! Balance: {result.balance_after} promo."
+                }
+            return {
+                "response": f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
+                            f"you lost {bet} promo. Balance: {result.balance_after} promo."
             }
 
         if lower_message == "!casino":

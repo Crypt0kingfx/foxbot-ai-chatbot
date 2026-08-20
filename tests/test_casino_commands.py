@@ -1,5 +1,5 @@
-"""Command-layer tests for Casino Phase 5/6: !convert, !casinoflip (wager),
-!casino, !roulette wired into app.chat().
+"""Command-layer tests for Casino Phase 5/6/7: !convert, !casinoflip
+(wager), !casino, !roulette, !crash wired into app.chat().
 
 Two test cases:
   - CasinoCommandsDormancyTestCase: no DATABASE_URL required. Proves the
@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import app  # noqa: E402
 import games.coinflip as coinflip  # noqa: E402
 import games.roulette as roulette  # noqa: E402
+import games.crash as crash  # noqa: E402
 import services.casino_config as casino_config  # noqa: E402
 import services.casino_ledger as cl  # noqa: E402
 import services.casino_rng as casino_rng  # noqa: E402
@@ -81,7 +82,10 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
 
     def test_flag_off_all_casino_commands_silent(self):
         self.assertFalse(app._foxbot_casino_enabled_v1())
-        for message in ("!convert 5", "!convert", "!casinoflip heads 10", "!casino", "!roulette red 10"):
+        for message in (
+            "!convert 5", "!convert", "!casinoflip heads 10", "!casino",
+            "!roulette red 10", "!crash 10 2.5",
+        ):
             result = app.chat(message=message, username="tester")
             self.assertEqual(result.get("response"), "", f"{message!r} must be silent with the flag off")
 
@@ -90,6 +94,7 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
         self.assertNotIn("!convert", reply)
         self.assertNotIn("!casino", reply)
         self.assertNotIn("!roulette", reply)
+        self.assertNotIn("!crash", reply)
 
     def test_flag_off_existing_free_coinflip_unaffected(self):
         reply = app.chat(message="!coinflip", username="tester").get("response", "")
@@ -97,6 +102,22 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
             "FoxBot flips a coin" in reply or "cooldown" in reply,
             f"bare !coinflip's original arcade branch must still run, got {reply!r}",
         )
+
+    def test_crash_stays_dormant_even_with_casino_flag_on(self):
+        """FOXBOT_CRASH_ENABLED is a third gate, independent of the two
+        casino gates -- crash's DB-backed proofs (anti-exploit, regression,
+        idempotency) haven't run against real Postgres yet, so !crash must
+        stay silent even once the platform casino flag is on. No DB touch
+        either way: the gate short-circuits in chat()'s command routing
+        before games/crash.py is ever reached."""
+        os.environ["FOXBOT_CASINO_ENABLED"] = "true"
+        self.assertFalse(app._foxbot_crash_enabled_v1(), "FOXBOT_CRASH_ENABLED must default off")
+
+        reply = app.chat(message="!crash 10 2.5", username="tester").get("response", "")
+        self.assertEqual(reply, "", "!crash must stay silent until FOXBOT_CRASH_ENABLED is explicitly set")
+
+        help_reply = app.chat(message="!foxhelp", username="tester").get("response", "")
+        self.assertNotIn("!crash", help_reply, "!foxhelp must not advertise crash while it's dormant")
 
     def test_flag_on_but_no_database_fails_closed_with_friendly_reply(self):
         os.environ["FOXBOT_CASINO_ENABLED"] = "true"
@@ -120,6 +141,13 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         self._original_flag = os.environ.get("FOXBOT_CASINO_ENABLED")
         os.environ["FOXBOT_CASINO_ENABLED"] = "true"
 
+        # Crash's DB-backed proofs are assumed to have already passed in
+        # THIS test class (that's what these tests exist to check) -- the
+        # dedicated dormant-by-default proof below overrides this back to
+        # unset for its own duration.
+        self._original_crash_flag = os.environ.get("FOXBOT_CRASH_ENABLED")
+        os.environ["FOXBOT_CRASH_ENABLED"] = "true"
+
         casino_config.set_config(
             self.creator_id, foxcoins_per_promo=10, daily_promo_limit=5000, casino_enabled=True,
         )
@@ -139,6 +167,11 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
             os.environ.pop("FOXBOT_CASINO_ENABLED", None)
         else:
             os.environ["FOXBOT_CASINO_ENABLED"] = self._original_flag
+
+        if self._original_crash_flag is None:
+            os.environ.pop("FOXBOT_CRASH_ENABLED", None)
+        else:
+            os.environ["FOXBOT_CRASH_ENABLED"] = self._original_crash_flag
 
         with cl._connect() as connection:
             cl._ensure_schema(connection)
@@ -282,6 +315,90 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         self.assertEqual(self._promo_balance(), 20 - 10, "no phantom payout from a re-roll on retry")
 
     # ------------------------------------------------------------------
+    def test_crash_command_win(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        casino_rng.set_provider(_FixedRollProvider(crash.RESOLUTION - 1))  # huge crash_point
+
+        reply = app.chat(message="!crash 10 2.5", username=self.username).get("response", "")
+
+        self.assertIn("won", reply.lower())
+        self.assertEqual(self._promo_balance(), 20 - 10 + 25)  # floor(10 * 2.5) = 25
+
+    def test_crash_command_loss(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        casino_rng.set_provider(_FixedRollProvider(0))  # crash_point == 1.0
+
+        reply = app.chat(message="!crash 10 2.5", username=self.username).get("response", "")
+
+        self.assertIn("lost", reply.lower())
+        self.assertEqual(self._promo_balance(), 20 - 10)
+
+    def test_crash_idempotent_on_repeated_dedupe_key(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        casino_rng.set_provider(_FixedRollProvider(crash.RESOLUTION - 1))
+        key = f"dedupe-{uuid.uuid4().hex[:8]}"
+
+        replies = [
+            app.chat(message="!crash 10 2.5", username=self.username, dedupe_key=key).get("response", "")
+            for _ in range(3)
+        ]
+
+        self.assertEqual(len(set(replies)), 1, "spamming the same message must return the identical reply")
+        self.assertEqual(self._promo_balance(), 20 - 10 + 25, "same dedupe_key must not double-wager or double-pay")
+
+    def test_crash_resume_after_loss_never_rerolls(self):
+        """Command-layer version of the anti-exploit proof: retrying the
+        SAME chat message (same dedupe_key) after a loss, with the RNG
+        rearmed to a huge crash_point, must still reply with the original
+        loss."""
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        key = f"dedupe-{uuid.uuid4().hex[:8]}"
+
+        casino_rng.set_provider(_FixedRollProvider(0))  # crash_point == 1.0 -> loss vs target 2.5
+        first = app.chat(message="!crash 10 2.5", username=self.username, dedupe_key=key).get("response", "")
+        self.assertIn("lost", first.lower())
+
+        casino_rng.set_provider(_FixedRollProvider(crash.RESOLUTION - 1))  # rearmed to a big win
+        second = app.chat(message="!crash 10 2.5", username=self.username, dedupe_key=key).get("response", "")
+
+        self.assertEqual(first, second, "retry must return the identical, already-settled reply")
+        self.assertIn("lost", second.lower())
+        self.assertEqual(self._promo_balance(), 20 - 10, "no phantom payout from a re-roll on retry")
+
+    def test_crash_dormant_by_default_even_with_casino_fully_configured(self):
+        """The strong version of the dormancy proof: even with real
+        Postgres, a fully opted-in creator, and FOXBOT_CASINO_ENABLED on
+        -- exactly the state crash would auto-enable in via
+        casino_game_config's DEFAULT_GAME_ENABLED=True, the same way
+        roulette did -- crash stays inert until FOXBOT_CRASH_ENABLED is
+        set. Coinflip/roulette must be completely unaffected."""
+        os.environ.pop("FOXBOT_CRASH_ENABLED", None)
+        self.assertFalse(app._foxbot_crash_enabled_v1())
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 50", username=self.username)
+
+        crash_reply = app.chat(message="!crash 10 2.5", username=self.username).get("response", "")
+        self.assertEqual(crash_reply, "", "!crash must stay silent even with the casino fully configured")
+
+        help_reply = app.chat(message="!foxhelp", username=self.username).get("response", "")
+        self.assertNotIn("!crash", help_reply)
+
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+        flip_reply = app.chat(message="!casinoflip heads 1", username=self.username).get("response", "")
+        self.assertIn("won", flip_reply.lower(), "coinflip must be unaffected by crash's dormancy gate")
+
+        casino_rng.set_provider(_FixedRollProvider(1))  # red
+        roulette_reply = app.chat(message="!roulette red 1", username=self.username).get("response", "")
+        self.assertTrue(
+            "won" in roulette_reply.lower() or "lost" in roulette_reply.lower(),
+            "roulette must be unaffected by crash's dormancy gate",
+        )
+
+    # ------------------------------------------------------------------
     def test_casino_command_shows_balance(self):
         self._seed_foxcoins(1000)
         app.chat(message="!convert 7", username=self.username)
@@ -329,6 +446,26 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
 
         self.assertEqual(self._promo_balance(), balance_before, "no rejected bet should move any promo")
 
+    def test_invalid_crash_input_rejected_gracefully(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 50", username=self.username)
+        balance_before = self._promo_balance()
+
+        for bad in (
+            "!crash 10 1.00", "!crash 10 0", "!crash 10 -5", "!crash 10 abc",
+            "!crash 10 2.555", "!crash 10 1000", "!crash abc 2.5", "!crash -5 2.5",
+            "!crash 0 2.5", "!crash 10",
+        ):
+            reply = app.chat(message=bad, username=self.username).get("response", "")
+            self.assertTrue(reply, f"{bad!r} should get a helpful reply, not silence")
+            self.assertNotIn("Traceback", reply)
+
+        self.assertEqual(self._promo_balance(), balance_before, "no rejected bet should move any promo")
+
+    def test_insufficient_promo_for_crash_bet_friendly_message(self):
+        reply = app.chat(message="!crash 10 2.5", username=self.username).get("response", "")
+        self.assertIn("enough", reply.lower())
+
     def test_insufficient_foxcoins_for_convert_friendly_message(self):
         reply = app.chat(message="!convert 5", username=self.username).get("response", "")
         self.assertIn("need", reply.lower())
@@ -343,7 +480,9 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         casino_config.set_config(self.creator_id, casino_enabled=False)
         self._seed_foxcoins(1000)
 
-        for message in ("!convert 5", "!casinoflip heads 10", "!casino", "!roulette red 10"):
+        for message in (
+            "!convert 5", "!casinoflip heads 10", "!casino", "!roulette red 10", "!crash 10 2.5",
+        ):
             reply = app.chat(message=message, username=self.username).get("response", "")
             self.assertIn("isn't enabled", reply)
 
@@ -370,6 +509,19 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
 
         flip_reply = app.chat(message="!casinoflip heads 1", username=self.username).get("response", "")
         self.assertNotIn("disabled", flip_reply.lower(), "disabling roulette must not disable coinflip")
+        self.assertIn("won", flip_reply.lower())
+
+    def test_crash_disabled_blocks_wager_but_not_others(self):
+        casino_config.set_game_config(self.creator_id, crash.GAME_ID, enabled=False)
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 50", username=self.username)
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+
+        crash_reply = app.chat(message="!crash 10 2.5", username=self.username).get("response", "")
+        self.assertIn("disabled", crash_reply.lower())
+
+        flip_reply = app.chat(message="!casinoflip heads 1", username=self.username).get("response", "")
+        self.assertNotIn("disabled", flip_reply.lower(), "disabling crash must not disable coinflip")
         self.assertIn("won", flip_reply.lower())
 
 
