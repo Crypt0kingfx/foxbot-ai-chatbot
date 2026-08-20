@@ -3469,6 +3469,7 @@ from services import casino_ledger as _foxbot_casino_ledger_v1
 from services import casino_rounds as _foxbot_casino_rounds_v1
 from providers import promo as _foxbot_casino_promo_v1
 from games import coinflip as _foxbot_casino_coinflip_v1
+from games import roulette as _foxbot_casino_roulette_v1
 
 
 def _foxbot_casino_enabled_v1() -> bool:
@@ -4831,7 +4832,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         # to before Casino Phase 5, and this check is a single cheap
         # os.getenv() read, not a DB call, so !foxhelp's cost is unchanged
         # either way.
-        casino_help = ", !convert, !casinoflip heads 10, !casino" if _foxbot_casino_enabled_v1() else ""
+        casino_help = ", !convert, !casinoflip heads 10, !casino, !roulette red 10" if _foxbot_casino_enabled_v1() else ""
 
         if admin:
 
@@ -7310,7 +7311,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
 
-            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip"
+            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette"
 
         }
 
@@ -7757,6 +7758,84 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
                 }
             return {
                 "response": f"🪙 @{username}, landed {roll} — you lost {wager} promo. Balance: {result.balance_after} promo."
+            }
+
+        if lower_message.startswith("!roulette "):
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 3:
+                return {
+                    "response": "Use !roulette <bet> [selection] <amount>. Examples: "
+                                 "!roulette red 10, !roulette number 17 10, !roulette dozen 1 10, !roulette column 2 10"
+                }
+
+            bet_type = parts[1].strip().lower()
+
+            if bet_type in ("number", "dozen", "column"):
+                if len(parts) < 4:
+                    return {"response": f"Use !roulette {bet_type} <selection> <amount>."}
+                try:
+                    selection = int(parts[2])
+                except ValueError:
+                    return {"response": f"Selection for {bet_type} must be a whole number."}
+                wager_token = parts[3]
+            elif bet_type in _foxbot_casino_roulette_v1.BET_TYPES:
+                selection = None
+                wager_token = parts[2]
+            else:
+                return {
+                    "response": "Bet type must be one of: number, red, black, even, odd, high, low, dozen, column."
+                }
+
+            try:
+                wager = int(wager_token)
+            except ValueError:
+                return {"response": "Wager must be a whole number of promo credits."}
+
+            if wager <= 0:
+                return {"response": "Wager must be greater than 0."}
+
+            user_id = viewer_key(username)
+            round_id = f"roulette:{dedupe_key}"
+
+            try:
+                result = _foxbot_casino_roulette_v1.play_roulette(
+                    resolved_creator_id, user_id, bet_type, selection, wager, round_id, display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you don't have enough promo credits for that wager "
+                                f"(balance: {promo_balance}). Convert FoxCoins first with !convert amount."
+                }
+            except _foxbot_casino_rounds_v1.GameDisabled:
+                return {"response": f"@{username}, roulette is currently disabled here."}
+            except _foxbot_casino_rounds_v1.BetOutOfRange:
+                return {"response": f"@{username}, that wager is outside the allowed range for roulette here."}
+            except _foxbot_casino_rounds_v1.RoundMismatch:
+                return {"response": f"@{username}, that request was already processed."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that bet couldn't be processed. Check your bet type and selection."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong with that bet. Try again shortly."}
+
+            pocket = result.metadata.get("pocket")
+            color = result.metadata.get("color", "")
+            if result.outcome == "win":
+                return {
+                    "response": f"🎡 @{username}, ball landed on {pocket} {color} — you won {result.payout} promo! "
+                                f"Balance: {result.balance_after} promo."
+                }
+            return {
+                "response": f"🎡 @{username}, ball landed on {pocket} {color} — you lost {wager} promo. "
+                            f"Balance: {result.balance_after} promo."
             }
 
         if lower_message == "!casino":
