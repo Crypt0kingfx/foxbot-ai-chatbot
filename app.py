@@ -3473,6 +3473,19 @@ from games import roulette as _foxbot_casino_roulette_v1
 from games import crash as _foxbot_casino_crash_v1
 from games import blackjack as _foxbot_casino_blackjack_v1
 
+# Casino Studio Tab v1: the allowlist a POST to /api/studio/casino/
+# game-config/{game_id} is checked against -- built from each game
+# module's own GAME_ID rather than hardcoded strings, so it can never
+# drift out of sync with the actual games. Rejects any other game_id
+# with 404 before ever calling casino_config.set_game_config(), so the
+# dashboard can't write a stray row for a game that doesn't exist.
+_FOXBOT_CASINO_TAB_GAME_IDS = (
+    _foxbot_casino_coinflip_v1.GAME_ID,
+    _foxbot_casino_roulette_v1.GAME_ID,
+    _foxbot_casino_crash_v1.GAME_ID,
+    _foxbot_casino_blackjack_v1.GAME_ID,
+)
+
 
 def _foxbot_casino_enabled_v1() -> bool:
     """Platform-wide master switch, same convention as
@@ -16081,6 +16094,225 @@ async def foxbot_studio_stats_live(request: Request):
 
     }
 
+
+# === Casino Studio Tab v1 ===
+# Read/write surface for services/casino_config.py's per-creator
+# casino_config + casino_game_config tables -- the same tables the games
+# already read server-side (games/coinflip.py, roulette.py, crash.py,
+# blackjack.py via casino_rounds.play_round()'s config check, and
+# app.py's own _foxbot_casino_creator_enabled_v1()). This tab is a
+# control SURFACE, not a new source of truth: every write below calls
+# casino_config.set_config()/set_game_config() verbatim -- the exact
+# same validated functions enable_casino_fixed.py and the other one-off
+# scripts already called. No new validation logic exists here; a bad
+# value (rate<=0, a limit<=0, max_bet<min_bet) is rejected by
+# services/casino_config.py's own ValueError, not by anything written
+# in this route.
+#
+# Admin-gated on BOTH read and write (_foxbot_require_admin_v1), unlike
+# the more open Tier-1-read convention (/foxcoins, /viewer-stats) --
+# deliberate: casino config is wagering-rule config, not viewer-facing
+# data, and every existing per-creator WRITE endpoint in this codebase
+# already requires full admin (Basic Auth or tenant-zero's own approved
+# session). There is no scoped-non-admin-creator self-write anywhere in
+# this codebase yet (that's Sub-phase F territory) -- reusing the
+# proven admin gate here rather than inventing a new auth tier for the
+# highest-stakes surface (money config) is the deliberate choice, not an
+# oversight. FOXBOT_CASINO_ENABLED (the platform kill switch) is never
+# read or exposed by any route below -- it stays env-only, exactly as
+# designed; only per-creator config is dashboard-controllable.
+
+
+@app.get("/api/studio/casino/config")
+async def foxbot_studio_casino_config_get_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    from fastapi.responses import JSONResponse
+
+    try:
+        config = _foxbot_casino_config_v1.get_config(resolved_creator_id)
+        games = {}
+        for game_id in _FOXBOT_CASINO_TAB_GAME_IDS:
+            game_config = _foxbot_casino_config_v1.get_game_config(resolved_creator_id, game_id)
+            games[game_id] = {
+                "enabled": game_config.enabled,
+                "min_bet": game_config.min_bet,
+                "max_bet": game_config.max_bet,
+            }
+    except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+        return JSONResponse(
+            {"ok": False, "error": "Casino config requires DATABASE_URL -- not configured."},
+            status_code=503,
+        )
+
+    return {
+        "ok": True,
+        "casino_enabled": config.casino_enabled,
+        "foxcoins_per_promo": config.foxcoins_per_promo,
+        "daily_promo_limit": config.daily_promo_limit,
+        "games": games,
+    }
+
+
+@app.post("/api/studio/casino/config")
+async def foxbot_studio_casino_config_post_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    # Only keys actually present in the payload are passed through --
+    # set_config()'s own partial-update contract (services/casino_config.py)
+    # preserves every field this call omits rather than resetting it to a
+    # module default, so a "just flip casino_enabled" POST can't
+    # accidentally blank the conversion rate.
+    kwargs = {}
+
+    if "casino_enabled" in payload:
+        kwargs["casino_enabled"] = bool(payload["casino_enabled"])
+
+    if "foxcoins_per_promo" in payload:
+        try:
+            kwargs["foxcoins_per_promo"] = int(payload["foxcoins_per_promo"])
+        except (TypeError, ValueError):
+            return JSONResponse(
+                {"ok": False, "error": "foxcoins_per_promo must be a whole number."}, status_code=400,
+            )
+
+    if "daily_promo_limit" in payload:
+        try:
+            kwargs["daily_promo_limit"] = int(payload["daily_promo_limit"])
+        except (TypeError, ValueError):
+            return JSONResponse(
+                {"ok": False, "error": "daily_promo_limit must be a whole number."}, status_code=400,
+            )
+
+    try:
+        config = _foxbot_casino_config_v1.set_config(resolved_creator_id, **kwargs)
+    except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+        return JSONResponse(
+            {"ok": False, "error": "Casino config requires DATABASE_URL -- not configured."}, status_code=503,
+        )
+    except ValueError as exc:
+        # services/casino_config.py's own validation (rate/limit <= 0) --
+        # nothing written on this path, the row is untouched.
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+    return {
+        "ok": True,
+        "casino_enabled": config.casino_enabled,
+        "foxcoins_per_promo": config.foxcoins_per_promo,
+        "daily_promo_limit": config.daily_promo_limit,
+    }
+
+
+@app.post("/api/studio/casino/game-config/{game_id}")
+async def foxbot_studio_casino_game_config_post_v1(game_id: str, payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if game_id not in _FOXBOT_CASINO_TAB_GAME_IDS:
+        return JSONResponse({"ok": False, "error": f"Unknown game_id {game_id!r}."}, status_code=404)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    kwargs = {}
+
+    if "enabled" in payload:
+        kwargs["enabled"] = bool(payload["enabled"])
+
+    if "min_bet" in payload:
+        try:
+            kwargs["min_bet"] = int(payload["min_bet"])
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "min_bet must be a whole number."}, status_code=400)
+
+    if "max_bet" in payload:
+        try:
+            kwargs["max_bet"] = int(payload["max_bet"])
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "max_bet must be a whole number."}, status_code=400)
+
+    try:
+        game_config = _foxbot_casino_config_v1.set_game_config(resolved_creator_id, game_id, **kwargs)
+    except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+        return JSONResponse(
+            {"ok": False, "error": "Casino config requires DATABASE_URL -- not configured."}, status_code=503,
+        )
+    except ValueError as exc:
+        # services/casino_config.py's own validation (min/max_bet <= 0,
+        # max_bet < min_bet) -- nothing written on this path.
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+    return {
+        "ok": True,
+        "game_id": game_config.game_id,
+        "enabled": game_config.enabled,
+        "min_bet": game_config.min_bet,
+        "max_bet": game_config.max_bet,
+    }
+
+
+@app.get("/api/studio/casino/stats")
+async def foxbot_studio_casino_stats_get_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(
+        blaze_id=getattr(request.state, "blaze_id", None)
+    )
+
+    if not _foxbot_casino_ledger_v1.is_available():
+        return JSONResponse(
+            {"ok": False, "error": "Casino stats require DATABASE_URL -- not configured."}, status_code=503,
+        )
+
+    try:
+        with _foxbot_casino_ledger_v1._connect() as connection:
+            _foxbot_casino_ledger_v1._ensure_schema(connection)
+            _foxbot_casino_rounds_v1._ensure_schema(connection)
+
+            promo_row = connection.execute(
+                f"SELECT COALESCE(SUM(balance), 0) FROM {_foxbot_casino_ledger_v1.TABLE_BALANCES} "
+                f"WHERE creator_id = %s AND currency = %s",
+                (resolved_creator_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO),
+            ).fetchone()
+
+            activity_row = connection.execute(
+                f"SELECT COUNT(*), COALESCE(MAX(payout), 0) FROM {_foxbot_casino_rounds_v1.TABLE_ROUNDS} "
+                f"WHERE creator_id = %s AND state = %s AND created_at > NOW() - INTERVAL '24 hours'",
+                (resolved_creator_id, _foxbot_casino_rounds_v1.STATE_SETTLED),
+            ).fetchone()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Casino stats are temporarily unavailable."}, status_code=503,
+        )
+
+    return {
+        "ok": True,
+        "promo_in_circulation": int(promo_row[0]),
+        "rounds_today": int(activity_row[0]),
+        "biggest_win_today": int(activity_row[1]),
+    }
 
 
 @app.post("/api/studio/action/live/{action}")

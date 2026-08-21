@@ -757,6 +757,7 @@ body::before {
           <button class="item" data-target="page-giveaways">Giveaways</button>
           <button class="item" data-target="page-economy">Economy</button>
           <button class="item" data-target="page-recognition">Recognition</button>
+          <button class="item" data-target="page-casino">Casino</button>
         </div>
       </div>
 
@@ -1426,6 +1427,130 @@ body::before {
     </section>
 
     </div>
+
+    </section>
+
+    <section class="page" id="page-casino" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Casino</h1>
+      <p class="page-sub">Free-play promo wagering — enable games, set the conversion rate and limits.</p>
+    </div>
+
+    <section class="card" aria-label="Casino status">
+      <div class="card-head">
+        <h2 class="card-title">Casino status</h2>
+      </div>
+      <p class="card-sub">Master switch for this channel's casino, plus the FoxCoin → promo conversion rate and daily limit.</p>
+
+      <div class="action-row">
+        <button type="button" id="casinoMasterToggleBtn" class="step-go" disabled>—</button>
+      </div>
+      <p class="dismiss-error" id="casinoMasterError" hidden></p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">FoxCoins per promo credit</span>
+          <input type="text" id="casinoRate" class="field-input" placeholder="—">
+        </label>
+        <label class="field">
+          <span class="field-label">Daily promo conversion limit</span>
+          <input type="text" id="casinoLimit" class="field-input" placeholder="—">
+        </label>
+      </div>
+      <div class="action-row">
+        <button type="button" id="casinoRateSaveBtn" class="step-go">Save rate &amp; limit</button>
+      </div>
+      <p class="dismiss-error" id="casinoRateError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Casino games">
+      <div class="card-head">
+        <h2 class="card-title">Games</h2>
+      </div>
+      <p class="card-sub">Enable or disable each game and set its bet range. Free-play promo credits only.</p>
+
+      <h3 class="subhead">Coinflip</h3>
+      <div class="field-row">
+        <button type="button" id="cjToggleBtn" class="step-go" disabled>—</button>
+        <label class="field">
+          <span class="field-label">Min bet</span>
+          <input type="text" id="cjMinBet" class="field-input" placeholder="—">
+        </label>
+        <label class="field">
+          <span class="field-label">Max bet</span>
+          <input type="text" id="cjMaxBet" class="field-input" placeholder="—">
+        </label>
+        <button type="button" id="cjSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="cjError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">Roulette</h3>
+      <div class="field-row">
+        <button type="button" id="rlToggleBtn" class="step-go" disabled>—</button>
+        <label class="field">
+          <span class="field-label">Min bet</span>
+          <input type="text" id="rlMinBet" class="field-input" placeholder="—">
+        </label>
+        <label class="field">
+          <span class="field-label">Max bet</span>
+          <input type="text" id="rlMaxBet" class="field-input" placeholder="—">
+        </label>
+        <button type="button" id="rlSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="rlError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">Crash</h3>
+      <div class="field-row">
+        <button type="button" id="crToggleBtn" class="step-go" disabled>—</button>
+        <label class="field">
+          <span class="field-label">Min bet</span>
+          <input type="text" id="crMinBet" class="field-input" placeholder="—">
+        </label>
+        <label class="field">
+          <span class="field-label">Max bet</span>
+          <input type="text" id="crMaxBet" class="field-input" placeholder="—">
+        </label>
+        <button type="button" id="crSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="crError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">Blackjack</h3>
+      <div class="field-row">
+        <button type="button" id="bjToggleBtn" class="step-go" disabled>—</button>
+        <label class="field">
+          <span class="field-label">Min bet</span>
+          <input type="text" id="bjMinBet" class="field-input" placeholder="—">
+        </label>
+        <label class="field">
+          <span class="field-label">Max bet</span>
+          <input type="text" id="bjMaxBet" class="field-input" placeholder="—">
+        </label>
+        <button type="button" id="bjSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="bjError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Casino stats">
+      <div class="card-head">
+        <h2 class="card-title">Casino stats</h2>
+      </div>
+      <div class="stats" id="casinoStats">
+        <div class="stat">
+          <div class="stat-label">Promo in circulation</div>
+          <div class="stat-num" id="casinoStatCirculation">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Rounds today</div>
+          <div class="stat-num" id="casinoStatRounds">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Biggest win today</div>
+          <div class="stat-num" id="casinoStatBiggestWin">—</div>
+        </div>
+      </div>
+      <p class="dismiss-error" id="casinoStatsError" hidden></p>
+    </section>
 
     </section>
 
@@ -3252,6 +3377,188 @@ document.querySelectorAll('.item').forEach(function (item) {
   handleInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') btn.click();
   });
+})();
+</script>
+
+<script>
+/* ═══ CASINO ═══
+   Config (master toggle, rate/limit, per-game toggles + bet ranges) is
+   NOT polled -- like every other tab's data it loads once at script-load
+   time, then refetches only immediately after a successful save, so an
+   in-progress edit is never overwritten by a background refetch. Stats
+   poll every 20s (POLL_MS), same cadence as Analytics -- activity
+   numbers, not a form being edited. */
+(function () {
+  var POLL_MS = 20000;
+
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  function setNum(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = Number(value || 0).toLocaleString();
+  }
+
+  async function postCasino(path, payload) {
+    var res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* fall through to the ok:false below */ }
+    if (!res.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || ('HTTP ' + res.status));
+    }
+    return data;
+  }
+
+  /* ── Casino status (master toggle + rate/limit) ── */
+  var masterBtn = document.getElementById('casinoMasterToggleBtn');
+  var masterError = document.getElementById('casinoMasterError');
+  var rateError = document.getElementById('casinoRateError');
+  var currentCasinoEnabled = null;
+
+  /* ── Games (coinflip/roulette/crash/blackjack) ── */
+  function wireGame(gameId, ids) {
+    var toggleBtn = document.getElementById(ids.toggle);
+    var errorEl = document.getElementById(ids.error);
+    var currentEnabled = null;
+
+    function applyConfig(gameConfig) {
+      currentEnabled = !!gameConfig.enabled;
+      toggleBtn.disabled = false;
+      toggleBtn.textContent = currentEnabled ? 'Disable' : 'Enable';
+      document.getElementById(ids.min).value = gameConfig.min_bet;
+      document.getElementById(ids.max).value = gameConfig.max_bet;
+    }
+
+    toggleBtn.addEventListener('click', async function () {
+      if (currentEnabled === null) return;
+      toggleBtn.disabled = true;
+      errorEl.hidden = true;
+      try {
+        var data = await postCasino('/api/studio/casino/game-config/' + gameId, { enabled: !currentEnabled });
+        applyConfig(data);
+      } catch (err) {
+        errorEl.textContent = err.message || 'Action failed — try again.';
+        errorEl.hidden = false;
+        toggleBtn.disabled = false;
+      }
+    });
+
+    document.getElementById(ids.save).addEventListener('click', async function () {
+      var btn = document.getElementById(ids.save);
+      btn.disabled = true;
+      errorEl.hidden = true;
+      try {
+        var data = await postCasino('/api/studio/casino/game-config/' + gameId, {
+          min_bet: val(ids.min, ''),
+          max_bet: val(ids.max, '')
+        });
+        applyConfig(data);
+      } catch (err) {
+        errorEl.textContent = err.message || 'Action failed — try again.';
+        errorEl.hidden = false;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    return { applyConfig: applyConfig };
+  }
+
+  var games = {
+    coinflip: wireGame('coinflip', { toggle: 'cjToggleBtn', min: 'cjMinBet', max: 'cjMaxBet', save: 'cjSaveBtn', error: 'cjError' }),
+    roulette: wireGame('roulette', { toggle: 'rlToggleBtn', min: 'rlMinBet', max: 'rlMaxBet', save: 'rlSaveBtn', error: 'rlError' }),
+    crash: wireGame('crash', { toggle: 'crToggleBtn', min: 'crMinBet', max: 'crMaxBet', save: 'crSaveBtn', error: 'crError' }),
+    blackjack: wireGame('blackjack', { toggle: 'bjToggleBtn', min: 'bjMinBet', max: 'bjMaxBet', save: 'bjSaveBtn', error: 'bjError' })
+  };
+
+  async function loadCasinoConfig() {
+    masterBtn.disabled = true;
+    try {
+      var res = await fetch('/api/studio/casino/config', { cache: 'no-store' });
+      var data = await res.json();
+      if (!res.ok || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+
+      masterError.hidden = true;
+      currentCasinoEnabled = !!data.casino_enabled;
+      masterBtn.disabled = false;
+      masterBtn.textContent = currentCasinoEnabled ? 'Turn casino off' : 'Turn casino on';
+
+      document.getElementById('casinoRate').value = data.foxcoins_per_promo;
+      document.getElementById('casinoLimit').value = data.daily_promo_limit;
+
+      Object.keys(games).forEach(function (gameId) {
+        if (data.games && data.games[gameId]) games[gameId].applyConfig(data.games[gameId]);
+      });
+    } catch (err) {
+      masterBtn.textContent = '—';
+      masterError.textContent = err.message || "Can't load casino config — unreachable.";
+      masterError.hidden = false;
+    }
+  }
+
+  masterBtn.addEventListener('click', async function () {
+    if (currentCasinoEnabled === null) return;
+    masterBtn.disabled = true;
+    masterError.hidden = true;
+    try {
+      await postCasino('/api/studio/casino/config', { casino_enabled: !currentCasinoEnabled });
+      await loadCasinoConfig();
+    } catch (err) {
+      masterError.textContent = err.message || 'Action failed — try again.';
+      masterError.hidden = false;
+      masterBtn.disabled = false;
+    }
+  });
+
+  document.getElementById('casinoRateSaveBtn').addEventListener('click', async function () {
+    var btn = document.getElementById('casinoRateSaveBtn');
+    btn.disabled = true;
+    rateError.hidden = true;
+    try {
+      await postCasino('/api/studio/casino/config', {
+        foxcoins_per_promo: val('casinoRate', ''),
+        daily_promo_limit: val('casinoLimit', '')
+      });
+      await loadCasinoConfig();
+    } catch (err) {
+      rateError.textContent = err.message || 'Action failed — try again.';
+      rateError.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* ── Stats (polled — activity numbers, not a form) ── */
+  var statsError = document.getElementById('casinoStatsError');
+
+  async function pollCasinoStats() {
+    try {
+      var res = await fetch('/api/studio/casino/stats', { cache: 'no-store' });
+      var data = await res.json();
+      if (!res.ok || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+      statsError.hidden = true;
+      setNum('casinoStatCirculation', data.promo_in_circulation);
+      setNum('casinoStatRounds', data.rounds_today);
+      setNum('casinoStatBiggestWin', data.biggest_win_today);
+    } catch (err) {
+      ['casinoStatCirculation', 'casinoStatRounds', 'casinoStatBiggestWin'].forEach(function (id) {
+        document.getElementById(id).textContent = '—';
+      });
+      statsError.textContent = err.message || "Can't load casino stats — unreachable.";
+      statsError.hidden = false;
+    }
+  }
+
+  loadCasinoConfig();
+  pollCasinoStats();
+  setInterval(pollCasinoStats, POLL_MS);
 })();
 </script>
 
