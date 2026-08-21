@@ -3565,6 +3565,104 @@ def _foxbot_blackjack_describe_v1(username: str, result, *, verb: str) -> str:
     return f"🃏 @{username}, {prefix}{player_hand} ({player_total}) vs dealer {dealer_hand} ({dealer_total}) — {tail}"
 
 
+# === Casino Stream Overlay v1: notable-win detection + emit ===
+# Feeds /overlay/casino via the existing services/foxbot_events.py
+# emit_event()/fetch_events() log -- see that module's own docstring for
+# why this is a durable-write + poll design, not a live push (there is no
+# websocket/SSE anywhere in this app; every existing overlay already
+# polls its own -data endpoint on an interval).
+
+
+def _foxbot_casino_notable_payout_floor_v1() -> int:
+    try:
+        return int(os.getenv("FOXBOT_CASINO_NOTABLE_PAYOUT_FLOOR", "100"))
+    except (TypeError, ValueError):
+        return 100
+
+
+def _foxbot_casino_notable_crash_multiplier_v1() -> float:
+    try:
+        return float(os.getenv("FOXBOT_CASINO_NOTABLE_CRASH_MULTIPLIER", "5.0"))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _foxbot_casino_notable_win_v1(game_id: str, result):
+    """Returns a display-safe detail dict ({game, payout, highlight}) if
+    this just-settled round is a 'notable' win worth alerting the stream
+    overlay on, else None. Pure function -- no DB, no I/O -- so it's safe
+    to call unconditionally on every settlement.
+
+    WRITE-TIME SAFETY: this is the ONLY place that decides what goes into
+    a casino_win event's `detail`, and it only ever reads result.outcome/
+    result.payout/result.metadata -- all server-computed by the game
+    module (games/coinflip.py, roulette.py, crash.py, blackjack.py all
+    guarantee no client-supplied outcome, unchanged by this function).
+    balance_after, user_id, round_id, and wager are never read here, so
+    they can never end up in an emitted event no matter what the caller
+    does -- there is no filtering step downstream that this depends on.
+    """
+    if result.outcome not in ("win", "blackjack"):
+        return None
+
+    payout = int(result.payout or 0)
+    metadata = result.metadata or {}
+    highlight = ""
+
+    if game_id == "blackjack" and result.outcome == "blackjack":
+        return {"game": game_id, "payout": payout, "highlight": "blackjack"}
+
+    if game_id == "roulette" and metadata.get("bet_type") == "number" and metadata.get("won"):
+        return {"game": game_id, "payout": payout, "highlight": f"straight-up {metadata.get('pocket')}"}
+
+    if game_id == "crash":
+        target = metadata.get("target")
+        if isinstance(target, (int, float)) and target >= _foxbot_casino_notable_crash_multiplier_v1():
+            return {"game": game_id, "payout": payout, "highlight": f"{target:.2f}x"}
+
+    if payout < _foxbot_casino_notable_payout_floor_v1():
+        return None
+
+    if game_id == "coinflip":
+        highlight = str(metadata.get("roll", "")).lower()
+    elif game_id == "roulette":
+        highlight = f"{metadata.get('bet_type', '')} {metadata.get('pocket', '')}".strip()
+    elif game_id == "crash":
+        target = metadata.get("target")
+        highlight = f"{target:.2f}x" if isinstance(target, (int, float)) else ""
+    elif game_id == "blackjack":
+        highlight = "win"
+
+    return {"game": game_id, "payout": payout, "highlight": highlight}
+
+
+def _foxbot_casino_emit_win_v1(creator_handle: str, username: str, game_id: str, result) -> None:
+    """Fires the stream-overlay win alert for a just-settled casino round,
+    called AFTER the reply/payout is already fully built -- never on the
+    critical path to a payout. The whole body is wrapped so nothing here
+    can ever surface as a chat-command error or affect the reply already
+    returned to the caller: emit_event() is already fire-and-forget on
+    its own background thread (services/foxbot_events.py), this try/except
+    is belt-and-suspenders on top of that guarantee, not a replacement
+    for it -- makes the 'emit can never break settlement' property true
+    even if this function's own logic (the notable check above) has a bug.
+
+    result.replayed is checked first: an idempotent retry of an
+    already-settled round (same dedupe_key resent, a network retry, a
+    resumed blackjack action re-hitting the terminal state) must never
+    re-fire the overlay alert a second time for the same win.
+    """
+    try:
+        if result.replayed:
+            return
+        detail = _foxbot_casino_notable_win_v1(game_id, result)
+        if detail is None:
+            return
+        _foxbot_events_v1.emit_event(creator_handle, "casino_win", actor=username, detail=detail)
+    except Exception:
+        pass
+
+
 def _foxbot_casino_creator_enabled_v1(creator_id: str) -> bool:
     """Per-creator opt-in (services/casino_config.py's casino_enabled,
     default False -- unlike this module's other config defaults, a
@@ -7845,12 +7943,15 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             roll = str(result.metadata.get("roll", "")).upper()
             if result.outcome == "win":
-                return {
+                reply = {
                     "response": f"🪙 @{username}, landed {roll} — you won {result.payout} promo! Balance: {result.balance_after} promo."
                 }
-            return {
-                "response": f"🪙 @{username}, landed {roll} — you lost {wager} promo. Balance: {result.balance_after} promo."
-            }
+            else:
+                reply = {
+                    "response": f"🪙 @{username}, landed {roll} — you lost {wager} promo. Balance: {result.balance_after} promo."
+                }
+            _foxbot_casino_emit_win_v1(creator_handle, username, "coinflip", result)
+            return reply
 
         if lower_message.startswith("!roulette "):
 
@@ -7921,14 +8022,17 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             pocket = result.metadata.get("pocket")
             color = result.metadata.get("color", "")
             if result.outcome == "win":
-                return {
+                reply = {
                     "response": f"🎡 @{username}, ball landed on {pocket} {color} — you won {result.payout} promo! "
                                 f"Balance: {result.balance_after} promo."
                 }
-            return {
-                "response": f"🎡 @{username}, ball landed on {pocket} {color} — you lost {wager} promo. "
-                            f"Balance: {result.balance_after} promo."
-            }
+            else:
+                reply = {
+                    "response": f"🎡 @{username}, ball landed on {pocket} {color} — you lost {wager} promo. "
+                                f"Balance: {result.balance_after} promo."
+                }
+            _foxbot_casino_emit_win_v1(creator_handle, username, "roulette", result)
+            return reply
 
         if lower_message.startswith("!crash ") and _foxbot_crash_enabled_v1():
 
@@ -7983,14 +8087,17 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             crash_point = result.metadata.get("crash_point", 0.0)
             target = result.metadata.get("target", 0.0)
             if result.outcome == "win":
-                return {
+                reply = {
                     "response": f"🚀 @{username}, crashed at {crash_point:.2f}x — cashed out at {target:.2f}x "
                                 f"and won {result.payout} promo! Balance: {result.balance_after} promo."
                 }
-            return {
-                "response": f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
-                            f"you lost {bet} promo. Balance: {result.balance_after} promo."
-            }
+            else:
+                reply = {
+                    "response": f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
+                                f"you lost {bet} promo. Balance: {result.balance_after} promo."
+                }
+            _foxbot_casino_emit_win_v1(creator_handle, username, "crash", result)
+            return reply
 
         if lower_message.startswith("!blackjack ") and _foxbot_blackjack_enabled_v1():
 
@@ -8042,7 +8149,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             except Exception:
                 return {"response": f"@{username}, something went wrong dealing that hand. Try again shortly."}
 
-            return {"response": _foxbot_blackjack_describe_v1(username, result, verb="dealt")}
+            reply = {"response": _foxbot_blackjack_describe_v1(username, result, verb="dealt")}
+            _foxbot_casino_emit_win_v1(creator_handle, username, "blackjack", result)
+            return reply
 
         if lower_message == "!hit" and _foxbot_blackjack_enabled_v1():
 
@@ -8075,7 +8184,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             else:
                 verb = "drew"
 
-            return {"response": _foxbot_blackjack_describe_v1(username, result, verb=verb)}
+            reply = {"response": _foxbot_blackjack_describe_v1(username, result, verb=verb)}
+            _foxbot_casino_emit_win_v1(creator_handle, username, "blackjack", result)
+            return reply
 
         if lower_message == "!stand" and _foxbot_blackjack_enabled_v1():
 
@@ -8102,7 +8213,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             except Exception:
                 return {"response": f"@{username}, something went wrong standing. Try again shortly."}
 
-            return {"response": _foxbot_blackjack_describe_v1(username, result, verb="stand")}
+            reply = {"response": _foxbot_blackjack_describe_v1(username, result, verb="stand")}
+            _foxbot_casino_emit_win_v1(creator_handle, username, "blackjack", result)
+            return reply
 
         if lower_message == "!casino":
 
@@ -9637,6 +9750,176 @@ def features_page():
 
 
 
+
+casino_overlay_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FoxBot Casino Overlay</title>
+<style>
+  html, body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .stage {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 6vh;
+    pointer-events: none;
+  }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 20px 34px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(20, 0, 30, 0.92), rgba(40, 0, 40, 0.92));
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    box-shadow: 0 0 0 2px rgba(176, 38, 255, 0.6), 0 0 30px 6px rgba(255, 0, 127, 0.45),
+                0 0 60px 12px rgba(176, 38, 255, 0.25);
+    opacity: 0;
+    transform: translateY(-40px) scale(0.92);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .card.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  .card.hide {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.96);
+  }
+  .emoji {
+    font-size: 52px;
+    line-height: 1;
+    filter: drop-shadow(0 0 10px #FF007F);
+  }
+  .text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .game-line {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #FF007F;
+    text-shadow: 0 0 8px rgba(255, 0, 127, 0.8);
+  }
+  .name-line {
+    font-size: 30px;
+    font-weight: 800;
+    color: #ffffff;
+    text-shadow: 0 0 10px rgba(176, 38, 255, 0.9), 0 0 2px #000;
+  }
+  .payout-line {
+    font-size: 22px;
+    font-weight: 700;
+    color: #B026FF;
+    text-shadow: 0 0 10px rgba(176, 38, 255, 0.9);
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="card" id="alertCard">
+      <div class="emoji" id="alertEmoji">🎰</div>
+      <div class="text">
+        <div class="game-line" id="alertGame">CASINO</div>
+        <div class="name-line" id="alertName">&nbsp;</div>
+        <div class="payout-line" id="alertPayout">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var handle = params.get("handle") || "";
+  var dataUrl = "/overlay/casino-data" + (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
+
+  var GAME_EMOJI = { coinflip: "🪙", roulette: "🎡", crash: "🚀", blackjack: "🃏" };
+  var GAME_LABEL = { coinflip: "Coinflip", roulette: "Roulette", crash: "Crash", blackjack: "Blackjack" };
+
+  var seen = new Set();
+  var queue = [];
+  var showing = false;
+  var initialized = false;
+
+  var card = document.getElementById("alertCard");
+  var emojiEl = document.getElementById("alertEmoji");
+  var gameEl = document.getElementById("alertGame");
+  var nameEl = document.getElementById("alertName");
+  var payoutEl = document.getElementById("alertPayout");
+
+  function showNext() {
+    if (showing || queue.length === 0) return;
+    showing = true;
+    var win = queue.shift();
+
+    var game = win.game || "";
+    var emoji = GAME_EMOJI[game] || "🎰";
+    var label = GAME_LABEL[game] || "Casino";
+    var payout = Number(win.payout || 0).toLocaleString();
+    var highlight = win.highlight ? (" — " + win.highlight) : "";
+
+    emojiEl.textContent = emoji;
+    gameEl.textContent = label + highlight;
+    nameEl.textContent = win.username || "someone";
+    payoutEl.textContent = "WON " + payout + " PROMO";
+
+    card.classList.remove("hide");
+    card.classList.add("show");
+
+    setTimeout(function () {
+      card.classList.remove("show");
+      card.classList.add("hide");
+      setTimeout(function () {
+        showing = false;
+        showNext();
+      }, 500);
+    }, 6000);
+  }
+
+  async function poll() {
+    try {
+      var res = await fetch(dataUrl, { cache: "no-store" });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.ok) return;
+
+      (data.wins || []).forEach(function (win) {
+        if (!win.id || seen.has(win.id)) return;
+        seen.add(win.id);
+        // Only animate wins that show up AFTER the first poll -- on page
+        // load (or an OBS reload mid-stream) this silently catches up to
+        // "current" instead of replaying a burst of old alerts.
+        if (initialized) queue.push(win);
+      });
+      initialized = true;
+      showNext();
+    } catch (err) {
+      // Silent -- a transient network blip should skip a poll, not flash
+      // an error card on a stream overlay.
+    }
+  }
+
+  poll();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>
+"""
 
 giveaway_overlay_html = """
 
@@ -16313,6 +16596,66 @@ async def foxbot_studio_casino_stats_get_v1(request: Request):
         "rounds_today": int(activity_row[0]),
         "biggest_win_today": int(activity_row[1]),
     }
+
+
+# === Casino Stream Overlay v1 ===
+# Public, unauthenticated OBS browser-source page + its polling data
+# endpoint. Deliberately named so NEITHER "/overlay/casino" nor
+# "/overlay/casino-data" collides with any prefix in
+# FOXBOT_ADMIN_GATED_PREFIXES or any entry in FOXBOT_ADMIN_GATED_EXACT_PATHS
+# -- genuinely never gated, same shape as /overlay/giveaway (the page),
+# rather than the gated-then-carved-back-out shape /boss and
+# /overlay/giveaway-data needed because their names happened to collide
+# with something else already admin-gated. No FOXBOT_ADMIN_PUBLIC_EXCEPTIONS
+# entry is needed for either of these paths.
+#
+# Display-only by construction: every field either route ever returns was
+# already narrowed to {game, payout, highlight} + actor(username) at the
+# moment it was written by _foxbot_casino_notable_win_v1/_foxbot_casino_emit_win_v1
+# above -- there is no balance/user_id/round_id/wager in a casino_win
+# event's detail to begin with, so there is nothing further to filter out
+# here. Scoped by an explicit ?handle= query param (an anonymous OBS
+# browser source has no session/cookie to resolve identity from), same
+# convention as pasting a per-creator overlay link into OBS once; falls
+# back to resolve_owner_handle() (today: tenant-zero) when absent.
+# fetch_events() already normalizes/guards the handle internally
+# (services/foxbot_events.py's own creator_access.clean_handle() call) --
+# no extra sanitization needed here.
+
+
+@app.get("/overlay/casino-data")
+async def foxbot_overlay_casino_data_v1(handle: str = ""):
+    creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
+
+    # limit=50 (not the default 20): fetch_events returns the most recent
+    # N events of ANY kind for this creator, then filtered to kind ==
+    # "casino_win" below -- a wider window makes it less likely a casino
+    # win scrolls out of range behind a burst of unrelated events (reward
+    # redemptions, etc.) between two 2-second overlay polls. This does not
+    # change services/foxbot_events.py itself.
+    rows = _foxbot_events_v1.fetch_events(creator_handle, limit=50)
+    if rows is None:
+        return {"ok": False, "creator_handle": creator_handle, "wins": []}
+
+    wins = []
+    for kind, actor, detail, created_at in rows:
+        if kind != "casino_win":
+            continue
+        detail = detail or {}
+        wins.append({
+            "id": created_at.isoformat() if created_at else None,
+            "username": actor or "someone",
+            "game": detail.get("game", ""),
+            "payout": detail.get("payout", 0),
+            "highlight": detail.get("highlight", ""),
+        })
+
+    return {"ok": True, "creator_handle": creator_handle, "wins": wins}
+
+
+@app.get("/overlay/casino", response_class=HTMLResponse)
+async def foxbot_overlay_casino_page_v1():
+    return casino_overlay_html
 
 
 @app.post("/api/studio/action/live/{action}")
