@@ -3471,6 +3471,7 @@ from providers import promo as _foxbot_casino_promo_v1
 from games import coinflip as _foxbot_casino_coinflip_v1
 from games import roulette as _foxbot_casino_roulette_v1
 from games import crash as _foxbot_casino_crash_v1
+from games import blackjack as _foxbot_casino_blackjack_v1
 
 
 def _foxbot_casino_enabled_v1() -> bool:
@@ -3497,6 +3498,58 @@ def _foxbot_crash_enabled_v1() -> bool:
     crash.py itself is untouched by this -- the gate lives only in
     chat()'s command routing below."""
     return os.getenv("FOXBOT_CRASH_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_blackjack_enabled_v1() -> bool:
+    """Same dormant-by-default pattern as _foxbot_crash_enabled_v1(): a
+    fourth gate, default OFF, on top of the two casino gates. games/
+    blackjack.py's own DB-backed proofs (deck-integrity anti-exploit,
+    per-hit idempotency, lazy-timeout auto-stand, regression) haven't run
+    yet, so !blackjack/!hit/!stand fall through to no match at all (zero
+    DB calls) until this is explicitly set to true in Render. games/
+    blackjack.py itself is complete and correct -- only chat()'s command
+    routing below is gated."""
+    return os.getenv("FOXBOT_BLACKJACK_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_blackjack_describe_v1(username: str, result, *, verb: str) -> str:
+    """Shared reply formatter for !blackjack/!hit/!stand -- all three
+    commands show the same 'player hand vs dealer hand' shape, whether
+    the hand is still open (player_turn) or just settled (win/loss/push/
+    bust/blackjack/timeout)."""
+    metadata = result.metadata or {}
+    player_cards = metadata.get("player_cards", [])
+    player_total = _foxbot_casino_blackjack_v1.hand_value(player_cards) if player_cards else 0
+    player_hand = _foxbot_casino_blackjack_v1.format_hand(player_cards)
+    dealer_cards = metadata.get("dealer_cards", [])
+
+    if result.state == _foxbot_casino_rounds_v1.STATE_FUNDED:
+        dealer_up = _foxbot_casino_blackjack_v1.format_card(dealer_cards[0]) if dealer_cards else "?"
+        return (
+            f"🃏 @{username}, {verb}: {player_hand} ({player_total}) vs dealer showing {dealer_up}. "
+            f"!hit or !stand?"
+        )
+
+    dealer_hand = _foxbot_casino_blackjack_v1.format_hand(dealer_cards)
+    dealer_total = _foxbot_casino_blackjack_v1.hand_value(dealer_cards) if dealer_cards else 0
+    reason = metadata.get("settled_reason")
+
+    prefix = ""
+    if reason == "timeout":
+        prefix = "(hand timed out, auto-stood) "
+    elif reason == "bust":
+        prefix = "BUST! "
+    elif result.outcome == "blackjack":
+        prefix = "BLACKJACK! "
+
+    if result.outcome in ("win", "blackjack"):
+        tail = f"you won {result.payout} promo! Balance: {result.balance_after} promo."
+    elif result.outcome == "push":
+        tail = f"push, bet returned. Balance: {result.balance_after} promo."
+    else:
+        tail = f"you lost {result.wager} promo. Balance: {result.balance_after} promo."
+
+    return f"🃏 @{username}, {prefix}{player_hand} ({player_total}) vs dealer {dealer_hand} ({dealer_total}) — {tail}"
 
 
 def _foxbot_casino_creator_enabled_v1(creator_id: str) -> bool:
@@ -4856,6 +4909,9 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         # same dormant-by-default reasoning as _foxbot_crash_enabled_v1().
         if _foxbot_casino_enabled_v1() and _foxbot_crash_enabled_v1():
             casino_help += ", !crash 10 2.5"
+        # Same reasoning: blackjack's DB-backed proofs haven't run yet.
+        if _foxbot_casino_enabled_v1() and _foxbot_blackjack_enabled_v1():
+            casino_help += ", !blackjack 10, !hit, !stand"
 
         if admin:
 
@@ -7334,7 +7390,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
 
-            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette", "!crash"
+            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette", "!crash", "!blackjack", "!hit", "!stand"
 
         }
 
@@ -7922,6 +7978,118 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
                 "response": f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
                             f"you lost {bet} promo. Balance: {result.balance_after} promo."
             }
+
+        if lower_message.startswith("!blackjack ") and _foxbot_blackjack_enabled_v1():
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 2:
+                return {"response": "Use !blackjack <bet>. Example: !blackjack 10"}
+
+            try:
+                bet = int(parts[1])
+            except ValueError:
+                return {"response": "Bet must be a whole number of promo credits."}
+
+            if bet <= 0:
+                return {"response": "Bet must be greater than 0."}
+
+            user_id = viewer_key(username)
+            round_id = f"blackjack:{dedupe_key}"
+
+            try:
+                result = _foxbot_casino_blackjack_v1.deal(
+                    resolved_creator_id, user_id, bet, round_id, display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you don't have enough promo credits for that bet "
+                                f"(balance: {promo_balance}). Convert FoxCoins first with !convert amount."
+                }
+            except _foxbot_casino_rounds_v1.GameDisabled:
+                return {"response": f"@{username}, blackjack is currently disabled here."}
+            except _foxbot_casino_rounds_v1.BetOutOfRange:
+                return {"response": f"@{username}, that bet is outside the allowed range for blackjack here."}
+            except _foxbot_casino_rounds_v1.RoundMismatch:
+                return {"response": f"@{username}, that request was already processed."}
+            except _foxbot_casino_blackjack_v1.HandInProgress:
+                return {
+                    "response": f"@{username}, you already have an open blackjack hand — "
+                                f"finish it with !hit or !stand first."
+                }
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that bet couldn't be processed."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong dealing that hand. Try again shortly."}
+
+            return {"response": _foxbot_blackjack_describe_v1(username, result, verb="dealt")}
+
+        if lower_message == "!hit" and _foxbot_blackjack_enabled_v1():
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            user_id = viewer_key(username)
+            round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
+            if not round_id:
+                return {
+                    "response": f"@{username}, you don't have an open blackjack hand. Start one with !blackjack <bet>."
+                }
+
+            try:
+                result = _foxbot_casino_blackjack_v1.hit(
+                    resolved_creator_id, user_id, round_id, dedupe_key, display_name=username,
+                )
+            except _foxbot_casino_blackjack_v1.NoActiveHand:
+                return {
+                    "response": f"@{username}, you don't have an open blackjack hand. Start one with !blackjack <bet>."
+                }
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong with that hit. Try again shortly."}
+
+            if result.state == _foxbot_casino_rounds_v1.STATE_FUNDED:
+                last_card = _foxbot_casino_blackjack_v1.format_card(result.metadata["player_cards"][-1])
+                verb = f"drew {last_card} — hand"
+            else:
+                verb = "drew"
+
+            return {"response": _foxbot_blackjack_describe_v1(username, result, verb=verb)}
+
+        if lower_message == "!stand" and _foxbot_blackjack_enabled_v1():
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            user_id = viewer_key(username)
+            round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
+            if not round_id:
+                return {
+                    "response": f"@{username}, you don't have an open blackjack hand. Start one with !blackjack <bet>."
+                }
+
+            try:
+                result = _foxbot_casino_blackjack_v1.stand(
+                    resolved_creator_id, user_id, round_id, display_name=username,
+                )
+            except _foxbot_casino_blackjack_v1.NoActiveHand:
+                return {
+                    "response": f"@{username}, you don't have an open blackjack hand. Start one with !blackjack <bet>."
+                }
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong standing. Try again shortly."}
+
+            return {"response": _foxbot_blackjack_describe_v1(username, result, verb="stand")}
 
         if lower_message == "!casino":
 

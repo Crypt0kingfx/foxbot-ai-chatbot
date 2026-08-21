@@ -1,5 +1,6 @@
-"""Command-layer tests for Casino Phase 5/6/7: !convert, !casinoflip
-(wager), !casino, !roulette, !crash wired into app.chat().
+"""Command-layer tests for Casino Phase 5/6/7/8: !convert, !casinoflip
+(wager), !casino, !roulette, !crash, !blackjack/!hit/!stand wired into
+app.chat().
 
 Two test cases:
   - CasinoCommandsDormancyTestCase: no DATABASE_URL required. Proves the
@@ -32,6 +33,7 @@ import app  # noqa: E402
 import games.coinflip as coinflip  # noqa: E402
 import games.roulette as roulette  # noqa: E402
 import games.crash as crash  # noqa: E402
+import games.blackjack as blackjack  # noqa: E402
 import services.casino_config as casino_config  # noqa: E402
 import services.casino_ledger as cl  # noqa: E402
 import services.casino_rng as casino_rng  # noqa: E402
@@ -67,6 +69,15 @@ class _FixedRollProvider(casino_rng.RNGProvider):
         return seq[0]
 
 
+def _bj_deck_with_prefix(*cards):
+    """Same technique as tests/test_blackjack.py -- a full, valid 52-card
+    deck starting with the given cards, so a hand can be engineered
+    deterministically without hand-predicting Fisher-Yates output."""
+    full = [rank + suit for suit in blackjack.SUITS for rank in blackjack.RANKS]
+    rest = [c for c in full if c not in cards]
+    return list(cards) + rest
+
+
 class CasinoCommandsDormancyTestCase(unittest.TestCase):
     """No DATABASE_URL required -- the whole point is that dormancy holds
     without one. If any of these needed a DB, dormancy wouldn't be real."""
@@ -84,7 +95,7 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
         self.assertFalse(app._foxbot_casino_enabled_v1())
         for message in (
             "!convert 5", "!convert", "!casinoflip heads 10", "!casino",
-            "!roulette red 10", "!crash 10 2.5",
+            "!roulette red 10", "!crash 10 2.5", "!blackjack 10", "!hit", "!stand",
         ):
             result = app.chat(message=message, username="tester")
             self.assertEqual(result.get("response"), "", f"{message!r} must be silent with the flag off")
@@ -95,6 +106,7 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
         self.assertNotIn("!casino", reply)
         self.assertNotIn("!roulette", reply)
         self.assertNotIn("!crash", reply)
+        self.assertNotIn("!blackjack", reply)
 
     def test_flag_off_existing_free_coinflip_unaffected(self):
         reply = app.chat(message="!coinflip", username="tester").get("response", "")
@@ -118,6 +130,22 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
 
         help_reply = app.chat(message="!foxhelp", username="tester").get("response", "")
         self.assertNotIn("!crash", help_reply, "!foxhelp must not advertise crash while it's dormant")
+
+    def test_blackjack_stays_dormant_even_with_casino_flag_on(self):
+        """Same reasoning as crash's dormancy gate: blackjack's own
+        DB-backed proofs haven't run yet, so !blackjack/!hit/!stand must
+        stay silent even once the platform casino flag is on. No DB touch
+        either way -- the gate short-circuits in chat()'s command routing
+        before games/blackjack.py is ever reached."""
+        os.environ["FOXBOT_CASINO_ENABLED"] = "true"
+        self.assertFalse(app._foxbot_blackjack_enabled_v1(), "FOXBOT_BLACKJACK_ENABLED must default off")
+
+        for message in ("!blackjack 10", "!hit", "!stand"):
+            reply = app.chat(message=message, username="tester").get("response", "")
+            self.assertEqual(reply, "", f"{message!r} must stay silent until FOXBOT_BLACKJACK_ENABLED is set")
+
+        help_reply = app.chat(message="!foxhelp", username="tester").get("response", "")
+        self.assertNotIn("!blackjack", help_reply, "!foxhelp must not advertise blackjack while it's dormant")
 
     def test_flag_on_but_no_database_fails_closed_with_friendly_reply(self):
         os.environ["FOXBOT_CASINO_ENABLED"] = "true"
@@ -148,6 +176,9 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         self._original_crash_flag = os.environ.get("FOXBOT_CRASH_ENABLED")
         os.environ["FOXBOT_CRASH_ENABLED"] = "true"
 
+        self._original_blackjack_flag = os.environ.get("FOXBOT_BLACKJACK_ENABLED")
+        os.environ["FOXBOT_BLACKJACK_ENABLED"] = "true"
+
         casino_config.set_config(
             self.creator_id, foxcoins_per_promo=10, daily_promo_limit=5000, casino_enabled=True,
         )
@@ -173,15 +204,22 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         else:
             os.environ["FOXBOT_CRASH_ENABLED"] = self._original_crash_flag
 
+        if self._original_blackjack_flag is None:
+            os.environ.pop("FOXBOT_BLACKJACK_ENABLED", None)
+        else:
+            os.environ["FOXBOT_BLACKJACK_ENABLED"] = self._original_blackjack_flag
+
         with cl._connect() as connection:
             cl._ensure_schema(connection)
             cr._ensure_schema(connection)
             casino_config._ensure_schema(connection)
+            blackjack._ensure_schema(connection)
             connection.execute(f"DELETE FROM {cl.TABLE_LEDGER} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {cl.TABLE_BALANCES} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {cr.TABLE_ROUNDS} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {casino_config.TABLE_GAME_CONFIG} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {casino_config.TABLE_CONFIG} WHERE creator_id = %s", (self.creator_id,))
+            connection.execute(f"DELETE FROM {blackjack.TABLE_ACTIVE_HANDS} WHERE creator_id = %s", (self.creator_id,))
 
     def _seed_foxcoins(self, amount):
         app.add_points(self.username, amount, "test_seed", creator_id=self.creator_id)
@@ -399,6 +437,120 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         )
 
     # ------------------------------------------------------------------
+    def test_blackjack_full_hand_deal_hit_stand_win(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        deck = _bj_deck_with_prefix("7S", "2H", "5D", "9H", "6C", "2C", "4C")
+
+        with mock.patch.object(blackjack, "_build_shuffled_deck", return_value=deck):
+            deal_reply = app.chat(message="!blackjack 10", username=self.username).get("response", "")
+            self.assertIn("!hit or !stand", deal_reply)
+
+            hit_reply = app.chat(message="!hit", username=self.username).get("response", "")
+            self.assertIn("!hit or !stand", hit_reply)
+
+            stand_reply = app.chat(message="!stand", username=self.username).get("response", "")
+
+        self.assertIn("won", stand_reply.lower())
+        self.assertEqual(self._promo_balance(), 20 - 10 + 20)
+
+    def test_blackjack_natural_wins_3_to_2(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        deck = _bj_deck_with_prefix("AS", "2S", "KH", "3S")
+
+        with mock.patch.object(blackjack, "_build_shuffled_deck", return_value=deck):
+            reply = app.chat(message="!blackjack 10", username=self.username).get("response", "")
+
+        self.assertIn("blackjack", reply.lower())
+        self.assertEqual(self._promo_balance(), 20 - 10 + 25)
+
+    def test_blackjack_idempotent_hit_on_repeated_dedupe_key(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        deck = _bj_deck_with_prefix("7S", "2H", "5D", "9H", "6C", "2C", "4C")
+        key = f"dedupe-{uuid.uuid4().hex[:8]}"
+
+        with mock.patch.object(blackjack, "_build_shuffled_deck", return_value=deck):
+            app.chat(message="!blackjack 10", username=self.username)
+            replies = [
+                app.chat(message="!hit", username=self.username, dedupe_key=key).get("response", "")
+                for _ in range(3)
+            ]
+
+        self.assertEqual(len(set(replies)), 1, "spamming the same !hit message must return the identical reply")
+
+    def test_blackjack_second_deal_rejected_while_hand_open(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        deck = _bj_deck_with_prefix("7S", "2H", "5D", "9H")
+
+        with mock.patch.object(blackjack, "_build_shuffled_deck", return_value=deck):
+            app.chat(message="!blackjack 10", username=self.username)
+            second_reply = app.chat(message="!blackjack 5", username=self.username).get("response", "")
+
+        self.assertIn("already have an open", second_reply.lower())
+        self.assertEqual(self._promo_balance(), 20 - 10, "rejected 2nd deal must not debit again")
+
+    def test_blackjack_hit_stand_without_active_hand_rejected(self):
+        hit_reply = app.chat(message="!hit", username=self.username).get("response", "")
+        self.assertIn("don't have an open blackjack hand", hit_reply.lower())
+
+        stand_reply = app.chat(message="!stand", username=self.username).get("response", "")
+        self.assertIn("don't have an open blackjack hand", stand_reply.lower())
+
+    def test_invalid_blackjack_input_rejected_gracefully(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 50", username=self.username)
+        balance_before = self._promo_balance()
+
+        for bad in ("!blackjack abc", "!blackjack -5", "!blackjack 0"):
+            reply = app.chat(message=bad, username=self.username).get("response", "")
+            self.assertTrue(reply, f"{bad!r} should get a helpful reply, not silence")
+            self.assertNotIn("Traceback", reply)
+
+        self.assertEqual(self._promo_balance(), balance_before)
+
+    def test_insufficient_promo_for_blackjack_bet_friendly_message(self):
+        reply = app.chat(message="!blackjack 10", username=self.username).get("response", "")
+        self.assertIn("enough", reply.lower())
+
+    def test_blackjack_disabled_blocks_deal_but_not_others(self):
+        casino_config.set_game_config(self.creator_id, blackjack.GAME_ID, enabled=False)
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 50", username=self.username)
+
+        reply = app.chat(message="!blackjack 10", username=self.username).get("response", "")
+        self.assertIn("disabled", reply.lower())
+
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+        flip_reply = app.chat(message="!casinoflip heads 1", username=self.username).get("response", "")
+        self.assertIn("won", flip_reply.lower(), "disabling blackjack must not disable coinflip")
+
+    def test_blackjack_dormant_by_default_even_with_casino_fully_configured(self):
+        """Strong version of the dormancy proof, mirroring crash's: real
+        Postgres, a fully opted-in creator, FOXBOT_CASINO_ENABLED on --
+        exactly the state blackjack would auto-enable in via
+        casino_game_config's DEFAULT_GAME_ENABLED=True -- blackjack stays
+        inert until FOXBOT_BLACKJACK_ENABLED is set. Coinflip must be
+        completely unaffected."""
+        os.environ.pop("FOXBOT_BLACKJACK_ENABLED", None)
+        self.assertFalse(app._foxbot_blackjack_enabled_v1())
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 50", username=self.username)
+
+        for message in ("!blackjack 10", "!hit", "!stand"):
+            reply = app.chat(message=message, username=self.username).get("response", "")
+            self.assertEqual(reply, "", f"{message!r} must stay silent even with the casino fully configured")
+
+        help_reply = app.chat(message="!foxhelp", username=self.username).get("response", "")
+        self.assertNotIn("!blackjack", help_reply)
+
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+        flip_reply = app.chat(message="!casinoflip heads 1", username=self.username).get("response", "")
+        self.assertIn("won", flip_reply.lower(), "coinflip must be unaffected by blackjack's dormancy gate")
+
+    # ------------------------------------------------------------------
     def test_casino_command_shows_balance(self):
         self._seed_foxcoins(1000)
         app.chat(message="!convert 7", username=self.username)
@@ -482,6 +634,7 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
 
         for message in (
             "!convert 5", "!casinoflip heads 10", "!casino", "!roulette red 10", "!crash 10 2.5",
+            "!blackjack 10",
         ):
             reply = app.chat(message=message, username=self.username).get("response", "")
             self.assertIn("isn't enabled", reply)
