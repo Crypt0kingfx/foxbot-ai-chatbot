@@ -1552,6 +1552,96 @@ body::before {
       <p class="dismiss-error" id="casinoStatsError" hidden></p>
     </section>
 
+    <section class="card" aria-label="Live wins feed">
+      <div class="card-head">
+        <h2 class="card-title">Live Wins Feed</h2>
+        <button type="button" id="casinoWinsRefreshBtn" class="step-go" style="margin-left:auto;">Refresh</button>
+      </div>
+      <p class="card-sub">The same notable wins your stream overlay alerts on, newest first.</p>
+      <div id="casinoWinsFeed"></div>
+      <p class="dismiss-error" id="casinoWinsError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Test alert">
+      <div class="card-head">
+        <h2 class="card-title">Test Alert</h2>
+      </div>
+      <p class="card-sub">Fires a clearly-marked TEST event to your overlay so you can preview the animation in OBS. No round is created, no balance changes -- this only writes a log event.</p>
+      <div class="action-row">
+        <button type="button" id="casinoTestAlertBtn" class="step-go">Send Test Alert</button>
+      </div>
+      <p class="dismiss-error" id="casinoTestAlertError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Play from dashboard">
+      <div class="card-head">
+        <h2 class="card-title">Play From Dashboard</h2>
+      </div>
+      <p class="card-sub">Plays a real round against your own promo balance, through the same game engine chat commands use. A notable win fires your live overlay, same as a chat win would. Blackjack isn't available here yet -- use chat for that.</p>
+
+      <h3 class="subhead">Coinflip</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Pick</span>
+          <select id="playCjPick" class="field-input">
+            <option value="heads">Heads</option>
+            <option value="tails">Tails</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Wager</span>
+          <input type="text" id="playCjWager" class="field-input" value="10">
+        </label>
+        <button type="button" id="playCjBtn" class="step-go" style="align-self:flex-end;">Play</button>
+      </div>
+      <p class="dismiss-error" id="playCjError" hidden></p>
+      <div class="feed-item" id="playCjResult" hidden><span class="feed-body" id="playCjResultText"></span></div>
+
+      <h3 class="subhead subhead-spaced">Roulette</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Bet type</span>
+          <select id="playRlBetType" class="field-input">
+            <option value="red">Red</option>
+            <option value="black">Black</option>
+            <option value="even">Even</option>
+            <option value="odd">Odd</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+            <option value="number">Number</option>
+            <option value="dozen">Dozen</option>
+            <option value="column">Column</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Selection (number/dozen/column)</span>
+          <input type="text" id="playRlSelection" class="field-input" placeholder="e.g. 17">
+        </label>
+        <label class="field">
+          <span class="field-label">Wager</span>
+          <input type="text" id="playRlWager" class="field-input" value="10">
+        </label>
+        <button type="button" id="playRlBtn" class="step-go" style="align-self:flex-end;">Play</button>
+      </div>
+      <p class="dismiss-error" id="playRlError" hidden></p>
+      <div class="feed-item" id="playRlResult" hidden><span class="feed-body" id="playRlResultText"></span></div>
+
+      <h3 class="subhead subhead-spaced">Crash</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Wager</span>
+          <input type="text" id="playCrWager" class="field-input" value="10">
+        </label>
+        <label class="field">
+          <span class="field-label">Target multiplier</span>
+          <input type="text" id="playCrTarget" class="field-input" value="2.0">
+        </label>
+        <button type="button" id="playCrBtn" class="step-go" style="align-self:flex-end;">Play</button>
+      </div>
+      <p class="dismiss-error" id="playCrError" hidden></p>
+      <div class="feed-item" id="playCrResult" hidden><span class="feed-body" id="playCrResultText"></span></div>
+    </section>
+
     </section>
 
     <section class="page" id="page-connections" hidden>
@@ -3402,6 +3492,28 @@ document.querySelectorAll('.item').forEach(function (item) {
     if (el) el.textContent = Number(value || 0).toLocaleString();
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function feedTime(ageSeconds) {
+    if (typeof ageSeconds !== 'number') return '';
+    var s = Math.max(0, ageSeconds);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    return Math.floor(s / 3600) + 'h';
+  }
+
+  function newIdempotencyKey() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    // Fallback for an embedded browser without crypto.randomUUID -- still
+    // unique-per-click, just not cryptographically random (fine here,
+    // it's a dedup key, not a secret).
+    return 'k-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
   async function postCasino(path, payload) {
     var res = await fetch(path, {
       method: 'POST',
@@ -3556,9 +3668,155 @@ document.querySelectorAll('.item').forEach(function (item) {
     }
   }
 
+  /* ── Live Wins Feed (Feature 1, read-only) ── */
+  var winsEl = document.getElementById('casinoWinsFeed');
+  var winsError = document.getElementById('casinoWinsError');
+
+  function gameLabel(game) {
+    var labels = { coinflip: 'Coinflip', roulette: 'Roulette', crash: 'Crash', blackjack: 'Blackjack' };
+    return labels[game] || (game || 'Casino');
+  }
+
+  async function pollCasinoWins() {
+    try {
+      var res = await fetch('/api/studio/casino/wins', { cache: 'no-store' });
+      var data = await res.json();
+      if (!res.ok || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+      winsError.hidden = true;
+
+      var rows = (data.wins || []).map(function (w) {
+        var highlight = w.highlight ? (' — ' + escapeHtml(w.highlight)) : '';
+        return '<div class="feed-item"><span class="feed-time">' + escapeHtml(feedTime(w.age_seconds)) + '</span>' +
+          '<span class="feed-body"><b>' + escapeHtml(w.username) + '</b> won ' + escapeHtml(w.payout) +
+          ' promo — ' + escapeHtml(gameLabel(w.game)) + highlight + '</span></div>';
+      });
+
+      if (!rows.length) {
+        winsEl.innerHTML = '<div class="feed-item"><span class="feed-body">No notable wins yet.</span></div>';
+      } else {
+        winsEl.innerHTML = rows.join('');
+      }
+    } catch (err) {
+      winsEl.innerHTML = '<div class="feed-item"><span class="feed-body feed-error">Can\'t load wins — unreachable.</span></div>';
+      winsError.textContent = err.message || "Can't load wins feed.";
+      winsError.hidden = false;
+    }
+  }
+
+  document.getElementById('casinoWinsRefreshBtn').addEventListener('click', function () {
+    var btn = document.getElementById('casinoWinsRefreshBtn');
+    btn.disabled = true;
+    pollCasinoWins().finally(function () { btn.disabled = false; });
+  });
+
+  /* ── Test Alert (Feature 2, money-free) ── */
+  var testAlertBtn = document.getElementById('casinoTestAlertBtn');
+  var testAlertError = document.getElementById('casinoTestAlertError');
+
+  testAlertBtn.addEventListener('click', async function () {
+    testAlertBtn.disabled = true;
+    testAlertError.hidden = true;
+    try {
+      await postCasino('/api/studio/casino/test-alert', {});
+    } catch (err) {
+      testAlertError.textContent = err.message || 'Action failed — try again.';
+      testAlertError.hidden = false;
+    } finally {
+      testAlertBtn.disabled = false;
+    }
+  });
+
+  /* ── Play From Dashboard (Feature 3, real promo) ──
+     Each handler generates a fresh idempotency_key as the FIRST thing it
+     does, then disables its button synchronously -- a disabled <button>
+     cannot dispatch further click events, so a rapid double-click can
+     never fire two requests from one click. The server-side round_id
+     built from this same key is the structural backstop: a genuine
+     duplicate request (same key) replays the original settled result
+     via play_round()'s already-proven idempotency, never a second wager. */
+
+  function wirePlayButton(opts) {
+    var btn = document.getElementById(opts.btnId);
+    var errorEl = document.getElementById(opts.errorId);
+    var resultEl = document.getElementById(opts.resultId);
+    var resultTextEl = document.getElementById(opts.resultTextId);
+
+    btn.addEventListener('click', async function () {
+      var idempotencyKey = newIdempotencyKey();
+      btn.disabled = true;
+      errorEl.hidden = true;
+      resultEl.hidden = true;
+      try {
+        var payload = opts.buildPayload(idempotencyKey);
+        var data = await postCasino(opts.path, payload);
+        resultTextEl.textContent = opts.formatResult(data);
+        resultEl.hidden = false;
+        pollCasinoWins();
+        pollCasinoStats();
+      } catch (err) {
+        errorEl.textContent = err.message || 'Action failed — try again.';
+        errorEl.hidden = false;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  wirePlayButton({
+    btnId: 'playCjBtn', errorId: 'playCjError', resultId: 'playCjResult', resultTextId: 'playCjResultText',
+    path: '/api/studio/casino/play/coinflip',
+    buildPayload: function (idempotencyKey) {
+      return { pick: val('playCjPick', 'heads'), wager: val('playCjWager', '10'), idempotency_key: idempotencyKey };
+    },
+    formatResult: function (data) {
+      var roll = (data.highlight && data.highlight.roll) || '?';
+      var verb = data.outcome === 'win' ? 'won' : 'lost';
+      return '🪙 Landed ' + roll.toUpperCase() + ' — ' + verb + ' ' + (data.outcome === 'win' ? data.payout : data.wager) +
+        ' promo. Balance: ' + data.balance_after + ' promo.' + (data.replayed ? ' (replayed -- already played)' : '');
+    }
+  });
+
+  wirePlayButton({
+    btnId: 'playRlBtn', errorId: 'playRlError', resultId: 'playRlResult', resultTextId: 'playRlResultText',
+    path: '/api/studio/casino/play/roulette',
+    buildPayload: function (idempotencyKey) {
+      return {
+        bet_type: val('playRlBetType', 'red'),
+        selection: val('playRlSelection', ''),
+        wager: val('playRlWager', '10'),
+        idempotency_key: idempotencyKey
+      };
+    },
+    formatResult: function (data) {
+      var h = data.highlight || {};
+      var verb = data.outcome === 'win' ? 'won' : 'lost';
+      return '🎡 Ball landed on ' + h.pocket + ' ' + (h.color || '') + ' — ' + verb + ' ' +
+        (data.outcome === 'win' ? data.payout : data.wager) + ' promo. Balance: ' + data.balance_after + ' promo.' +
+        (data.replayed ? ' (replayed -- already played)' : '');
+    }
+  });
+
+  wirePlayButton({
+    btnId: 'playCrBtn', errorId: 'playCrError', resultId: 'playCrResult', resultTextId: 'playCrResultText',
+    path: '/api/studio/casino/play/crash',
+    buildPayload: function (idempotencyKey) {
+      return { wager: val('playCrWager', '10'), target: val('playCrTarget', '2.0'), idempotency_key: idempotencyKey };
+    },
+    formatResult: function (data) {
+      var h = data.highlight || {};
+      var crashPoint = typeof h.crash_point === 'number' ? h.crash_point.toFixed(2) : h.crash_point;
+      var target = typeof h.target === 'number' ? h.target.toFixed(2) : h.target;
+      var verb = data.outcome === 'win' ? ('won ' + data.payout) : ('lost ' + data.wager);
+      return '🚀 Crashed at ' + crashPoint + 'x (target ' + target + 'x) — ' + verb + ' promo. Balance: ' +
+        data.balance_after + ' promo.' + (data.replayed ? ' (replayed -- already played)' : '');
+    }
+  });
+
   loadCasinoConfig();
   pollCasinoStats();
+  pollCasinoWins();
   setInterval(pollCasinoStats, POLL_MS);
+  setInterval(pollCasinoWins, POLL_MS);
 })();
 </script>
 

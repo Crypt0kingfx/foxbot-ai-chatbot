@@ -16598,6 +16598,291 @@ async def foxbot_studio_casino_stats_get_v1(request: Request):
     }
 
 
+# === Casino Studio Tab v1, Feature 1: Live Wins Feed (read-only) ===
+# Admin-gated GET reading the SAME foxbot_events casino_win rows the
+# public overlay reads -- but through _foxbot_resolve_event_handle_v1
+# (the session-aware, read-leak-fixed resolver /api/foxbot/events already
+# uses), NOT the overlay's own resolve_owner_handle()-only fallback --
+# those are deliberately different call sites for a public/unauthenticated
+# reader vs. an authenticated admin session. fetch_events() and the
+# foxbot_events table are both unmodified; this is a new, separate route.
+
+
+@app.get("/api/studio/casino/wins")
+async def foxbot_studio_casino_wins_get_v1(request: Request, limit: int = 20):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from datetime import timezone
+
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    capped_limit = max(1, min(int(limit or 20), 100))
+
+    rows = _foxbot_events_v1.fetch_events(handle, limit=capped_limit)
+    if rows is None:
+        return {"ok": False, "creator_handle": handle, "wins": []}
+
+    now = datetime.now(timezone.utc)
+    wins = []
+    for kind, actor, detail, created_at in rows:
+        if kind != "casino_win":
+            continue
+        detail = detail or {}
+        wins.append({
+            "username": actor or "someone",
+            "game": detail.get("game", ""),
+            "payout": detail.get("payout", 0),
+            "highlight": detail.get("highlight", ""),
+            "created_at": created_at.isoformat() if created_at else None,
+            "age_seconds": int((now - created_at).total_seconds()) if created_at else None,
+        })
+
+    return {"ok": True, "creator_handle": handle, "wins": wins}
+
+
+# === Casino Studio Tab v1, Feature 2: Test Alert (provably money-free) ===
+# This handler's entire body below never imports or calls casino_ledger,
+# casino_rounds, or casino_config -- there is no code path in it that can
+# touch a balance, a round, or a wager, because none of those modules are
+# referenced. The only function it calls is emit_event(), which only ever
+# writes a row to the foxbot_events log table. Deliberately bypasses
+# _foxbot_casino_emit_win_v1/_foxbot_casino_notable_win_v1 -- those exist
+# to threshold-gate a REAL settled RoundResult; a test alert has no round
+# and should always fire on demand. Unmistakably synthetic on three
+# independent axes: actor="TEST" (the displayed username), game="test"
+# (matches no real GAME_EMOJI key, so the overlay's generic slot-machine
+# fallback renders instead of a real game icon), and the highlight text
+# itself says TEST ALERT.
+
+
+@app.post("/api/studio/casino/test-alert")
+async def foxbot_studio_casino_test_alert_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+
+    _foxbot_events_v1.emit_event(
+        handle, "casino_win", actor="TEST",
+        detail={"game": "test", "payout": 777, "highlight": "🧪 TEST ALERT"},
+    )
+
+    return {"ok": True, "creator_handle": handle}
+
+
+# === Casino Studio Tab v1, Feature 3: Play From Dashboard (coinflip/
+# roulette/crash only -- blackjack deferred, see docs/casino-overlay
+# design notes: multi-press open-hand state makes it a bigger feature,
+# not a thin wrapper). ===
+#
+# Each route below is pure orchestration around the EXACT SAME game
+# function chat()'s equivalent command already calls -- no new settlement
+# logic, no new ledger/round code, no new RNG. creator_id is resolved
+# SERVER-SIDE from the authenticated session via
+# _foxbot_resolve_creator_id_v1 (the same resolver the Casino config
+# routes already use) -- there is no creator_id field read from the
+# request payload anywhere below, so a crafted payload cannot redirect a
+# wager onto a different creator's balance. username is hardcoded to the
+# same "crypt0k1ng96" literal /api/foxbot/admin-command already defaults
+# to when none is given -- "play from dashboard" always means "play as
+# the tenant-zero owner," never a caller-suppliable identity.
+#
+# IDEMPOTENCY: idempotency_key is REQUIRED in the payload (never
+# server-generated as a fallback -- a missing key is a hard 400, since
+# silently generating one would defeat the whole guarantee). round_id =
+# f"dashboard:{game}:{idempotency_key}" feeds the EXACT SAME round_id-
+# keyed replay contract services/casino_rounds.py's play_round() already
+# guarantees (proven extensively elsewhere in this test suite): a second
+# call with the same round_id returns replayed=True with the original
+# settled outcome, never a second debit or a second roll. The
+# "dashboard:" prefix keeps this round_id namespace structurally distinct
+# from chat's "casinoflip:"/"roulette:"/"crash:" prefixes.
+
+
+_FOXBOT_DASHBOARD_PLAY_USERNAME = "crypt0k1ng96"
+
+
+@app.post("/api/studio/casino/play/coinflip")
+async def foxbot_studio_casino_play_coinflip_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    pick = str(payload.get("pick") or "").strip().lower()
+    if pick not in _foxbot_casino_coinflip_v1.SIDES:
+        return JSONResponse({"ok": False, "error": "pick must be heads or tails."}, status_code=400)
+
+    try:
+        wager = int(payload.get("wager"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "wager must be a whole number."}, status_code=400)
+    if wager <= 0:
+        return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+    round_id = f"dashboard:coinflip:{idempotency_key}"
+
+    try:
+        result = _foxbot_casino_coinflip_v1.play_coinflip(
+            resolved_creator_id, user_id, pick, wager, round_id, display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO)
+        return JSONResponse({"ok": False, "error": f"Not enough promo credits (balance: {promo_balance})."}, status_code=400)
+    except _foxbot_casino_rounds_v1.GameDisabled:
+        return JSONResponse({"ok": False, "error": "coinflip is currently disabled here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.BetOutOfRange:
+        return JSONResponse({"ok": False, "error": "that wager is outside the allowed range for coinflip here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.RoundMismatch:
+        return JSONResponse({"ok": False, "error": "that request was already processed."}, status_code=409)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that wager couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong with that wager."}, status_code=500)
+
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "coinflip", result)
+
+    return {
+        "ok": True, "outcome": result.outcome, "payout": result.payout,
+        "wager": wager, "balance_after": result.balance_after, "replayed": result.replayed,
+        "highlight": {"pick": pick, "roll": result.metadata.get("roll")},
+    }
+
+
+@app.post("/api/studio/casino/play/roulette")
+async def foxbot_studio_casino_play_roulette_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    bet_type = str(payload.get("bet_type") or "").strip().lower()
+    if bet_type not in _foxbot_casino_roulette_v1.BET_TYPES:
+        return JSONResponse({"ok": False, "error": "invalid bet_type."}, status_code=400)
+
+    selection = None
+    if bet_type in ("number", "dozen", "column"):
+        try:
+            selection = int(payload.get("selection"))
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": f"{bet_type} needs an integer selection."}, status_code=400)
+
+    try:
+        wager = int(payload.get("wager"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "wager must be a whole number."}, status_code=400)
+    if wager <= 0:
+        return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+    round_id = f"dashboard:roulette:{idempotency_key}"
+
+    try:
+        result = _foxbot_casino_roulette_v1.play_roulette(
+            resolved_creator_id, user_id, bet_type, selection, wager, round_id, display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO)
+        return JSONResponse({"ok": False, "error": f"Not enough promo credits (balance: {promo_balance})."}, status_code=400)
+    except _foxbot_casino_rounds_v1.GameDisabled:
+        return JSONResponse({"ok": False, "error": "roulette is currently disabled here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.BetOutOfRange:
+        return JSONResponse({"ok": False, "error": "that wager is outside the allowed range for roulette here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.RoundMismatch:
+        return JSONResponse({"ok": False, "error": "that request was already processed."}, status_code=409)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that bet couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
+
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "roulette", result)
+
+    return {
+        "ok": True, "outcome": result.outcome, "payout": result.payout,
+        "wager": wager, "balance_after": result.balance_after, "replayed": result.replayed,
+        "highlight": {"pocket": result.metadata.get("pocket"), "color": result.metadata.get("color")},
+    }
+
+
+@app.post("/api/studio/casino/play/crash")
+async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    try:
+        wager = int(payload.get("wager"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "wager must be a whole number."}, status_code=400)
+    if wager <= 0:
+        return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
+
+    target_token = str(payload.get("target") or "")
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+    round_id = f"dashboard:crash:{idempotency_key}"
+
+    try:
+        result = _foxbot_casino_crash_v1.play_crash(
+            resolved_creator_id, user_id, wager, target_token, round_id, display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO)
+        return JSONResponse({"ok": False, "error": f"Not enough promo credits (balance: {promo_balance})."}, status_code=400)
+    except _foxbot_casino_rounds_v1.GameDisabled:
+        return JSONResponse({"ok": False, "error": "crash is currently disabled here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.BetOutOfRange:
+        return JSONResponse({"ok": False, "error": "that wager is outside the allowed range for crash here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.RoundMismatch:
+        return JSONResponse({"ok": False, "error": "that request was already processed."}, status_code=409)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "target must be a number greater than 1.00."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
+
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "crash", result)
+
+    return {
+        "ok": True, "outcome": result.outcome, "payout": result.payout,
+        "wager": wager, "balance_after": result.balance_after, "replayed": result.replayed,
+        "highlight": {"crash_point": result.metadata.get("crash_point"), "target": result.metadata.get("target")},
+    }
+
+
 # === Casino Stream Overlay v1 ===
 # Public, unauthenticated OBS browser-source page + its polling data
 # endpoint. Deliberately named so NEITHER "/overlay/casino" nor
