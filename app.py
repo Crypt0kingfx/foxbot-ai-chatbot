@@ -3472,6 +3472,8 @@ from games import coinflip as _foxbot_casino_coinflip_v1
 from games import roulette as _foxbot_casino_roulette_v1
 from games import crash as _foxbot_casino_crash_v1
 from games import blackjack as _foxbot_casino_blackjack_v1
+from games import dice as _foxbot_casino_dice_v1
+from games import slots as _foxbot_casino_slots_v1
 
 # Casino Studio Tab v1: the allowlist a POST to /api/studio/casino/
 # game-config/{game_id} is checked against -- built from each game
@@ -3484,6 +3486,8 @@ _FOXBOT_CASINO_TAB_GAME_IDS = (
     _foxbot_casino_roulette_v1.GAME_ID,
     _foxbot_casino_crash_v1.GAME_ID,
     _foxbot_casino_blackjack_v1.GAME_ID,
+    _foxbot_casino_dice_v1.GAME_ID,
+    _foxbot_casino_slots_v1.GAME_ID,
 )
 
 
@@ -3523,6 +3527,22 @@ def _foxbot_blackjack_enabled_v1() -> bool:
     blackjack.py itself is complete and correct -- only chat()'s command
     routing below is gated."""
     return os.getenv("FOXBOT_BLACKJACK_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_dice_enabled_v1() -> bool:
+    """Same dormant-by-default pattern as _foxbot_crash_enabled_v1()/
+    _foxbot_blackjack_enabled_v1(): default OFF. games/dice.py's own
+    DB-backed proofs (anti-exploit, RTP simulation, regression) haven't
+    run yet, so !dice falls through to no match at all until this is
+    explicitly set to true in Render."""
+    return os.getenv("FOXBOT_DICE_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _foxbot_slots_enabled_v1() -> bool:
+    """Same dormant-by-default pattern -- default OFF until games/
+    slots.py's own DB-backed proofs (anti-exploit, RTP simulation,
+    regression) have run and this is explicitly set to true in Render."""
+    return os.getenv("FOXBOT_SLOTS_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _foxbot_blackjack_describe_v1(username: str, result, *, verb: str) -> str:
@@ -3620,6 +3640,12 @@ def _foxbot_casino_notable_win_v1(game_id: str, result):
         if isinstance(target, (int, float)) and target >= _foxbot_casino_notable_crash_multiplier_v1():
             return {"game": game_id, "payout": payout, "highlight": f"{target:.2f}x"}
 
+    if game_id == "slots" and metadata.get("combo") in ("triple_fox", "triple_seven"):
+        return {"game": game_id, "payout": payout, "highlight": metadata.get("combo", "").replace("_", " ")}
+
+    if game_id == "dice" and metadata.get("prediction") not in ("high", "low") and metadata.get("won"):
+        return {"game": game_id, "payout": payout, "highlight": f"exact {metadata.get('roll')}"}
+
     if payout < _foxbot_casino_notable_payout_floor_v1():
         return None
 
@@ -3632,6 +3658,10 @@ def _foxbot_casino_notable_win_v1(game_id: str, result):
         highlight = f"{target:.2f}x" if isinstance(target, (int, float)) else ""
     elif game_id == "blackjack":
         highlight = "win"
+    elif game_id == "slots":
+        highlight = str(metadata.get("combo", "")).replace("_", " ")
+    elif game_id == "dice":
+        highlight = f"{metadata.get('prediction', '')} {metadata.get('roll', '')}".strip()
 
     return {"game": game_id, "payout": payout, "highlight": highlight}
 
@@ -3709,6 +3739,33 @@ def _foxbot_crash_reply_v1(username: str, wager: int, result) -> str:
         f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
         f"you lost {wager} promo. Balance: {result.balance_after} promo."
     )
+
+
+def _foxbot_dice_reply_v1(username: str, wager: int, result) -> str:
+    roll = result.metadata.get("roll")
+    prediction = result.metadata.get("prediction", "")
+    if result.outcome == "win":
+        return (
+            f"🎲 @{username}, rolled {roll} (predicted {prediction}) — you won {result.payout} promo! "
+            f"Balance: {result.balance_after} promo."
+        )
+    return (
+        f"🎲 @{username}, rolled {roll} (predicted {prediction}) — you lost {wager} promo. "
+        f"Balance: {result.balance_after} promo."
+    )
+
+
+def _foxbot_slots_reply_v1(username: str, wager: int, result) -> str:
+    reels = result.metadata.get("reels", [])
+    reels_text = _foxbot_casino_slots_v1.format_reels(reels)
+    if result.outcome == "win":
+        combo = result.metadata.get("combo", "")
+        prefix = "🎰 JACKPOT! " if combo == "triple_fox" else "🎰 "
+        return (
+            f"{prefix}@{username}, {reels_text} — you won {result.payout} promo! "
+            f"Balance: {result.balance_after} promo."
+        )
+    return f"🎰 @{username}, {reels_text} — you lost {wager} promo. Balance: {result.balance_after} promo."
 
 
 def _foxbot_casino_post_dashboard_chat_v1(reply_text: str) -> None:
@@ -5091,6 +5148,11 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         # Same reasoning: blackjack's DB-backed proofs haven't run yet.
         if _foxbot_casino_enabled_v1() and _foxbot_blackjack_enabled_v1():
             casino_help += ", !blackjack 10, !hit, !stand"
+        # Same reasoning: dice/slots' DB-backed proofs haven't run yet.
+        if _foxbot_casino_enabled_v1() and _foxbot_dice_enabled_v1():
+            casino_help += ", !dice high 10"
+        if _foxbot_casino_enabled_v1() and _foxbot_slots_enabled_v1():
+            casino_help += ", !slots 10"
 
         if admin:
 
@@ -7569,7 +7631,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
 
-            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette", "!crash", "!blackjack", "!hit", "!stand"
+            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette", "!crash", "!blackjack", "!hit", "!stand", "!dice", "!slots"
 
         }
 
@@ -8253,6 +8315,111 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             reply = {"response": _foxbot_blackjack_describe_v1(username, result, verb="stand")}
             _foxbot_casino_emit_win_v1(creator_handle, username, "blackjack", result)
+            return reply
+
+        if lower_message.startswith("!dice ") and _foxbot_dice_enabled_v1():
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 3:
+                return {
+                    "response": "Use !dice <high|low|number> <amount>. Examples: "
+                                "!dice high 10, !dice low 10, !dice 6 10"
+                }
+
+            prediction = parts[1].strip().lower()
+            if prediction not in _foxbot_casino_dice_v1.PREDICTIONS:
+                return {"response": "Prediction must be high, low, or a number 1-6."}
+
+            try:
+                wager = int(parts[2])
+            except ValueError:
+                return {"response": "Wager must be a whole number of promo credits."}
+
+            if wager <= 0:
+                return {"response": "Wager must be greater than 0."}
+
+            user_id = viewer_key(username)
+            round_id = f"dice:{dedupe_key}"
+
+            try:
+                result = _foxbot_casino_dice_v1.play_dice(
+                    resolved_creator_id, user_id, prediction, wager, round_id, display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you don't have enough promo credits for that wager "
+                                f"(balance: {promo_balance}). Convert FoxCoins first with !convert amount."
+                }
+            except _foxbot_casino_rounds_v1.GameDisabled:
+                return {"response": f"@{username}, dice is currently disabled here."}
+            except _foxbot_casino_rounds_v1.BetOutOfRange:
+                return {"response": f"@{username}, that wager is outside the allowed range for dice here."}
+            except _foxbot_casino_rounds_v1.RoundMismatch:
+                return {"response": f"@{username}, that request was already processed."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that bet couldn't be processed."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong with that bet. Try again shortly."}
+
+            reply = {"response": _foxbot_dice_reply_v1(username, wager, result)}
+            _foxbot_casino_emit_win_v1(creator_handle, username, "dice", result)
+            return reply
+
+        if lower_message.startswith("!slots ") and _foxbot_slots_enabled_v1():
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 2:
+                return {"response": "Use !slots <amount>. Example: !slots 10"}
+
+            try:
+                wager = int(parts[1])
+            except ValueError:
+                return {"response": "Wager must be a whole number of promo credits."}
+
+            if wager <= 0:
+                return {"response": "Wager must be greater than 0."}
+
+            user_id = viewer_key(username)
+            round_id = f"slots:{dedupe_key}"
+
+            try:
+                result = _foxbot_casino_slots_v1.play_slots(
+                    resolved_creator_id, user_id, wager, round_id, display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you don't have enough promo credits for that spin "
+                                f"(balance: {promo_balance}). Convert FoxCoins first with !convert amount."
+                }
+            except _foxbot_casino_rounds_v1.GameDisabled:
+                return {"response": f"@{username}, slots is currently disabled here."}
+            except _foxbot_casino_rounds_v1.BetOutOfRange:
+                return {"response": f"@{username}, that wager is outside the allowed range for slots here."}
+            except _foxbot_casino_rounds_v1.RoundMismatch:
+                return {"response": f"@{username}, that request was already processed."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that spin couldn't be processed."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong with that spin. Try again shortly."}
+
+            reply = {"response": _foxbot_slots_reply_v1(username, wager, result)}
+            _foxbot_casino_emit_win_v1(creator_handle, username, "slots", result)
             return reply
 
         if lower_message == "!casino":

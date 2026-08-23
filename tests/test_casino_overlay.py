@@ -158,6 +158,46 @@ class NotableWinTestCase(unittest.TestCase):
         detail = app._foxbot_casino_notable_win_v1("crash", result)
         self._assert_detail_shape(detail)
 
+    def test_slots_triple_fox_always_notable_even_below_floor(self):
+        result = _FakeResult("win", 1, {"reels": ["fox", "fox", "fox"], "combo": "triple_fox", "won": True})
+        detail = app._foxbot_casino_notable_win_v1("slots", result)
+        self._assert_detail_shape(detail)
+        self.assertIn("fox", detail["highlight"])
+
+    def test_slots_triple_seven_always_notable_even_below_floor(self):
+        result = _FakeResult("win", 1, {"reels": ["seven", "seven", "seven"], "combo": "triple_seven", "won": True})
+        detail = app._foxbot_casino_notable_win_v1("slots", result)
+        self._assert_detail_shape(detail)
+        self.assertIn("seven", detail["highlight"])
+
+    def test_slots_triple_purple_below_floor_not_notable(self):
+        floor = app._foxbot_casino_notable_payout_floor_v1()
+        result = _FakeResult("win", floor - 1, {"reels": ["purple", "purple", "purple"], "combo": "triple_purple", "won": True})
+        self.assertIsNone(app._foxbot_casino_notable_win_v1("slots", result))
+
+    def test_slots_pair_fox_above_floor_is_notable_via_floor(self):
+        floor = app._foxbot_casino_notable_payout_floor_v1()
+        result = _FakeResult("win", floor, {"reels": ["fox", "fox", "purple"], "combo": "pair_fox", "won": True})
+        detail = app._foxbot_casino_notable_win_v1("slots", result)
+        self._assert_detail_shape(detail)
+
+    def test_dice_exact_number_win_always_notable_even_below_floor(self):
+        result = _FakeResult("win", 1, {"prediction": "6", "roll": 6, "won": True})
+        detail = app._foxbot_casino_notable_win_v1("dice", result)
+        self._assert_detail_shape(detail)
+        self.assertIn("6", detail["highlight"])
+
+    def test_dice_high_low_win_below_floor_not_notable(self):
+        floor = app._foxbot_casino_notable_payout_floor_v1()
+        result = _FakeResult("win", floor - 1, {"prediction": "high", "roll": 5, "won": True})
+        self.assertIsNone(app._foxbot_casino_notable_win_v1("dice", result))
+
+    def test_dice_high_low_win_above_floor_is_notable_via_floor(self):
+        floor = app._foxbot_casino_notable_payout_floor_v1()
+        result = _FakeResult("win", floor, {"prediction": "high", "roll": 5, "won": True})
+        detail = app._foxbot_casino_notable_win_v1("dice", result)
+        self._assert_detail_shape(detail)
+
     def test_detail_never_contains_sensitive_keys_across_all_games(self):
         """Structural proof, not a spot check: for every game and every
         code path that can return a non-None detail, the returned dict's
@@ -179,6 +219,12 @@ class NotableWinTestCase(unittest.TestCase):
             ("blackjack", _FakeResult("blackjack", 27, {
                 "player_cards": ["AS", "KH"], "dealer_cards": ["2S", "3S"],
                 "bet": 10, "deck": ["AS"] * 52, "hit_log": {"x": 1},
+            })),
+            ("slots", _FakeResult("win", 26500, {
+                "reels": ["fox", "fox", "fox"], "combo": "triple_fox", "won": True,
+            })),
+            ("dice", _FakeResult("win", 582, {
+                "prediction": "6", "roll": 6, "won": True,
             })),
         ]
         for game_id, result in scenarios:
