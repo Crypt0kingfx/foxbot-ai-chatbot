@@ -17097,6 +17097,150 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
     }
 
 
+# === Casino Studio Tab v1: play/slots, play/dice ===
+# Identical pattern to play/coinflip, play/roulette, play/crash above --
+# thin wrappers over the proven play_slots()/play_dice() (the SAME
+# functions !slots/!dice use), admin-gated, session-scoped creator_id
+# (no payload creator_id, ever), idempotency_key required and fed into
+# round_id="dashboard:{game}:{key}" -> play_round()'s already-proven
+# replay contract, chat-post + overlay emit as post-settlement,
+# replayed-guarded side effects. No new game logic anywhere below.
+#
+# UNLIKE play/crash above (which never checks _foxbot_crash_enabled_v1()
+# -- a pre-existing gap in that route, not something copied here on
+# purpose), these two DO check their platform dormancy flags before
+# doing anything else. That gap means today, if FOXBOT_CRASH_ENABLED
+# were ever flipped back off, !crash in chat would go silent but
+# /play/crash would keep working -- worth backfilling onto play/crash
+# (and documenting why play/roulette and play/coinflip don't need it:
+# neither game has ever had a platform dormancy flag at all) separately
+# from this change, not silently copied forward here.
+
+
+@app.post("/api/studio/casino/play/slots")
+async def foxbot_studio_casino_play_slots_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if not _foxbot_slots_enabled_v1():
+        return JSONResponse({"ok": False, "error": "slots is not enabled yet."}, status_code=404)
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    try:
+        wager = int(payload.get("wager"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "wager must be a whole number."}, status_code=400)
+    if wager <= 0:
+        return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+    round_id = f"dashboard:slots:{idempotency_key}"
+
+    try:
+        result = _foxbot_casino_slots_v1.play_slots(
+            resolved_creator_id, user_id, wager, round_id, display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO)
+        return JSONResponse({"ok": False, "error": f"Not enough promo credits (balance: {promo_balance})."}, status_code=400)
+    except _foxbot_casino_rounds_v1.GameDisabled:
+        return JSONResponse({"ok": False, "error": "slots is currently disabled here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.BetOutOfRange:
+        return JSONResponse({"ok": False, "error": "that wager is outside the allowed range for slots here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.RoundMismatch:
+        return JSONResponse({"ok": False, "error": "that request was already processed."}, status_code=409)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that spin couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong with that spin."}, status_code=500)
+
+    reply_text = _foxbot_slots_reply_v1(username, wager, result)
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "slots", result)
+    if not result.replayed:
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+
+    return {
+        "ok": True, "outcome": result.outcome, "payout": result.payout,
+        "wager": wager, "balance_after": result.balance_after, "replayed": result.replayed,
+        "highlight": {"reels": result.metadata.get("reels"), "combo": result.metadata.get("combo")},
+    }
+
+
+@app.post("/api/studio/casino/play/dice")
+async def foxbot_studio_casino_play_dice_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if not _foxbot_dice_enabled_v1():
+        return JSONResponse({"ok": False, "error": "dice is not enabled yet."}, status_code=404)
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    prediction = str(payload.get("prediction") or "").strip().lower()
+    if prediction not in _foxbot_casino_dice_v1.PREDICTIONS:
+        return JSONResponse({"ok": False, "error": "prediction must be high, low, or a number 1-6."}, status_code=400)
+
+    try:
+        wager = int(payload.get("wager"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "wager must be a whole number."}, status_code=400)
+    if wager <= 0:
+        return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+    round_id = f"dashboard:dice:{idempotency_key}"
+
+    try:
+        result = _foxbot_casino_dice_v1.play_dice(
+            resolved_creator_id, user_id, prediction, wager, round_id, display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO)
+        return JSONResponse({"ok": False, "error": f"Not enough promo credits (balance: {promo_balance})."}, status_code=400)
+    except _foxbot_casino_rounds_v1.GameDisabled:
+        return JSONResponse({"ok": False, "error": "dice is currently disabled here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.BetOutOfRange:
+        return JSONResponse({"ok": False, "error": "that wager is outside the allowed range for dice here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.RoundMismatch:
+        return JSONResponse({"ok": False, "error": "that request was already processed."}, status_code=409)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that bet couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
+
+    reply_text = _foxbot_dice_reply_v1(username, wager, result)
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "dice", result)
+    if not result.replayed:
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+
+    return {
+        "ok": True, "outcome": result.outcome, "payout": result.payout,
+        "wager": wager, "balance_after": result.balance_after, "replayed": result.replayed,
+        "highlight": {"prediction": prediction, "roll": result.metadata.get("roll")},
+    }
+
+
 # === Casino Studio Tab v1, Feature 4: Convert From Dashboard ===
 # Thin wrapper over providers/promo.py's PromoProvider.deposit() -- the
 # EXACT SAME function !convert already calls. No new conversion logic:

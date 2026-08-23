@@ -55,6 +55,17 @@ class _FixedChoiceProvider(casino_rng.RNGProvider):
         return self.value
 
 
+class _FixedRollProvider(casino_rng.RNGProvider):
+    def __init__(self, value):
+        self.value = value
+
+    def roll(self, minimum, maximum):
+        return self.value
+
+    def choice(self, seq):
+        return seq[0]
+
+
 @unittest.skipUnless(DATABASE_CONFIGURED, SKIP_REASON)
 @unittest.skipUnless(ADMIN_AUTH_CONFIGURED, "STUDIO_ADMIN_USER/PASSWORD not set in this environment.")
 class CasinoDashboardFeaturesTestCase(unittest.TestCase):
@@ -71,6 +82,12 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
 
         self._original_flag = os.environ.get("FOXBOT_CASINO_ENABLED")
         os.environ["FOXBOT_CASINO_ENABLED"] = "true"
+
+        self._original_slots_flag = os.environ.get("FOXBOT_SLOTS_ENABLED")
+        os.environ["FOXBOT_SLOTS_ENABLED"] = "true"
+
+        self._original_dice_flag = os.environ.get("FOXBOT_DICE_ENABLED")
+        os.environ["FOXBOT_DICE_ENABLED"] = "true"
 
         casino_config.set_config(
             self.creator_id, foxcoins_per_promo=10, daily_promo_limit=5000, casino_enabled=True,
@@ -96,6 +113,16 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
             os.environ.pop("FOXBOT_CASINO_ENABLED", None)
         else:
             os.environ["FOXBOT_CASINO_ENABLED"] = self._original_flag
+
+        if self._original_slots_flag is None:
+            os.environ.pop("FOXBOT_SLOTS_ENABLED", None)
+        else:
+            os.environ["FOXBOT_SLOTS_ENABLED"] = self._original_slots_flag
+
+        if self._original_dice_flag is None:
+            os.environ.pop("FOXBOT_DICE_ENABLED", None)
+        else:
+            os.environ["FOXBOT_DICE_ENABLED"] = self._original_dice_flag
 
         with cl._connect() as connection:
             cl._ensure_schema(connection)
@@ -651,6 +678,243 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         mock_send.assert_called_once()
         (posted_text,), _ = mock_send.call_args
         self.assertTrue(posted_text.startswith("🚀") or posted_text.startswith("💥"))
+
+    # ------------------------------------------------------------------
+    # FEATURE 6: play/slots, play/dice -- identical pattern to
+    # play/coinflip, play/roulette, play/crash above.
+    # ------------------------------------------------------------------
+    def test_play_slots_routes_through_proven_play_slots(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("fox"))  # triple fox -> jackpot
+
+        res = self.client.post(
+            "/api/studio/casino/play/slots",
+            json={"wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["outcome"], "win")
+        self.assertEqual(data["payout"], 26500)  # 10 * 2650, games/slots.py's own TRIPLE_PAYOUT["fox"]
+        self.assertEqual(data["highlight"]["combo"], "triple_fox")
+        self.assertEqual(self._promo_balance(), 1000 - 10 + 26500)
+
+    def test_play_slots_same_idempotency_key_twice_plays_once(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("purple"))  # triple purple, small win
+        key = str(uuid.uuid4())
+        payload = {"wager": 10, "idempotency_key": key}
+
+        first = self.client.post("/api/studio/casino/play/slots", json=payload, auth=self.auth)
+        second = self.client.post("/api/studio/casino/play/slots", json=payload, auth=self.auth)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["replayed"])
+        self.assertTrue(second.json()["replayed"], "a repeated idempotency_key must come back replayed=True")
+        self.assertEqual(first.json()["balance_after"], second.json()["balance_after"])
+
+        with cl._connect() as connection:
+            wager_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
+                (f"dashboard:slots:{key}", cl.PROMO_WAGER),
+            ).fetchone()[0]
+            round_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {cr.TABLE_ROUNDS} WHERE round_id = %s", (f"dashboard:slots:{key}",),
+            ).fetchone()[0]
+        self.assertEqual(wager_rows, 1, "exactly one wager -- no double-debit")
+        self.assertEqual(round_rows, 1, "exactly one round -- no double-spin")
+
+    def test_play_slots_ignores_payload_creator_id(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("purple"))
+        other_creator_id = f"other-slots-{uuid.uuid4().hex[:8]}"
+
+        res = self.client.post(
+            "/api/studio/casino/play/slots",
+            json={"wager": 10, "idempotency_key": str(uuid.uuid4()), "creator_id": other_creator_id},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        other_balance = cl.get_balance(other_creator_id, self.user_id, cr.CURRENCY_PROMO)
+        self.assertEqual(other_balance, 0, "a payload creator_id must not redirect the spin elsewhere")
+
+    def test_play_slots_posts_to_chat_and_settles_even_if_send_fails(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("purple"))
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            side_effect=RuntimeError("simulated Blaze API failure"),
+        ):
+            res = self.client.post(
+                "/api/studio/casino/play/slots",
+                json={"wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+        self.assertEqual(res.status_code, 200, "a chat-post failure must not surface as an endpoint error")
+        self.assertTrue(res.json()["ok"])
+        self.assertEqual(self._promo_balance(), 1000 - 10 + 20)
+
+    def test_play_slots_jackpot_fires_the_overlay_event(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("fox"))
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ):
+            self.client.post(
+                "/api/studio/casino/play/slots",
+                json={"wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+
+        import time
+        deadline = time.time() + 3.0
+        matches = []
+        while time.time() < deadline:
+            rows = foxbot_events.fetch_events(self.creator_handle, limit=10)
+            matches = [r for r in (rows or []) if r[0] == "casino_win" and r[1] == app._FOXBOT_DASHBOARD_PLAY_USERNAME]
+            if matches:
+                break
+            time.sleep(0.1)
+        self.assertTrue(matches, "a slots jackpot must fire the same overlay event a chat win would")
+
+    def test_play_slots_disabled_flag_returns_clean_error(self):
+        self._fund_promo(1000)
+        os.environ.pop("FOXBOT_SLOTS_ENABLED", None)
+
+        res = self.client.post(
+            "/api/studio/casino/play/slots",
+            json={"wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertFalse(res.json()["ok"])
+        self.assertEqual(self._promo_balance(), 1000, "no wager must move when the game is dormant")
+
+    # ------------------------------------------------------------------
+    def test_play_dice_high_low_and_exact_number_all_work(self):
+        self._fund_promo(1000)
+
+        casino_rng.set_provider(_FixedRollProvider(6))
+        res_high = self.client.post(
+            "/api/studio/casino/play/dice",
+            json={"prediction": "high", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res_high.status_code, 200)
+        data_high = res_high.json()
+        self.assertEqual(data_high["outcome"], "win")
+        self.assertEqual(data_high["payout"], 19)  # (10*194)//100
+
+        casino_rng.set_provider(_FixedRollProvider(1))
+        res_low = self.client.post(
+            "/api/studio/casino/play/dice",
+            json={"prediction": "low", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res_low.json()["outcome"], "win")
+
+        casino_rng.set_provider(_FixedRollProvider(6))
+        res_exact = self.client.post(
+            "/api/studio/casino/play/dice",
+            json={"prediction": "6", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        data_exact = res_exact.json()
+        self.assertEqual(data_exact["outcome"], "win")
+        self.assertEqual(data_exact["payout"], 58)  # (10*582)//100
+
+    def test_play_dice_invalid_prediction_rejected(self):
+        self._fund_promo(1000)
+        res = self.client.post(
+            "/api/studio/casino/play/dice",
+            json={"prediction": "sideways", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.json()["ok"])
+        self.assertEqual(self._promo_balance(), 1000)
+
+    def test_play_dice_same_idempotency_key_twice_plays_once(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedRollProvider(6))
+        key = str(uuid.uuid4())
+        payload = {"prediction": "high", "wager": 10, "idempotency_key": key}
+
+        first = self.client.post("/api/studio/casino/play/dice", json=payload, auth=self.auth)
+        second = self.client.post("/api/studio/casino/play/dice", json=payload, auth=self.auth)
+
+        self.assertFalse(first.json()["replayed"])
+        self.assertTrue(second.json()["replayed"])
+        self.assertEqual(first.json()["balance_after"], second.json()["balance_after"])
+
+        with cl._connect() as connection:
+            wager_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
+                (f"dashboard:dice:{key}", cl.PROMO_WAGER),
+            ).fetchone()[0]
+        self.assertEqual(wager_rows, 1, "exactly one wager -- no double-debit")
+
+    def test_play_dice_ignores_payload_creator_id(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedRollProvider(6))
+        other_creator_id = f"other-dice-{uuid.uuid4().hex[:8]}"
+
+        res = self.client.post(
+            "/api/studio/casino/play/dice",
+            json={
+                "prediction": "high", "wager": 10, "idempotency_key": str(uuid.uuid4()),
+                "creator_id": other_creator_id,
+            },
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        other_balance = cl.get_balance(other_creator_id, self.user_id, cr.CURRENCY_PROMO)
+        self.assertEqual(other_balance, 0, "a payload creator_id must not redirect the roll elsewhere")
+
+    def test_play_dice_posts_the_exact_chat_reply_text(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedRollProvider(6))
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            self.client.post(
+                "/api/studio/casino/play/dice",
+                json={"prediction": "high", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+        mock_send.assert_called_once()
+        (posted_text,), _ = mock_send.call_args
+        self.assertTrue(posted_text.startswith("🎲"))
+        self.assertIn("rolled 6", posted_text.lower())
+
+    def test_play_dice_disabled_flag_returns_clean_error(self):
+        self._fund_promo(1000)
+        os.environ.pop("FOXBOT_DICE_ENABLED", None)
+
+        res = self.client.post(
+            "/api/studio/casino/play/dice",
+            json={"prediction": "high", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertFalse(res.json()["ok"])
+        self.assertEqual(self._promo_balance(), 1000, "no wager must move when the game is dormant")
+
+    def test_play_slots_and_dice_reject_unauthenticated(self):
+        cases = [
+            ("/api/studio/casino/play/slots", {"wager": 10, "idempotency_key": "x"}),
+            ("/api/studio/casino/play/dice", {"prediction": "high", "wager": 10, "idempotency_key": "x"}),
+        ]
+        for path, body in cases:
+            res = self.client.post(path, json=body)
+            self.assertEqual(res.status_code, 401, f"POST {path} must reject unauthenticated requests")
 
 
 if __name__ == "__main__":
