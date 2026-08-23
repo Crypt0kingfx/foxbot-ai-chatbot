@@ -1579,7 +1579,18 @@ body::before {
       </div>
       <p class="card-sub">Plays a real round against your own promo balance, through the same game engine chat commands use. A notable win fires your live overlay, same as a chat win would. Blackjack isn't available here yet -- use chat for that.</p>
 
-      <h3 class="subhead">Coinflip</h3>
+      <h3 class="subhead">Convert FoxCoins → Promo</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Promo credits to buy</span>
+          <input type="text" id="convertAmount" class="field-input" value="10">
+        </label>
+        <button type="button" id="convertBtn" class="step-go" style="align-self:flex-end;">Convert</button>
+      </div>
+      <p class="dismiss-error" id="convertError" hidden></p>
+      <div class="feed-item" id="convertResult" hidden><span class="feed-body" id="convertResultText"></span></div>
+
+      <h3 class="subhead subhead-spaced">Coinflip</h3>
       <div class="field-row">
         <label class="field">
           <span class="field-label">Pick</span>
@@ -3809,6 +3820,18 @@ document.querySelectorAll('.item').forEach(function (item) {
       var verb = data.outcome === 'win' ? ('won ' + data.payout) : ('lost ' + data.wager);
       return '🚀 Crashed at ' + crashPoint + 'x (target ' + target + 'x) — ' + verb + ' promo. Balance: ' +
         data.balance_after + ' promo.' + (data.replayed ? ' (replayed -- already played)' : '');
+    }
+  });
+
+  wirePlayButton({
+    btnId: 'convertBtn', errorId: 'convertError', resultId: 'convertResult', resultTextId: 'convertResultText',
+    path: '/api/studio/casino/convert',
+    buildPayload: function (idempotencyKey) {
+      return { amount: val('convertAmount', '10'), idempotency_key: idempotencyKey };
+    },
+    formatResult: function (data) {
+      return '💱 Converted ' + data.foxcoin_cost + ' FoxCoins → ' + data.promo_amount + ' promo. Casino balance: ' +
+        data.promo_balance + ' promo.' + (data.replayed ? ' (replayed -- already converted)' : '');
     }
   });
 

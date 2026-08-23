@@ -16883,6 +16883,88 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
     }
 
 
+# === Casino Studio Tab v1, Feature 4: Convert From Dashboard ===
+# Thin wrapper over providers/promo.py's PromoProvider.deposit() -- the
+# EXACT SAME function !convert already calls. No new conversion logic:
+# the FoxCoin cost math (promo_amount * foxcoins_per_promo), the
+# debit-before-credit ordering, the 4-state crash-safe resume, and the
+# idempotency-key dedup are all deposit()'s own, unchanged. This route
+# only resolves identity, validates the payload shape, and maps
+# deposit()'s exceptions to JSON -- the same shape !convert's chat
+# handler already uses, just returned as structured JSON instead of a
+# chat string.
+#
+# IDEMPOTENCY: idempotency_key is REQUIRED (never server-generated as a
+# fallback), feeding idempotency_key=f"dashboard-convert:{key}" straight
+# into deposit() -- the same already-proven, already-tested idempotency
+# contract !convert's "convert:{dedupe_key}" key uses, just sourced from
+# a client-generated UUID instead of a Blaze message id.
+#
+# SCOPING: creator_id is resolved server-side via
+# _foxbot_resolve_creator_id_v1 -- same resolver every other Casino tab
+# route uses. No creator_id field is ever read from the payload.
+
+
+@app.post("/api/studio/casino/convert")
+async def foxbot_studio_casino_convert_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    try:
+        promo_amount = int(payload.get("amount"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "amount must be a whole number."}, status_code=400)
+    if promo_amount <= 0:
+        return JSONResponse({"ok": False, "error": "amount must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+
+    try:
+        config = _foxbot_casino_config_v1.get_config(resolved_creator_id)
+    except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+
+    foxcoin_cost = promo_amount * config.foxcoins_per_promo
+
+    try:
+        provider = _foxbot_casino_promo_v1.PromoProvider()
+        result = provider.deposit(
+            resolved_creator_id, user_id, promo_amount,
+            idempotency_key=f"dashboard-convert:{idempotency_key}", display_name=username,
+        )
+    except InsufficientFoxCoins:
+        balance = get_balance(username, creator_id=resolved_creator_id)
+        return JSONResponse(
+            {"ok": False, "error": f"Not enough {get_currency_name()} (need {foxcoin_cost}, have {balance})."},
+            status_code=400,
+        )
+    except _foxbot_casino_promo_v1.DailyLimitExceeded:
+        return JSONResponse({"ok": False, "error": "today's conversion limit has been reached."}, status_code=400)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that conversion couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong converting."}, status_code=500)
+
+    return {
+        "ok": True,
+        "foxcoin_cost": foxcoin_cost,
+        "promo_amount": result["promo_amount"],
+        "promo_balance": result["promo_balance"],
+        "replayed": result["replayed"],
+    }
+
+
 # === Casino Stream Overlay v1 ===
 # Public, unauthenticated OBS browser-source page + its polling data
 # endpoint. Deliberately named so NEITHER "/overlay/casino" nor

@@ -29,6 +29,7 @@ import services.casino_ledger as cl  # noqa: E402
 import services.casino_rounds as cr  # noqa: E402
 import services.casino_rng as casino_rng  # noqa: E402
 import services.foxbot_events as foxbot_events  # noqa: E402
+import providers.promo as promo  # noqa: E402
 
 
 DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
@@ -107,6 +108,8 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
             connection.execute(f"DELETE FROM {casino_config.TABLE_GAME_CONFIG} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {casino_config.TABLE_CONFIG} WHERE creator_id = %s", (self.creator_id,))
             connection.execute("DELETE FROM foxbot_events WHERE creator_handle = %s", (self.creator_handle,))
+            promo._ensure_schema(connection)
+            connection.execute(f"DELETE FROM {promo.TABLE_ATTEMPTS} WHERE creator_id = %s", (self.creator_id,))
 
     def _fund_promo(self, amount):
         cl.credit(
@@ -116,6 +119,12 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
 
     def _promo_balance(self):
         return cl.get_balance(self.creator_id, self.user_id, cr.CURRENCY_PROMO)
+
+    def _seed_foxcoins(self, amount):
+        app.add_points(self.username, amount, "test_seed", creator_id=self.creator_id)
+
+    def _foxcoin_balance(self):
+        return app.get_balance(self.username, creator_id=self.creator_id)
 
     def _money_table_counts(self):
         with cl._connect() as connection:
@@ -136,6 +145,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
             ("POST", "/api/studio/casino/play/coinflip", {"pick": "heads", "wager": 10, "idempotency_key": "x"}),
             ("POST", "/api/studio/casino/play/roulette", {"bet_type": "red", "wager": 10, "idempotency_key": "x"}),
             ("POST", "/api/studio/casino/play/crash", {"wager": 10, "target": "2.0", "idempotency_key": "x"}),
+            ("POST", "/api/studio/casino/convert", {"amount": 10, "idempotency_key": "x"}),
         ]
         for method, path, body in cases:
             if method == "GET":
@@ -360,6 +370,113 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         self.assertTrue(data["wins"])
         win = data["wins"][0]
         self.assertEqual(set(win.keys()), {"username", "game", "payout", "highlight", "created_at", "age_seconds"})
+
+    # ------------------------------------------------------------------
+    # FEATURE 4 (CONVERT): thin wrapper over the proven deposit().
+    # ------------------------------------------------------------------
+    def test_convert_routes_through_proven_deposit(self):
+        self._seed_foxcoins(1000)
+
+        res = self.client.post(
+            "/api/studio/casino/convert",
+            json={"amount": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["replayed"])
+        self.assertEqual(data["foxcoin_cost"], 100)  # 10 promo * rate 10
+        self.assertEqual(data["promo_amount"], 10)
+        self.assertEqual(data["promo_balance"], 10)
+
+        self.assertEqual(self._promo_balance(), 10)
+        self.assertEqual(self._foxcoin_balance(), 1000 - 100)
+
+    def test_convert_same_idempotency_key_twice_converts_once(self):
+        self._seed_foxcoins(1000)
+        key = str(uuid.uuid4())
+        payload = {"amount": 10, "idempotency_key": key}
+
+        first = self.client.post("/api/studio/casino/convert", json=payload, auth=self.auth)
+        second = self.client.post("/api/studio/casino/convert", json=payload, auth=self.auth)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_data, second_data = first.json(), second.json()
+
+        self.assertFalse(first_data["replayed"])
+        self.assertTrue(second_data["replayed"], "a repeated idempotency_key must come back replayed=True")
+        self.assertEqual(first_data["promo_balance"], second_data["promo_balance"])
+
+        # No double-debit, no double-credit -- checked against real balances,
+        # not just the JSON response.
+        self.assertEqual(self._promo_balance(), 10, "must have converted exactly once, not twice")
+        self.assertEqual(self._foxcoin_balance(), 1000 - 100, "FoxCoins must be debited exactly once")
+
+        with cl._connect() as connection:
+            attempt_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {promo.TABLE_ATTEMPTS} WHERE idempotency_key = %s",
+                (f"dashboard-convert:{key}",),
+            ).fetchone()[0]
+            ledger_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE creator_id = %s AND user_id = %s "
+                f"AND currency = %s AND type = %s",
+                (self.creator_id, self.user_id, cr.CURRENCY_PROMO, cl.PROMO_CONVERT_IN),
+            ).fetchone()[0]
+        self.assertEqual(attempt_rows, 1, "exactly one conversion-attempt row for this idempotency_key")
+        self.assertEqual(ledger_rows, 1, "exactly one PROMO_CONVERT_IN ledger row -- no double-credit")
+
+    def test_convert_ignores_payload_creator_id(self):
+        self._seed_foxcoins(1000)
+        other_creator_id = f"other-convert-{uuid.uuid4().hex[:8]}"
+
+        res = self.client.post(
+            "/api/studio/casino/convert",
+            json={"amount": 10, "idempotency_key": str(uuid.uuid4()), "creator_id": other_creator_id},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.assertEqual(self._promo_balance(), 10)
+        other_balance = cl.get_balance(other_creator_id, self.user_id, cr.CURRENCY_PROMO)
+        self.assertEqual(other_balance, 0, "a payload creator_id must not redirect the conversion elsewhere")
+
+    def test_convert_insufficient_foxcoins_clean_rejection(self):
+        # No FoxCoins seeded at all.
+        res = self.client.post(
+            "/api/studio/casino/convert",
+            json={"amount": 10, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 400)
+        data = res.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("100", data["error"])  # the FoxCoin cost, same detail !convert's own message shows
+
+        self.assertEqual(self._promo_balance(), 0, "a rejected conversion must not credit any promo")
+
+    def test_convert_daily_limit_enforced(self):
+        self._seed_foxcoins(100000)
+        casino_config.set_config(self.creator_id, daily_promo_limit=5)  # inherited straight from deposit()
+
+        res = self.client.post(
+            "/api/studio/casino/convert",
+            json={"amount": 10, "idempotency_key": str(uuid.uuid4())},  # exceeds the 5-promo daily limit
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 400)
+        data = res.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("limit", data["error"].lower())
+        self.assertEqual(self._promo_balance(), 0, "a limit-rejected conversion must not credit any promo")
+
+    def test_convert_missing_idempotency_key_rejected(self):
+        self._seed_foxcoins(1000)
+        res = self.client.post("/api/studio/casino/convert", json={"amount": 10}, auth=self.auth)
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.json()["ok"])
+        self.assertEqual(self._promo_balance(), 0)
 
 
 if __name__ == "__main__":
