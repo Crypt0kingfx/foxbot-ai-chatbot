@@ -478,6 +478,180 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         self.assertFalse(res.json()["ok"])
         self.assertEqual(self._promo_balance(), 0)
 
+    # ------------------------------------------------------------------
+    # FEATURE 5: dashboard plays also post to Blaze chat.
+    # ------------------------------------------------------------------
+    def test_dashboard_play_posts_the_exact_chat_reply_text(self):
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            res = self.client.post(
+                "/api/studio/casino/play/coinflip",
+                json={"pick": "heads", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+        self.assertEqual(res.status_code, 200)
+
+        mock_send.assert_called_once()
+        (posted_text,), _ = mock_send.call_args
+        # The route calls _foxbot_coinflip_reply_v1 directly (confirmed by
+        # reading app.py) -- the SAME function chat()'s !casinoflip block
+        # calls, so checking the posted text has the right shape/content
+        # here is checking the shared helper's real output, not a copy.
+        self.assertTrue(posted_text.startswith("🪙"))
+        self.assertIn("HEADS", posted_text)
+        self.assertIn("won 20 promo", posted_text)
+        self.assertIn("Balance: 1010 promo", posted_text)
+        self.assertIn("crypt0k1ng96", posted_text)  # the dashboard's own username, same identity as real chat
+
+    def test_dashboard_play_settles_even_if_chat_post_fails(self):
+        """THE POST-SETTLEMENT SIDE-EFFECT PROOF: a send failure must not
+        break the play -- the round already settled (via play_round(),
+        untouched) before this side-effect ever runs."""
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            side_effect=RuntimeError("simulated Blaze API failure"),
+        ):
+            res = self.client.post(
+                "/api/studio/casino/play/coinflip",
+                json={"pick": "heads", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+
+        self.assertEqual(res.status_code, 200, "a chat-post failure must not surface as an endpoint error")
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["outcome"], "win")
+        self.assertEqual(data["payout"], 20)
+        self.assertEqual(self._promo_balance(), 1000 - 10 + 20, "the payout must land regardless of the send failure")
+
+    def test_replayed_dashboard_play_does_not_repost_to_chat(self):
+        """No double-post on replay: same idempotency_key twice ->
+        _foxbot_live_send_chat_v2 called exactly once, not twice."""
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+        key = str(uuid.uuid4())
+        payload = {"pick": "heads", "wager": 10, "idempotency_key": key}
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            first = self.client.post("/api/studio/casino/play/coinflip", json=payload, auth=self.auth)
+            second = self.client.post("/api/studio/casino/play/coinflip", json=payload, auth=self.auth)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["replayed"])
+        self.assertTrue(second.json()["replayed"])
+        mock_send.assert_called_once()
+
+    def test_chat_post_fires_with_no_open_transaction(self):
+        """STRUCTURAL PROOF (not just code inspection): at the exact
+        moment the chat-post fires, query Postgres's own pg_stat_activity
+        for any connection idle-in-transaction. If play_round() (or
+        anything upstream) had left a connection/transaction open across
+        this call, it would show up here as a real, measurable fact
+        about the database's state -- not an inference from reading
+        Python source."""
+        self._fund_promo(1000)
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+
+        observed_idle_in_transaction = []
+
+        def capture_send(message):
+            with cl._connect() as check_connection:
+                count = check_connection.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'"
+                ).fetchone()[0]
+            observed_idle_in_transaction.append(count)
+            return {"ok": True, "sent": True}
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2", side_effect=capture_send,
+        ) as mock_send:
+            res = self.client.post(
+                "/api/studio/casino/play/coinflip",
+                json={"pick": "heads", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+
+        self.assertEqual(res.status_code, 200)
+        mock_send.assert_called_once()
+        self.assertEqual(
+            observed_idle_in_transaction, [0],
+            "no connection should be idle-in-transaction at the moment the chat post fires",
+        )
+
+    def test_overlay_still_fires_alongside_the_chat_post(self):
+        """(d) Confirms the overlay emit is unaffected by the new
+        chat-post side-effect sitting next to it -- both fire from the
+        same genuine (non-replayed) settle."""
+        self._fund_promo(10000)
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))
+        floor = app._foxbot_casino_notable_payout_floor_v1()
+        wager = max(1, (floor // 2) + 1)
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            res = self.client.post(
+                "/api/studio/casino/play/coinflip",
+                json={"pick": "heads", "wager": wager, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+        self.assertEqual(res.status_code, 200)
+        mock_send.assert_called_once()
+
+        import time
+        deadline = time.time() + 3.0
+        matches = []
+        while time.time() < deadline:
+            rows = foxbot_events.fetch_events(self.creator_handle, limit=10)
+            matches = [r for r in (rows or []) if r[0] == "casino_win" and r[1] == app._FOXBOT_DASHBOARD_PLAY_USERNAME]
+            if matches:
+                break
+            time.sleep(0.1)
+        self.assertTrue(matches, "the overlay event must still fire alongside the new chat-post side-effect")
+
+    def test_roulette_and_crash_also_post_to_chat(self):
+        self._fund_promo(1000)
+
+        casino_rng.set_provider(_FixedChoiceProvider("heads"))  # roulette uses roll(), harmless here
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            self.client.post(
+                "/api/studio/casino/play/roulette",
+                json={"bet_type": "red", "wager": 10, "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+        mock_send.assert_called_once()
+        (posted_text,), _ = mock_send.call_args
+        self.assertIn("🎡", posted_text)
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            self.client.post(
+                "/api/studio/casino/play/crash",
+                json={"wager": 10, "target": "2.0", "idempotency_key": str(uuid.uuid4())},
+                auth=self.auth,
+            )
+        mock_send.assert_called_once()
+        (posted_text,), _ = mock_send.call_args
+        self.assertTrue(posted_text.startswith("🚀") or posted_text.startswith("💥"))
+
 
 if __name__ == "__main__":
     unittest.main()

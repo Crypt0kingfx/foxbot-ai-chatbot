@@ -3663,6 +3663,74 @@ def _foxbot_casino_emit_win_v1(creator_handle: str, username: str, game_id: str,
         pass
 
 
+# === Casino Studio Tab v1, Feature 5: dashboard plays also post to chat ===
+# The three reply-builders below are the SAME text chat()'s !casinoflip/
+# !roulette/!crash blocks already produced inline -- extracted here, not
+# rewritten, so a dashboard play and a chat play are STRUCTURALLY
+# guaranteed to say the same thing (one function, two call sites) rather
+# than two independently-maintained copies of "the same" f-string that
+# could silently drift apart later. chat()'s three blocks below call
+# these instead of building the string inline; the text itself is
+# unchanged character-for-character -- the existing test_casino_commands.py
+# regression suite already asserts on substrings of these replies, so any
+# accidental drift during extraction would fail loudly there.
+
+
+def _foxbot_coinflip_reply_v1(username: str, wager: int, result) -> str:
+    roll = str(result.metadata.get("roll", "")).upper()
+    if result.outcome == "win":
+        return f"🪙 @{username}, landed {roll} — you won {result.payout} promo! Balance: {result.balance_after} promo."
+    return f"🪙 @{username}, landed {roll} — you lost {wager} promo. Balance: {result.balance_after} promo."
+
+
+def _foxbot_roulette_reply_v1(username: str, wager: int, result) -> str:
+    pocket = result.metadata.get("pocket")
+    color = result.metadata.get("color", "")
+    if result.outcome == "win":
+        return (
+            f"🎡 @{username}, ball landed on {pocket} {color} — you won {result.payout} promo! "
+            f"Balance: {result.balance_after} promo."
+        )
+    return (
+        f"🎡 @{username}, ball landed on {pocket} {color} — you lost {wager} promo. "
+        f"Balance: {result.balance_after} promo."
+    )
+
+
+def _foxbot_crash_reply_v1(username: str, wager: int, result) -> str:
+    crash_point = result.metadata.get("crash_point", 0.0)
+    target = result.metadata.get("target", 0.0)
+    if result.outcome == "win":
+        return (
+            f"🚀 @{username}, crashed at {crash_point:.2f}x — cashed out at {target:.2f}x "
+            f"and won {result.payout} promo! Balance: {result.balance_after} promo."
+        )
+    return (
+        f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
+        f"you lost {wager} promo. Balance: {result.balance_after} promo."
+    )
+
+
+def _foxbot_casino_post_dashboard_chat_v1(reply_text: str) -> None:
+    """Posts a dashboard play's reply text to Blaze chat -- reuses the
+    EXACT SAME send path /api/foxbot/admin-command already uses
+    (native._foxbot_live_send_chat_v2), same try/except discipline: a
+    send failure here must never surface as an endpoint error or affect
+    the already-settled, already-returned play result.
+
+    Called strictly after play_round() (via play_coinflip/roulette/crash)
+    has already returned. services/casino_rounds.py's own structure --
+    every DB touch is its own short-lived `with _connect() as connection:`
+    block, each committed and closed by the time the function returns --
+    means there is no casino DB connection or transaction open by the
+    time this runs, by construction, not by care taken here."""
+    try:
+        from services import blaze_native_connector as native
+        native._foxbot_live_send_chat_v2(reply_text)
+    except Exception:
+        pass
+
+
 def _foxbot_casino_creator_enabled_v1(creator_id: str) -> bool:
     """Per-creator opt-in (services/casino_config.py's casino_enabled,
     default False -- unlike this module's other config defaults, a
@@ -7941,15 +8009,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             except Exception:
                 return {"response": f"@{username}, something went wrong with that wager. Try again shortly."}
 
-            roll = str(result.metadata.get("roll", "")).upper()
-            if result.outcome == "win":
-                reply = {
-                    "response": f"🪙 @{username}, landed {roll} — you won {result.payout} promo! Balance: {result.balance_after} promo."
-                }
-            else:
-                reply = {
-                    "response": f"🪙 @{username}, landed {roll} — you lost {wager} promo. Balance: {result.balance_after} promo."
-                }
+            reply = {"response": _foxbot_coinflip_reply_v1(username, wager, result)}
             _foxbot_casino_emit_win_v1(creator_handle, username, "coinflip", result)
             return reply
 
@@ -8019,18 +8079,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             except Exception:
                 return {"response": f"@{username}, something went wrong with that bet. Try again shortly."}
 
-            pocket = result.metadata.get("pocket")
-            color = result.metadata.get("color", "")
-            if result.outcome == "win":
-                reply = {
-                    "response": f"🎡 @{username}, ball landed on {pocket} {color} — you won {result.payout} promo! "
-                                f"Balance: {result.balance_after} promo."
-                }
-            else:
-                reply = {
-                    "response": f"🎡 @{username}, ball landed on {pocket} {color} — you lost {wager} promo. "
-                                f"Balance: {result.balance_after} promo."
-                }
+            reply = {"response": _foxbot_roulette_reply_v1(username, wager, result)}
             _foxbot_casino_emit_win_v1(creator_handle, username, "roulette", result)
             return reply
 
@@ -8084,18 +8133,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
             except Exception:
                 return {"response": f"@{username}, something went wrong with that bet. Try again shortly."}
 
-            crash_point = result.metadata.get("crash_point", 0.0)
-            target = result.metadata.get("target", 0.0)
-            if result.outcome == "win":
-                reply = {
-                    "response": f"🚀 @{username}, crashed at {crash_point:.2f}x — cashed out at {target:.2f}x "
-                                f"and won {result.payout} promo! Balance: {result.balance_after} promo."
-                }
-            else:
-                reply = {
-                    "response": f"💥 @{username}, crashed at {crash_point:.2f}x before your {target:.2f}x cashout — "
-                                f"you lost {bet} promo. Balance: {result.balance_after} promo."
-                }
+            reply = {"response": _foxbot_crash_reply_v1(username, bet, result)}
             _foxbot_casino_emit_win_v1(creator_handle, username, "crash", result)
             return reply
 
@@ -16753,7 +16791,10 @@ async def foxbot_studio_casino_play_coinflip_v1(payload: dict, request: Request)
     except Exception:
         return JSONResponse({"ok": False, "error": "something went wrong with that wager."}, status_code=500)
 
+    reply_text = _foxbot_coinflip_reply_v1(username, wager, result)
     _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "coinflip", result)
+    if not result.replayed:
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -16818,7 +16859,10 @@ async def foxbot_studio_casino_play_roulette_v1(payload: dict, request: Request)
     except Exception:
         return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
 
+    reply_text = _foxbot_roulette_reply_v1(username, wager, result)
     _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "roulette", result)
+    if not result.replayed:
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -16874,7 +16918,10 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
 
+    reply_text = _foxbot_crash_reply_v1(username, wager, result)
     _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "crash", result)
+    if not result.replayed:
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
