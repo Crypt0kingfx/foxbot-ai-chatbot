@@ -24,12 +24,24 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app  # noqa: E402
+import games.blackjack as bj  # noqa: E402
 import services.casino_config as casino_config  # noqa: E402
 import services.casino_ledger as cl  # noqa: E402
 import services.casino_rounds as cr  # noqa: E402
 import services.casino_rng as casino_rng  # noqa: E402
 import services.foxbot_events as foxbot_events  # noqa: E402
 import providers.promo as promo  # noqa: E402
+
+
+def _deck_with_prefix(*cards):
+    """A full, valid 52-card deck whose first N cards are exactly `cards`
+    (in order) -- same helper as tests/test_blackjack.py, duplicated here
+    (not imported cross-file, consistent with this suite's existing
+    per-file fixture convention) so dashboard tests can engineer specific
+    hands deterministically."""
+    full = [rank + suit for suit in bj.SUITS for rank in bj.RANKS]
+    rest = [c for c in full if c not in cards]
+    return list(cards) + rest
 
 
 DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
@@ -89,6 +101,9 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         self._original_dice_flag = os.environ.get("FOXBOT_DICE_ENABLED")
         os.environ["FOXBOT_DICE_ENABLED"] = "true"
 
+        self._original_blackjack_flag = os.environ.get("FOXBOT_BLACKJACK_ENABLED")
+        os.environ["FOXBOT_BLACKJACK_ENABLED"] = "true"
+
         casino_config.set_config(
             self.creator_id, foxcoins_per_promo=10, daily_promo_limit=5000, casino_enabled=True,
         )
@@ -124,19 +139,30 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         else:
             os.environ["FOXBOT_DICE_ENABLED"] = self._original_dice_flag
 
+        if self._original_blackjack_flag is None:
+            os.environ.pop("FOXBOT_BLACKJACK_ENABLED", None)
+        else:
+            os.environ["FOXBOT_BLACKJACK_ENABLED"] = self._original_blackjack_flag
+
         with cl._connect() as connection:
             cl._ensure_schema(connection)
             cr._ensure_schema(connection)
             casino_config._ensure_schema(connection)
             foxbot_events._ensure_schema(connection)
+            bj._ensure_schema(connection)
             connection.execute(f"DELETE FROM {cl.TABLE_LEDGER} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {cl.TABLE_BALANCES} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {cr.TABLE_ROUNDS} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {casino_config.TABLE_GAME_CONFIG} WHERE creator_id = %s", (self.creator_id,))
             connection.execute(f"DELETE FROM {casino_config.TABLE_CONFIG} WHERE creator_id = %s", (self.creator_id,))
             connection.execute("DELETE FROM foxbot_events WHERE creator_handle = %s", (self.creator_handle,))
+            connection.execute(f"DELETE FROM {bj.TABLE_ACTIVE_HANDS} WHERE creator_id = %s", (self.creator_id,))
             promo._ensure_schema(connection)
             connection.execute(f"DELETE FROM {promo.TABLE_ATTEMPTS} WHERE creator_id = %s", (self.creator_id,))
+
+        if getattr(self, "_deck_patch", None) is not None:
+            self._deck_patch.stop()
+            self._deck_patch = None
 
     def _fund_promo(self, amount):
         cl.credit(
@@ -161,6 +187,22 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
             balances = connection.execute(f"SELECT COUNT(*) FROM {cl.TABLE_BALANCES}").fetchone()[0]
             rounds = connection.execute(f"SELECT COUNT(*) FROM {cr.TABLE_ROUNDS}").fetchone()[0]
         return (ledger, balances, rounds)
+
+    def _with_deck(self, *prefix_cards):
+        """Forces the NEXT deal() call (chat-side OR dashboard-side --
+        both go through the same bj.deal()) to use a deck starting with
+        the given cards. Stopped in tearDown."""
+        deck = _deck_with_prefix(*prefix_cards)
+        self._deck_patch = mock.patch.object(bj, "_build_shuffled_deck", return_value=deck)
+        self._deck_patch.start()
+        return deck
+
+    def _active_hand_count(self):
+        with cl._connect() as connection:
+            bj._ensure_schema(connection)
+            return connection.execute(
+                f"SELECT COUNT(*) FROM {bj.TABLE_ACTIVE_HANDS} WHERE creator_id = %s", (self.creator_id,),
+            ).fetchone()[0]
 
     # ------------------------------------------------------------------
     # ADMIN GATE: unauthenticated -> rejected, on all 5 new routes.
@@ -915,6 +957,325 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         for path, body in cases:
             res = self.client.post(path, json=body)
             self.assertEqual(res.status_code, 401, f"POST {path} must reject unauthenticated requests")
+
+    # ------------------------------------------------------------------
+    # FEATURE 7: play/blackjack -- interactive deal/hit/stand, thin
+    # wrappers over games/blackjack.py's proven deal()/hit()/stand()/
+    # get_active_round_id(). games/blackjack.py, services/casino_rounds.py,
+    # and casino_active_hands: zero diff -- confirmed separately via
+    # `git diff --stat`, not re-proven here.
+    # ------------------------------------------------------------------
+    def test_blackjack_routes_reject_unauthenticated(self):
+        cases = [
+            ("GET", "/api/studio/casino/play/blackjack", None),
+            ("POST", "/api/studio/casino/play/blackjack/deal", {"bet": 10, "idempotency_key": "x"}),
+            ("POST", "/api/studio/casino/play/blackjack/hit", {"idempotency_key": "x"}),
+            ("POST", "/api/studio/casino/play/blackjack/stand", {}),
+        ]
+        for method, path, body in cases:
+            res = self.client.get(path) if method == "GET" else self.client.post(path, json=body)
+            self.assertEqual(res.status_code, 401, f"{method} {path} must reject unauthenticated requests")
+
+    def test_dashboard_blackjack_disabled_flag_returns_clean_error_on_all_routes(self):
+        self._fund_promo(1000)
+        os.environ.pop("FOXBOT_BLACKJACK_ENABLED", None)
+
+        self.assertEqual(self.client.get("/api/studio/casino/play/blackjack", auth=self.auth).status_code, 404)
+
+        deal_res = self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.assertEqual(deal_res.status_code, 404)
+        self.assertEqual(self._promo_balance(), 1000, "no wager must move when the game is dormant")
+
+        hit_res = self.client.post(
+            "/api/studio/casino/play/blackjack/hit",
+            json={"idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.assertEqual(hit_res.status_code, 404)
+
+        stand_res = self.client.post("/api/studio/casino/play/blackjack/stand", json={}, auth=self.auth)
+        self.assertEqual(stand_res.status_code, 404)
+
+    def test_dashboard_blackjack_deal_ignores_payload_creator_id(self):
+        self._fund_promo(1000)
+        self._with_deck("8S", "7H", "9H", "TD")
+        other_creator_id = f"other-bj-{uuid.uuid4().hex[:8]}"
+
+        res = self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4()), "creator_id": other_creator_id},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(
+            bj.get_active_round_id(other_creator_id, self.user_id),
+            "a payload creator_id must not redirect the deal elsewhere",
+        )
+
+    # --- THE CROSS-INTERFACE ONE-HAND PROOF -----------------------------
+    def test_cross_interface_chat_opened_hand_is_the_same_row_dashboard_sees(self):
+        """A hand opened via chat's own code path (bj.deal() called
+        directly, with a chat-style round_id -- exactly what chat()'s
+        !blackjack block does) must be the SAME casino_active_hands row
+        the dashboard's GET/hit endpoints see and act on -- not a second,
+        independent hand. A dashboard deal on top of it must be rejected,
+        not silently open hand #2."""
+        self._fund_promo(1000)
+        self._with_deck("7S", "2H", "5D", "9H", "6C")
+        chat_round_id = f"blackjack:{uuid.uuid4().hex}"  # chat's own round_id shape
+
+        chat_dealt = bj.deal(self.creator_id, self.user_id, 10, chat_round_id, display_name=self.username)
+        self.assertEqual(chat_dealt.state, cr.STATE_FUNDED)
+        self.assertEqual(self._active_hand_count(), 1)
+
+        get_res = self.client.get("/api/studio/casino/play/blackjack", auth=self.auth)
+        self.assertEqual(get_res.status_code, 200)
+        hand = get_res.json()["hand"]
+        self.assertIsNotNone(hand, "the dashboard must see the hand chat opened")
+        self.assertEqual(hand["player_cards"], ["7S", "5D"])
+        self.assertEqual(hand["state"], cr.STATE_FUNDED)
+
+        deal_res = self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.assertEqual(deal_res.status_code, 409, "a second deal while a chat-opened hand is open must be rejected")
+        self.assertEqual(self._active_hand_count(), 1, "still exactly one hand row -- no phantom second hand")
+
+        hit_res = self.client.post(
+            "/api/studio/casino/play/blackjack/hit",
+            json={"idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.assertEqual(hit_res.status_code, 200)
+        hit_hand = hit_res.json()["hand"]
+        self.assertEqual(
+            hit_hand["player_cards"], ["7S", "5D", "6C"],
+            "the dashboard hit must draw the next card of the SAME chat-opened deck",
+        )
+        self.assertEqual(bj.get_active_round_id(self.creator_id, self.user_id), chat_round_id)
+        self.assertEqual(self._active_hand_count(), 1)
+
+    def test_cross_interface_dashboard_opened_hand_is_the_same_row_chat_sees(self):
+        """The reverse direction: a hand opened via the dashboard's own
+        POST .../deal must be the exact row chat's hit()/stand() (called
+        directly, simulating chat) act on."""
+        self._fund_promo(1000)
+        self._with_deck("TS", "2H", "9D", "3H")
+        key = str(uuid.uuid4())
+
+        deal_res = self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": key}, auth=self.auth,
+        )
+        self.assertEqual(deal_res.status_code, 200)
+        dashboard_round_id = f"dashboard:blackjack:{key}"
+        self.assertEqual(bj.get_active_round_id(self.creator_id, self.user_id), dashboard_round_id)
+        self.assertEqual(self._active_hand_count(), 1)
+
+        chat_result = bj.stand(self.creator_id, self.user_id, dashboard_round_id, display_name=self.username)
+        self.assertEqual(chat_result.state, cr.STATE_SETTLED, "chat's stand must be able to settle the dashboard-opened hand")
+        self.assertEqual(self._active_hand_count(), 0, "settlement releases the active-hand slot")
+
+        get_res = self.client.get("/api/studio/casino/play/blackjack", auth=self.auth)
+        self.assertIsNone(get_res.json()["hand"], "no active hand any more -- the dashboard must see it as settled too")
+
+    # --- Full dashboard hand + per-hit idempotency + deck integrity -----
+    def test_full_dashboard_hand_deal_hit_stand_settle(self):
+        self._fund_promo(1000)
+        # player: 7S+5D=12 -> hit 6C -> 18. dealer: 2H+9H=11 -> hits (<17)
+        # -> 2C(13) -> 4C(17) -> stops.
+        self._with_deck("7S", "2H", "5D", "9H", "6C", "2C", "4C")
+
+        deal_res = self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.assertEqual(deal_res.status_code, 200)
+        dealt = deal_res.json()["hand"]
+        self.assertEqual(dealt["state"], cr.STATE_FUNDED)
+        self.assertEqual(dealt["player_cards"], ["7S", "5D"])
+        self.assertEqual(dealt["dealer_up_card"], "2H")
+        self.assertIsNone(dealt["dealer_cards"], "the dealer's hole card must stay hidden mid-hand")
+        self.assertEqual(self._promo_balance(), 1000 - 10)
+
+        hit_res = self.client.post(
+            "/api/studio/casino/play/blackjack/hit",
+            json={"idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.assertEqual(hit_res.status_code, 200)
+        hit_hand = hit_res.json()["hand"]
+        self.assertEqual(hit_hand["state"], cr.STATE_FUNDED)
+        self.assertEqual(hit_hand["player_cards"], ["7S", "5D", "6C"])
+
+        stand_res = self.client.post("/api/studio/casino/play/blackjack/stand", json={}, auth=self.auth)
+        self.assertEqual(stand_res.status_code, 200)
+        settled = stand_res.json()["hand"]
+        self.assertEqual(settled["state"], cr.STATE_SETTLED)
+        self.assertEqual(settled["outcome"], "win")
+        self.assertEqual(settled["dealer_cards"], ["2H", "9H", "2C", "4C"])
+        self.assertEqual(settled["payout"], 20)
+        self.assertEqual(self._promo_balance(), 1000 - 10 + 20)
+        self.assertEqual(self._active_hand_count(), 0)
+
+    def test_dashboard_hit_double_post_same_key_draws_one_card_not_two(self):
+        self._fund_promo(1000)
+        self._with_deck("7S", "2H", "5D", "9H", "6C", "3C")
+        self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        payload = {"idempotency_key": str(uuid.uuid4())}
+
+        first = self.client.post("/api/studio/casino/play/blackjack/hit", json=payload, auth=self.auth)
+        second = self.client.post("/api/studio/casino/play/blackjack/hit", json=payload, auth=self.auth)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_hand, second_hand = first.json()["hand"], second.json()["hand"]
+        self.assertFalse(first_hand["replayed"])
+        self.assertTrue(second_hand["replayed"], "a repeated hit idempotency_key must come back replayed")
+        self.assertEqual(first_hand["player_cards"], ["7S", "5D", "6C"])
+        self.assertEqual(second_hand["player_cards"], ["7S", "5D", "6C"], "double-hit (double-click Hit) must not draw a second card")
+
+    def test_dashboard_deck_integrity_resume_shows_same_cards(self):
+        self._fund_promo(1000)
+        self._with_deck("7S", "2H", "5D", "9H", "6C")
+        self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+        self.client.post(
+            "/api/studio/casino/play/blackjack/hit",
+            json={"idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+
+        first_read = self.client.get("/api/studio/casino/play/blackjack", auth=self.auth).json()["hand"]
+        second_read = self.client.get("/api/studio/casino/play/blackjack", auth=self.auth).json()["hand"]
+        self.assertEqual(first_read["player_cards"], ["7S", "5D", "6C"])
+        self.assertEqual(
+            second_read["player_cards"], ["7S", "5D", "6C"],
+            "repeated reads (e.g. a page reload) must show the same persisted deck, never redraw",
+        )
+
+    # --- Chat-post on final settle only, overlay, replay-guard -----------
+    def test_chat_post_fires_only_on_the_action_that_settles_the_hand(self):
+        self._fund_promo(1000)
+        self._with_deck("7S", "2H", "5D", "9H", "6C", "2C", "4C")
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            deal_res = self.client.post(
+                "/api/studio/casino/play/blackjack/deal",
+                json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+            )
+        self.assertEqual(deal_res.json()["hand"]["state"], cr.STATE_FUNDED)
+        mock_send.assert_not_called()
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            hit_res = self.client.post(
+                "/api/studio/casino/play/blackjack/hit",
+                json={"idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+            )
+        self.assertEqual(hit_res.json()["hand"]["state"], cr.STATE_FUNDED)
+        mock_send.assert_not_called()
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            stand_res = self.client.post("/api/studio/casino/play/blackjack/stand", json={}, auth=self.auth)
+        self.assertEqual(stand_res.json()["hand"]["state"], cr.STATE_SETTLED)
+        mock_send.assert_called_once()
+        (posted_text,), _ = mock_send.call_args
+        self.assertTrue(posted_text.startswith("🃏"))
+        self.assertIn("crypt0k1ng96", posted_text)
+
+    def test_hit_that_busts_settles_and_posts_to_chat(self):
+        self._fund_promo(1000)
+        self._with_deck("TS", "2H", "9D", "3H", "5C")  # 19 -> hit 5C -> 24, bust
+        self.client.post(
+            "/api/studio/casino/play/blackjack/deal",
+            json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+        )
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            hit_res = self.client.post(
+                "/api/studio/casino/play/blackjack/hit",
+                json={"idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+            )
+        self.assertEqual(hit_res.status_code, 200)
+        hand = hit_res.json()["hand"]
+        self.assertEqual(hand["state"], cr.STATE_SETTLED)
+        self.assertEqual(hand["outcome"], "loss")
+        self.assertEqual(hand["settled_reason"], "bust")
+        mock_send.assert_called_once()
+        (posted_text,), _ = mock_send.call_args
+        self.assertTrue(posted_text.startswith("🃏"))
+
+    def test_natural_blackjack_on_deal_posts_to_chat_and_fires_overlay(self):
+        self._fund_promo(1000)
+        self._with_deck("AS", "2S", "KH", "3S")  # player natural 21, dealer 5 (not natural)
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            res = self.client.post(
+                "/api/studio/casino/play/blackjack/deal",
+                json={"bet": 10, "idempotency_key": str(uuid.uuid4())}, auth=self.auth,
+            )
+        self.assertEqual(res.status_code, 200)
+        hand = res.json()["hand"]
+        self.assertEqual(hand["state"], cr.STATE_SETTLED)
+        self.assertEqual(hand["outcome"], "blackjack")
+        self.assertEqual(hand["payout"], 25)  # 10 + (10*3)//2
+        mock_send.assert_called_once()
+
+        import time
+        deadline = time.time() + 3.0
+        matches = []
+        while time.time() < deadline:
+            rows = foxbot_events.fetch_events(self.creator_handle, limit=10)
+            matches = [r for r in (rows or []) if r[0] == "casino_win" and r[1] == app._FOXBOT_DASHBOARD_PLAY_USERNAME]
+            if matches:
+                break
+            time.sleep(0.1)
+        self.assertTrue(matches, "a dashboard-dealt natural blackjack must fire the same overlay event a chat one would")
+        _, _, detail, _ = matches[0]
+        self.assertEqual(detail["game"], "blackjack")
+        self.assertEqual(detail["highlight"], "blackjack")
+
+    def test_replayed_settle_action_does_not_repost_to_chat(self):
+        self._fund_promo(1000)
+        self._with_deck("AS", "2S", "KH", "3S")  # natural -- settles on deal itself
+        key = str(uuid.uuid4())
+        payload = {"bet": 10, "idempotency_key": key}
+
+        with mock.patch(
+            "services.blaze_native_connector._foxbot_live_send_chat_v2",
+            return_value={"ok": True, "sent": True},
+        ) as mock_send:
+            first = self.client.post("/api/studio/casino/play/blackjack/deal", json=payload, auth=self.auth)
+            second = self.client.post("/api/studio/casino/play/blackjack/deal", json=payload, auth=self.auth)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["hand"]["replayed"])
+        self.assertTrue(
+            second.json()["hand"]["replayed"],
+            "a repeated deal idempotency_key on an already-settled natural must come back replayed",
+        )
+        mock_send.assert_called_once()
 
 
 if __name__ == "__main__":

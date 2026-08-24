@@ -1686,6 +1686,30 @@ body::before {
       </div>
       <p class="dismiss-error" id="playDcError" hidden></p>
       <div class="feed-item" id="playDcResult" hidden><span class="feed-body" id="playDcResultText"></span></div>
+
+      <h3 class="subhead subhead-spaced">Blackjack</h3>
+      <p class="card-sub" style="margin-top:0;">Interactive -- deal, then hit or stand. A hand opened here or in chat is the same hand either way.</p>
+
+      <div id="bjNoHand">
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Bet</span>
+            <input type="text" id="playBjBet" class="field-input" value="10">
+          </label>
+          <button type="button" id="playBjDealBtn" class="step-go" style="align-self:flex-end;">Deal</button>
+        </div>
+      </div>
+
+      <div id="bjHandView" hidden>
+        <div class="feed-item"><span class="feed-body" id="bjHandText"></span></div>
+        <div class="action-row">
+          <button type="button" id="playBjHitBtn" class="step-go">Hit</button>
+          <button type="button" id="playBjStandBtn" class="step-go">Stand</button>
+        </div>
+      </div>
+
+      <p class="dismiss-error" id="playBjError" hidden></p>
+      <div class="feed-item" id="playBjResult" hidden><span class="feed-body" id="playBjResultText"></span></div>
     </section>
 
     </section>
@@ -3893,6 +3917,105 @@ document.querySelectorAll('.item').forEach(function (item) {
         data.balance_after + ' promo.' + (data.replayed ? ' (replayed -- already played)' : '');
     }
   });
+
+  /* ── Blackjack (interactive: deal -> hit/stand across presses) ──
+     Unlike the single-shot games above, this doesn't fit wirePlayButton
+     (one request -> one result line) -- it renders a live hand with
+     conditional Deal vs Hit/Stand buttons based on server-reported
+     state. Fetched once on load (not polled, same "fetch once" pattern
+     the Casino config card uses) so a hand opened via chat shows up
+     immediately here too -- deal/hit/stand never send a round_id, the
+     server always looks up "whatever hand is currently open for me",
+     the same lookup chat's own !hit/!stand already use. */
+  var BJ_RANK_DISPLAY = { T: '10' };
+  var BJ_SUIT_SYMBOL = { S: '♠', H: '♥', D: '♦', C: '♣' };
+
+  function formatBjCard(card) {
+    var rank = card.charAt(0), suit = card.charAt(1);
+    return (BJ_RANK_DISPLAY[rank] || rank) + (BJ_SUIT_SYMBOL[suit] || suit);
+  }
+
+  function formatBjHand(cards) {
+    return (cards || []).map(formatBjCard).join(' ');
+  }
+
+  function formatBjSettledText(hand) {
+    var verb;
+    if (hand.outcome === 'blackjack') verb = 'won ' + hand.payout;
+    else if (hand.outcome === 'win') verb = 'won ' + hand.payout;
+    else if (hand.outcome === 'push') verb = 'push, bet returned';
+    else verb = 'lost ' + hand.wager;
+    var prefix = hand.settled_reason === 'bust' ? 'BUST! ' : (hand.outcome === 'blackjack' ? 'BLACKJACK! ' : '');
+    return '🃏 ' + prefix + formatBjHand(hand.player_cards) + ' (' + hand.player_total + ') vs dealer ' +
+      formatBjHand(hand.dealer_cards) + ' (' + hand.dealer_total + ') — ' + verb + ' promo. Balance: ' +
+      hand.balance_after + ' promo.';
+  }
+
+  var bjNoHand = document.getElementById('bjNoHand');
+  var bjHandView = document.getElementById('bjHandView');
+  var bjHandText = document.getElementById('bjHandText');
+  var bjError = document.getElementById('playBjError');
+  var bjResult = document.getElementById('playBjResult');
+  var bjResultText = document.getElementById('playBjResultText');
+  var bjDealBtn = document.getElementById('playBjDealBtn');
+  var bjHitBtn = document.getElementById('playBjHitBtn');
+  var bjStandBtn = document.getElementById('playBjStandBtn');
+
+  function renderBjHand(hand) {
+    if (!hand || hand.state !== 'FUNDED') {
+      bjNoHand.hidden = false;
+      bjHandView.hidden = true;
+      if (hand && hand.state === 'SETTLED') {
+        bjResultText.textContent = formatBjSettledText(hand);
+        bjResult.hidden = false;
+      }
+      return;
+    }
+    bjResult.hidden = true;
+    bjNoHand.hidden = true;
+    bjHandView.hidden = false;
+    var upCard = hand.dealer_up_card ? formatBjCard(hand.dealer_up_card) : '?';
+    bjHandText.textContent = 'You: ' + formatBjHand(hand.player_cards) + ' (' + hand.player_total +
+      ') vs dealer showing ' + upCard;
+  }
+
+  async function bjAction(path, payload, btns) {
+    btns.forEach(function (b) { b.disabled = true; });
+    bjError.hidden = true;
+    try {
+      var data = await postCasino(path, payload || {});
+      renderBjHand(data.hand);
+    } catch (err) {
+      bjError.textContent = err.message || 'Action failed — try again.';
+      bjError.hidden = false;
+    } finally {
+      btns.forEach(function (b) { b.disabled = false; });
+    }
+  }
+
+  bjDealBtn.addEventListener('click', function () {
+    bjAction(
+      '/api/studio/casino/play/blackjack/deal',
+      { bet: val('playBjBet', '10'), idempotency_key: newIdempotencyKey() },
+      [bjDealBtn]
+    );
+  });
+  bjHitBtn.addEventListener('click', function () {
+    bjAction('/api/studio/casino/play/blackjack/hit', { idempotency_key: newIdempotencyKey() }, [bjHitBtn, bjStandBtn]);
+  });
+  bjStandBtn.addEventListener('click', function () {
+    bjAction('/api/studio/casino/play/blackjack/stand', {}, [bjHitBtn, bjStandBtn]);
+  });
+
+  (async function loadInitialBjHand() {
+    try {
+      var res = await fetch('/api/studio/casino/play/blackjack', { cache: 'no-store' });
+      var data = await res.json();
+      if (data.ok) renderBjHand(data.hand);
+    } catch (err) {
+      // Leave the default "no hand" Deal view showing.
+    }
+  })();
 
   wirePlayButton({
     btnId: 'convertBtn', errorId: 'convertError', resultId: 'convertResult', resultTextId: 'convertResultText',

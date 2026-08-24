@@ -3585,6 +3585,76 @@ def _foxbot_blackjack_describe_v1(username: str, result, *, verb: str) -> str:
     return f"🃏 @{username}, {prefix}{player_hand} ({player_total}) vs dealer {dealer_hand} ({dealer_total}) — {tail}"
 
 
+def _foxbot_blackjack_hand_view_v1(result) -> dict:
+    """Shared JSON shape for the blackjack dashboard endpoints -- mirrors
+    _foxbot_blackjack_describe_v1's own reveal discipline exactly: only
+    the dealer's up-card while the hand is open (STATE_FUNDED), the full
+    dealer hand once settled. One place builds this shape; all four
+    blackjack dashboard routes (GET .../hand, deal, hit, stand) reuse it
+    rather than four copies of the same dealer-card-visibility logic."""
+    metadata = result.metadata or {}
+    player_cards = list(metadata.get("player_cards", []))
+    dealer_cards = list(metadata.get("dealer_cards", []))
+    player_total = _foxbot_casino_blackjack_v1.hand_value(player_cards) if player_cards else 0
+
+    view = {
+        "state": result.state,
+        "outcome": result.outcome,
+        "replayed": result.replayed,
+        "player_cards": player_cards,
+        "player_total": player_total,
+        "wager": result.wager,
+        "balance_after": result.balance_after,
+    }
+
+    if result.state == _foxbot_casino_rounds_v1.STATE_FUNDED:
+        view["dealer_up_card"] = dealer_cards[0] if dealer_cards else None
+        view["dealer_cards"] = None
+        view["dealer_total"] = None
+        view["payout"] = None
+        view["settled_reason"] = None
+    else:
+        view["dealer_up_card"] = None
+        view["dealer_cards"] = dealer_cards
+        view["dealer_total"] = _foxbot_casino_blackjack_v1.hand_value(dealer_cards) if dealer_cards else 0
+        view["payout"] = result.payout
+        view["settled_reason"] = metadata.get("settled_reason")
+
+    return view
+
+
+def _foxbot_blackjack_read_round_v1(creator_id: str, user_id: str, round_id: str):
+    """Pure read of a round's current row, for the dashboard's GET
+    .../hand endpoint. No public reader exists for this -- services/
+    casino_rounds.py's only public function is play_round() itself, and
+    this deliberately does not add one there or in games/blackjack.py to
+    keep both files at zero diff (per the explicit "casino_active_hands
+    logic, play_round -- zero diff" requirement for this feature).
+    Reaches into casino_rounds.py's own private connection/schema/row-
+    shaping helpers instead -- the exact same ones this session's test
+    suite already calls directly (cr._connect(), cr._row_to_dict(), etc.)
+    -- rather than duplicating that logic here. Read-only: never writes
+    anything, never calls deal()/hit()/stand()."""
+    with _foxbot_casino_rounds_v1._connect() as connection:
+        _foxbot_casino_rounds_v1._ensure_schema(connection)
+        row = connection.execute(
+            f"SELECT {_foxbot_casino_rounds_v1._ROUND_COLUMNS} FROM {_foxbot_casino_rounds_v1.TABLE_ROUNDS} "
+            f"WHERE round_id = %s AND creator_id = %s AND user_id = %s",
+            (round_id, creator_id, user_id),
+        ).fetchone()
+    if row is None:
+        return None
+    round_ = _foxbot_casino_rounds_v1._row_to_dict(row)
+    return _foxbot_casino_rounds_v1.RoundResult(
+        round_id=round_id, state=round_["state"], outcome=round_["outcome"],
+        wager=round_["wager"], payout=round_["payout"] or 0,
+        balance_after=_foxbot_casino_ledger_v1.get_balance(
+            creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+        ),
+        metadata=round_["metadata"], replayed=True,
+    )
+
+
 # === Casino Stream Overlay v1: notable-win detection + emit ===
 # Feeds /overlay/casino via the existing services/foxbot_events.py
 # emit_event()/fetch_events() log -- see that module's own docstring for
@@ -17095,6 +17165,219 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
         "wager": wager, "balance_after": result.balance_after, "replayed": result.replayed,
         "highlight": {"crash_point": result.metadata.get("crash_point"), "target": result.metadata.get("target")},
     }
+
+
+# === Casino Studio Tab v1: play/blackjack (deal/hit/stand + read) ===
+# Interactive, unlike the five single-shot games above -- a hand persists
+# open across multiple presses (deal, then N hits, then stand), so this
+# is four routes instead of one: a read (GET .../hand) plus three thin
+# mutating wrappers over the EXACT SAME deal()/hit()/stand() chat's
+# !blackjack/!hit/!stand already call. games/blackjack.py and
+# services/casino_rounds.py's play_round(): zero diff, confirmed the
+# same way as every other addition this session.
+#
+# THE CROSS-INTERFACE GUARANTEE (the critical property): hit and stand
+# below NEVER take a round_id from the payload. Exactly like chat's own
+# !hit/!stand blocks, they call
+# _foxbot_casino_blackjack_v1.get_active_round_id(creator_id, user_id) --
+# the SAME function, reading the SAME shared casino_active_hands table,
+# keyed on the SAME user_id (_FOXBOT_DASHBOARD_PLAY_USERNAME resolves to
+# the identical viewer_key() a real chat message from that username would
+# produce). Whichever interface opened the hand, both resolve to the
+# identical currently-open round_id because they're asking the same
+# question of the same table -- there is no cross-interface logic here
+# to keep in sync, because there's only one lookup, reused.
+#
+# PER-HIT IDEMPOTENCY: hit's idempotency_key (a client-generated UUID per
+# press) is fed directly into hit()'s own `action_key` parameter -- the
+# exact same per-hit dedup slot chat's dedupe_key already fills. deal()
+# gets its own round_id = "dashboard:blackjack:{key}" (same
+# "dashboard:{game}:{key}" namespace every other dashboard play route
+# uses, structurally distinct from chat's "blackjack:{dedupe_key}").
+# stand() needs no client-supplied key at all -- it transitions to a
+# terminal state, and a duplicate call is already safe via its own
+# state-check (matching chat's !stand, which passes no key either).
+#
+# CHAT-POST: unlike the five single-shot games (which always settle in
+# one call), deal/hit/stand can each return state==STATE_FUNDED
+# (mid-hand) -- posting on every such call would spam chat with "you
+# drew a card" messages. So the post fires only when
+# `not result.replayed and result.state == STATE_SETTLED` -- exactly
+# once per hand, on whichever action (a natural on deal, a bust on hit,
+# a normal stand) actually settled it. _foxbot_casino_emit_win_v1 is
+# still called unconditionally after every action, matching chat's own
+# existing unconditional-call pattern -- it already no-ops for an
+# in-progress hand because deal()/hit()'s non-terminal branches return
+# outcome=None, and _foxbot_casino_notable_win_v1's first check is
+# `if result.outcome not in ("win", "blackjack"): return None`.
+
+
+@app.get("/api/studio/casino/play/blackjack")
+async def foxbot_studio_casino_blackjack_hand_get_v1(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if not _foxbot_blackjack_enabled_v1():
+        return JSONResponse({"ok": False, "error": "blackjack is not enabled yet."}, status_code=404)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+
+    round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
+    if not round_id:
+        return {"ok": True, "hand": None}
+
+    result = _foxbot_blackjack_read_round_v1(resolved_creator_id, user_id, round_id)
+    if result is None:
+        return {"ok": True, "hand": None}
+
+    return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
+
+
+@app.post("/api/studio/casino/play/blackjack/deal")
+async def foxbot_studio_casino_play_blackjack_deal_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if not _foxbot_blackjack_enabled_v1():
+        return JSONResponse({"ok": False, "error": "blackjack is not enabled yet."}, status_code=404)
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    try:
+        bet = int(payload.get("bet"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "bet must be a whole number."}, status_code=400)
+    if bet <= 0:
+        return JSONResponse({"ok": False, "error": "bet must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+    round_id = f"dashboard:blackjack:{idempotency_key}"
+
+    try:
+        result = _foxbot_casino_blackjack_v1.deal(
+            resolved_creator_id, user_id, bet, round_id, display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO)
+        return JSONResponse({"ok": False, "error": f"Not enough promo credits (balance: {promo_balance})."}, status_code=400)
+    except _foxbot_casino_rounds_v1.GameDisabled:
+        return JSONResponse({"ok": False, "error": "blackjack is currently disabled here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.BetOutOfRange:
+        return JSONResponse({"ok": False, "error": "that bet is outside the allowed range for blackjack here."}, status_code=400)
+    except _foxbot_casino_rounds_v1.RoundMismatch:
+        return JSONResponse({"ok": False, "error": "that request was already processed."}, status_code=409)
+    except _foxbot_casino_blackjack_v1.HandInProgress:
+        return JSONResponse(
+            {"ok": False, "error": "you already have an open blackjack hand -- finish it first."}, status_code=409,
+        )
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that bet couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong dealing that hand."}, status_code=500)
+
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
+    if not result.replayed and result.state == _foxbot_casino_rounds_v1.STATE_SETTLED:
+        reply_text = _foxbot_blackjack_describe_v1(username, result, verb="dealt")
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+
+    return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
+
+
+@app.post("/api/studio/casino/play/blackjack/hit")
+async def foxbot_studio_casino_play_blackjack_hit_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if not _foxbot_blackjack_enabled_v1():
+        return JSONResponse({"ok": False, "error": "blackjack is not enabled yet."}, status_code=404)
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+
+    round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
+    if not round_id:
+        return JSONResponse({"ok": False, "error": "you don't have an open blackjack hand."}, status_code=400)
+
+    try:
+        result = _foxbot_casino_blackjack_v1.hit(
+            resolved_creator_id, user_id, round_id, idempotency_key, display_name=username,
+        )
+    except _foxbot_casino_blackjack_v1.NoActiveHand:
+        return JSONResponse({"ok": False, "error": "you don't have an open blackjack hand."}, status_code=400)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong with that hit."}, status_code=500)
+
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
+    if not result.replayed and result.state == _foxbot_casino_rounds_v1.STATE_SETTLED:
+        reply_text = _foxbot_blackjack_describe_v1(username, result, verb="drew")
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+
+    return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
+
+
+@app.post("/api/studio/casino/play/blackjack/stand")
+async def foxbot_studio_casino_play_blackjack_stand_v1(payload: dict, request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
+    from fastapi.responses import JSONResponse
+
+    if not _foxbot_blackjack_enabled_v1():
+        return JSONResponse({"ok": False, "error": "blackjack is not enabled yet."}, status_code=404)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    user_id = viewer_key(username)
+
+    round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
+    if not round_id:
+        return JSONResponse({"ok": False, "error": "you don't have an open blackjack hand."}, status_code=400)
+
+    try:
+        result = _foxbot_casino_blackjack_v1.stand(
+            resolved_creator_id, user_id, round_id, display_name=username,
+        )
+    except _foxbot_casino_blackjack_v1.NoActiveHand:
+        return JSONResponse({"ok": False, "error": "you don't have an open blackjack hand."}, status_code=400)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong standing."}, status_code=500)
+
+    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
+    if not result.replayed and result.state == _foxbot_casino_rounds_v1.STATE_SETTLED:
+        reply_text = _foxbot_blackjack_describe_v1(username, result, verb="stand")
+        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+
+    return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
 
 
 # === Casino Studio Tab v1: play/slots, play/dice ===
