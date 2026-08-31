@@ -9233,11 +9233,19 @@ def foxbot_auto_start_listener_v1():
 
     if opt_out in ["0", "false", "no", "off"]:
 
+        print("[FoxBot Auto-Start] skipped: FOXBOT_AUTO_START_LISTENER is explicitly disabled.")
+
         return
 
 
 
     if not os.getenv("BLAZE_CLIENT_ID") or not os.getenv("BLAZE_CHANNEL_ID"):
+
+        print(
+            f"[FoxBot Auto-Start] skipped: missing required env var(s) -- "
+            f"BLAZE_CLIENT_ID set={bool(os.getenv('BLAZE_CLIENT_ID'))}, "
+            f"BLAZE_CHANNEL_ID set={bool(os.getenv('BLAZE_CHANNEL_ID'))}."
+        )
 
         return
 
@@ -9247,11 +9255,15 @@ def foxbot_auto_start_listener_v1():
 
     if not access_token:
 
+        print("[FoxBot Auto-Start] skipped: resolve_blaze_access_token() returned no token.")
+
         return
 
 
 
     if polling_thread and polling_thread.is_alive():
+
+        print("[FoxBot Auto-Start] skipped: polling_thread is already alive.")
 
         return
 
@@ -9264,6 +9276,8 @@ def foxbot_auto_start_listener_v1():
     polling_thread = threading.Thread(target=blaze_polling_worker, daemon=True)
 
     polling_thread.start()
+
+    print(f"[FoxBot Auto-Start] started polling_thread (token_source={_token_source!r}).")
 
 
 
