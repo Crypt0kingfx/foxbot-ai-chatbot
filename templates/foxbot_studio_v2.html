@@ -1912,6 +1912,25 @@ document.querySelectorAll('.item').forEach(function (item) {
     draw();
   }
 
+  function markPermissionDenied() {
+    /* 403 from a non-admin scoped creator session is a permission
+       boundary, not an outage -- the bot itself may be running fine.
+       Distinct from markUnreachable() so this account never sees the
+       scary "Can't reach FoxBot" copy for something that isn't a
+       failure at all. reachable stays non-false (not true, not false)
+       so tickClock's existing "poll failed" branch doesn't fire either. */
+    reachable = null;
+    lastCheckedAt = Date.now();
+    beacon.className = 'beacon loading';
+    vitalsLine1.textContent = "This overview isn't available for your account yet";
+    vitalsLine2.textContent = 'Your bot connection itself is working fine — check your channel directly.';
+    setCheck(checkToken, 'warn', 'Not available', 'not available for this account');
+    setCheck(checkPosting, 'warn', 'Not available', 'not available for this account');
+    setCheck(checkListener, 'warn', 'Not available', 'not available for this account');
+    setCheck(checkReply, 'warn', 'Not available', 'not available for this account');
+    draw();
+  }
+
   function markReachable(data) {
     reachable = true;
     lastCheckedAt = Date.now();
@@ -1986,6 +2005,7 @@ document.querySelectorAll('.item').forEach(function (item) {
   async function poll() {
     try {
       var res = await fetch('/api/blaze/native/diagnostics', { cache: 'no-store' });
+      if (res.status === 403) { markPermissionDenied(); return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var data = await res.json();
       markReachable(data);
