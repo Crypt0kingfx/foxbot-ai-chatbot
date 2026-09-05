@@ -3838,12 +3838,27 @@ def _foxbot_slots_reply_v1(username: str, wager: int, result) -> str:
     return f"🎰 @{username}, {reels_text} — you lost {wager} promo. Balance: {result.balance_after} promo."
 
 
-def _foxbot_casino_post_dashboard_chat_v1(reply_text: str) -> None:
-    """Posts a dashboard play's reply text to Blaze chat -- reuses the
-    EXACT SAME send path /api/foxbot/admin-command already uses
-    (native._foxbot_live_send_chat_v2), same try/except discipline: a
-    send failure here must never surface as an endpoint error or affect
-    the already-settled, already-returned play result.
+def _foxbot_casino_post_dashboard_chat_v1(reply_text: str, *, creator_id: str = None, creator_handle: str = None) -> None:
+    """Posts a dashboard play's reply text to Blaze chat.
+
+    Self-service fix: this used to call native._foxbot_live_send_chat_v2()
+    unconditionally, which hardcodes channel_id=env("BLAZE_CHANNEL_ID") --
+    tenant-zero's own channel, no parameter to override it. That was a
+    real cross-creator leak once a second creator could reach this code
+    path: princessjamesy winning on HER dashboard would have posted into
+    tenant-zero's chat, not hers.
+
+    Fix reuses Sub-phase F's own per-creator send primitive
+    (send_blaze_chat_message, already proven for the poller's own
+    replies) INSTEAD of inventing a new one -- but only takes that path
+    when creator_id is a genuinely activated bot-connect target AND a
+    real channel_id resolves for it. Every other caller (admin,
+    tenant-zero, an unmapped/not-yet-bot-connect-active creator) falls
+    through to the EXACT SAME native._foxbot_live_send_chat_v2(reply_text)
+    call as before this fix -- byte-identical, zero behavior change,
+    because _foxbot_bot_connect_creator_active_v1(creator_id) is False
+    for every one of those today (empty or not-containing-them
+    allowlist), same as it always has been.
 
     Called strictly after play_round() (via play_coinflip/roulette/crash)
     has already returned. services/casino_rounds.py's own structure --
@@ -3852,6 +3867,15 @@ def _foxbot_casino_post_dashboard_chat_v1(reply_text: str) -> None:
     means there is no casino DB connection or transaction open by the
     time this runs, by construction, not by care taken here."""
     try:
+        if creator_id and _foxbot_bot_connect_creator_active_v1(creator_id):
+            channel_id = ""
+            if creator_handle:
+                access = _foxbot_creator_access_get_v1(creator_handle)
+                channel_id = str(access.get("channel_id") or "").strip()
+            if channel_id:
+                send_blaze_chat_message(reply_text, channel_id=channel_id, creator_id=creator_id)
+                return
+
         from services import blaze_native_connector as native
         native._foxbot_live_send_chat_v2(reply_text)
     except Exception:
@@ -16697,10 +16721,13 @@ async def foxbot_studio_stats_live(request: Request):
 
 @app.get("/api/studio/casino/config")
 async def foxbot_studio_casino_config_get_v1(request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer 1 (Basic Auth or an approved Blaze session,
+    # foxbot_studio_admin_auth_gate_v1) already gates the whole /api/studio/
+    # prefix. No Layer-2 admin-only check here -- same shape as /foxcoins,
+    # /streaks, /custom-commands: resolved_creator_id below is derived
+    # server-side from the session's own verified blaze_id, never from the
+    # request, so a scoped creator structurally can only ever reach their
+    # own row.
     resolved_creator_id = _foxbot_resolve_creator_id_v1(
         blaze_id=getattr(request.state, "blaze_id", None)
     )
@@ -16734,10 +16761,16 @@ async def foxbot_studio_casino_config_get_v1(request: Request):
 
 @app.post("/api/studio/casino/config")
 async def foxbot_studio_casino_config_post_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service (full, no admin approval step): a creator turns their
+    # OWN casino on/off and sets their OWN rate/limits. Same Layer-1-only
+    # gate as the GET above -- casino_config.set_config() below is the
+    # SAME validated setter admin already uses, with the SAME bounds
+    # checking (positive rate, positive limit) and the SAME
+    # partial-update-preserves-the-rest contract, so a bare
+    # {"casino_enabled": true} from a brand-new creator lands on
+    # set_config()'s own sane module defaults (100:1, 5000/day) rather
+    # than any broken/zero state -- there is no way to omit a field into
+    # an invalid row.
     from fastapi.responses import JSONResponse
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(
@@ -16791,10 +16824,7 @@ async def foxbot_studio_casino_config_post_v1(payload: dict, request: Request):
 
 @app.post("/api/studio/casino/game-config/{game_id}")
 async def foxbot_studio_casino_game_config_post_v1(game_id: str, payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service, same shape as the config route above.
     from fastapi.responses import JSONResponse
 
     if game_id not in _FOXBOT_CASINO_TAB_GAME_IDS:
@@ -16843,10 +16873,7 @@ async def foxbot_studio_casino_game_config_post_v1(game_id: str, payload: dict, 
 
 @app.get("/api/studio/casino/stats")
 async def foxbot_studio_casino_stats_get_v1(request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Read-only, self-scoped -- same Layer-1-only shape as the config GET.
     from fastapi.responses import JSONResponse
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(
@@ -16899,13 +16926,23 @@ async def foxbot_studio_casino_stats_get_v1(request: Request):
 
 @app.get("/api/studio/casino/wins")
 async def foxbot_studio_casino_wins_get_v1(request: Request, limit: int = 20):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Read-only, self-scoped via _foxbot_resolve_event_handle_v1 below
+    # (unmapped scoped session -> "" per that function's own contract,
+    # never tenant-zero's handle) -- same Layer-1-only shape as the rest
+    # of this tab now.
     from datetime import timezone
 
-    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    # NOT "... or resolve_owner_handle()" -- that fallback was only ever
+    # safe while this route was admin-only (blaze_id there is always
+    # either None or tenant-zero's own, both of which
+    # _foxbot_resolve_event_handle_v1 already resolves to the owner
+    # handle itself). For a genuinely scoped-but-unmapped session it
+    # would leak tenant-zero's real wins feed -- exactly the bug that
+    # function's own docstring says it exists to prevent. "" means no
+    # events for this session, per that contract.
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+    if not handle:
+        return {"ok": True, "creator_handle": "", "wins": []}
     capped_limit = max(1, min(int(limit or 20), 100))
 
     rows = _foxbot_events_v1.fetch_events(handle, limit=capped_limit)
@@ -16947,11 +16984,13 @@ async def foxbot_studio_casino_wins_get_v1(request: Request, limit: int = 20):
 
 @app.post("/api/studio/casino/test-alert")
 async def foxbot_studio_casino_test_alert_v1(request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
+    # Self-service. Same "" contract as the wins feed above -- do not
+    # reintroduce the resolve_owner_handle() fallback here.
+    from fastapi.responses import JSONResponse
 
-    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+    if not handle:
+        return JSONResponse({"ok": False, "error": "no channel resolved for this account yet."}, status_code=400)
 
     _foxbot_events_v1.emit_event(
         handle, "casino_win", actor="TEST",
@@ -16973,32 +17012,74 @@ async def foxbot_studio_casino_test_alert_v1(request: Request):
 # _foxbot_resolve_creator_id_v1 (the same resolver the Casino config
 # routes already use) -- there is no creator_id field read from the
 # request payload anywhere below, so a crafted payload cannot redirect a
-# wager onto a different creator's balance. username is hardcoded to the
-# same "crypt0k1ng96" literal /api/foxbot/admin-command already defaults
-# to when none is given -- "play from dashboard" always means "play as
-# the tenant-zero owner," never a caller-suppliable identity.
+# wager onto a different creator's balance. username is resolved
+# SERVER-SIDE too, from the SAME session, via
+# _foxbot_dashboard_play_username_v1() below -- "play from dashboard"
+# means "play as whichever account is actually logged in," never a
+# caller-suppliable identity and never hardcoded to one specific creator.
+#
+# FAIL-CLOSED: every play/convert route below now checks the SAME two
+# gates chat()'s own !casinoflip/!hit/!stand/!convert already check
+# (_foxbot_casino_enabled_v1() the platform flag, AND
+# _foxbot_casino_creator_enabled_v1(resolved_creator_id) the per-creator
+# opt-in) before touching play_round()/deposit() at all. This closes a
+# real pre-existing gap: neither gate was ever checked on this dashboard
+# path before (only the per-GAME casino_game_config.enabled was, via
+# GameDisabled) -- meaning a creator who had NEVER turned their own
+# casino on, or a platform with FOXBOT_CASINO_ENABLED off entirely, could
+# still move real ledger balance through these buttons. Now self-service
+# "enable my casino" is a real, meaningful switch on every path, not just
+# the chat command.
 #
 # IDEMPOTENCY: idempotency_key is REQUIRED in the payload (never
 # server-generated as a fallback -- a missing key is a hard 400, since
 # silently generating one would defeat the whole guarantee). round_id =
-# f"dashboard:{game}:{idempotency_key}" feeds the EXACT SAME round_id-
-# keyed replay contract services/casino_rounds.py's play_round() already
-# guarantees (proven extensively elsewhere in this test suite): a second
-# call with the same round_id returns replayed=True with the original
-# settled outcome, never a second debit or a second roll. The
-# "dashboard:" prefix keeps this round_id namespace structurally distinct
-# from chat's "casinoflip:"/"roulette:"/"crash:" prefixes.
+# f"dashboard:{game}:{resolved_creator_id}:{idempotency_key}" feeds the
+# EXACT SAME round_id-keyed replay contract services/casino_rounds.py's
+# play_round() already guarantees (proven extensively elsewhere in this
+# test suite): a second call with the same round_id returns
+# replayed=True with the original settled outcome, never a second debit
+# or a second roll. The creator_id segment is new: casino_rounds.round_id
+# is a GLOBAL TEXT PRIMARY KEY (not composite with creator_id), and
+# casino_ledger's idempotency_key has a GLOBAL unique index -- neither is
+# scoped to a creator at the schema level. With only one creator this was
+# safe by construction (one value, ever); with two, a colliding
+# client-generated idempotency_key (astronomically unlikely with
+# crypto.randomUUID(), but not structurally impossible) could otherwise
+# let one creator's second call silently read back a DIFFERENT creator's
+# already-claimed round via ON CONFLICT DO NOTHING. Folding
+# resolved_creator_id into the string makes two different creators'
+# namespaces provably disjoint, by construction, independent of client
+# behavior -- zero change for a single creator, since the string is just
+# longer for the one value it's always been.
 
 
 _FOXBOT_DASHBOARD_PLAY_USERNAME = "crypt0k1ng96"
 
 
+def _foxbot_dashboard_play_username_v1(request: Request) -> str:
+    """The acting viewer identity for a dashboard play/convert action.
+
+    A Blaze-verified session (admin's own Blaze login, or a genuinely
+    scoped second creator's) uses request.state.display_name -- captured
+    directly from Blaze's own profile response at login time
+    (foxbot_dashboard_login_v1), never caller-supplied, and available
+    even before any connected_creators.json join exists (see the "Studio
+    v2 identity-block fix" comment on the auth-gate middleware). Falls
+    back to the original literal default for a Basic-Auth-only session
+    (no blaze_id at all) -- byte-identical to this function's own
+    hardcoded predecessor for that case, since Basic Auth has always
+    meant "the shared admin password holder," not a specific identity."""
+    if getattr(request.state, "blaze_id", None):
+        display_name = str(getattr(request.state, "display_name", "") or "").strip()
+        if display_name:
+            return display_name
+    return _FOXBOT_DASHBOARD_PLAY_USERNAME
+
+
 @app.post("/api/studio/casino/play/coinflip")
 async def foxbot_studio_casino_play_coinflip_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     idempotency_key = str(payload.get("idempotency_key") or "").strip()
@@ -17017,10 +17098,16 @@ async def foxbot_studio_casino_play_coinflip_v1(payload: dict, request: Request)
         return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
-    round_id = f"dashboard:coinflip:{idempotency_key}"
+    round_id = f"dashboard:coinflip:{resolved_creator_id}:{idempotency_key}"
 
     try:
         result = _foxbot_casino_coinflip_v1.play_coinflip(
@@ -17043,9 +17130,10 @@ async def foxbot_studio_casino_play_coinflip_v1(payload: dict, request: Request)
         return JSONResponse({"ok": False, "error": "something went wrong with that wager."}, status_code=500)
 
     reply_text = _foxbot_coinflip_reply_v1(username, wager, result)
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "coinflip", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "coinflip", result)
     if not result.replayed:
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -17056,10 +17144,7 @@ async def foxbot_studio_casino_play_coinflip_v1(payload: dict, request: Request)
 
 @app.post("/api/studio/casino/play/roulette")
 async def foxbot_studio_casino_play_roulette_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     idempotency_key = str(payload.get("idempotency_key") or "").strip()
@@ -17085,10 +17170,16 @@ async def foxbot_studio_casino_play_roulette_v1(payload: dict, request: Request)
         return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
-    round_id = f"dashboard:roulette:{idempotency_key}"
+    round_id = f"dashboard:roulette:{resolved_creator_id}:{idempotency_key}"
 
     try:
         result = _foxbot_casino_roulette_v1.play_roulette(
@@ -17111,9 +17202,10 @@ async def foxbot_studio_casino_play_roulette_v1(payload: dict, request: Request)
         return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
 
     reply_text = _foxbot_roulette_reply_v1(username, wager, result)
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "roulette", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "roulette", result)
     if not result.replayed:
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -17124,10 +17216,7 @@ async def foxbot_studio_casino_play_roulette_v1(payload: dict, request: Request)
 
 @app.post("/api/studio/casino/play/crash")
 async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     idempotency_key = str(payload.get("idempotency_key") or "").strip()
@@ -17144,10 +17233,16 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
     target_token = str(payload.get("target") or "")
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
-    round_id = f"dashboard:crash:{idempotency_key}"
+    round_id = f"dashboard:crash:{resolved_creator_id}:{idempotency_key}"
 
     try:
         result = _foxbot_casino_crash_v1.play_crash(
@@ -17170,9 +17265,10 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
         return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
 
     reply_text = _foxbot_crash_reply_v1(username, wager, result)
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "crash", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "crash", result)
     if not result.replayed:
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -17195,9 +17291,10 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
 # !hit/!stand blocks, they call
 # _foxbot_casino_blackjack_v1.get_active_round_id(creator_id, user_id) --
 # the SAME function, reading the SAME shared casino_active_hands table,
-# keyed on the SAME user_id (_FOXBOT_DASHBOARD_PLAY_USERNAME resolves to
-# the identical viewer_key() a real chat message from that username would
-# produce). Whichever interface opened the hand, both resolve to the
+# keyed on the SAME user_id (_foxbot_dashboard_play_username_v1()
+# resolves to the identical viewer_key() a real chat message from that
+# same session's identity would produce). Whichever interface opened the
+# hand, both resolve to the
 # identical currently-open round_id because they're asking the same
 # question of the same table -- there is no cross-interface logic here
 # to keep in sync, because there's only one lookup, reused.
@@ -17228,17 +17325,14 @@ async def foxbot_studio_casino_play_crash_v1(payload: dict, request: Request):
 
 @app.get("/api/studio/casino/play/blackjack")
 async def foxbot_studio_casino_blackjack_hand_get_v1(request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service, read-only: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     if not _foxbot_blackjack_enabled_v1():
         return JSONResponse({"ok": False, "error": "blackjack is not enabled yet."}, status_code=404)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
 
     round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
@@ -17254,10 +17348,7 @@ async def foxbot_studio_casino_blackjack_hand_get_v1(request: Request):
 
 @app.post("/api/studio/casino/play/blackjack/deal")
 async def foxbot_studio_casino_play_blackjack_deal_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     if not _foxbot_blackjack_enabled_v1():
@@ -17275,10 +17366,16 @@ async def foxbot_studio_casino_play_blackjack_deal_v1(payload: dict, request: Re
         return JSONResponse({"ok": False, "error": "bet must be greater than 0."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
-    round_id = f"dashboard:blackjack:{idempotency_key}"
+    round_id = f"dashboard:blackjack:{resolved_creator_id}:{idempotency_key}"
 
     try:
         result = _foxbot_casino_blackjack_v1.deal(
@@ -17304,20 +17401,18 @@ async def foxbot_studio_casino_play_blackjack_deal_v1(payload: dict, request: Re
     except Exception:
         return JSONResponse({"ok": False, "error": "something went wrong dealing that hand."}, status_code=500)
 
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
     if not result.replayed and result.state == _foxbot_casino_rounds_v1.STATE_SETTLED:
         reply_text = _foxbot_blackjack_describe_v1(username, result, verb="dealt")
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
 
 
 @app.post("/api/studio/casino/play/blackjack/hit")
 async def foxbot_studio_casino_play_blackjack_hit_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     if not _foxbot_blackjack_enabled_v1():
@@ -17328,8 +17423,14 @@ async def foxbot_studio_casino_play_blackjack_hit_v1(payload: dict, request: Req
         return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
 
     round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
@@ -17347,28 +17448,32 @@ async def foxbot_studio_casino_play_blackjack_hit_v1(payload: dict, request: Req
     except Exception:
         return JSONResponse({"ok": False, "error": "something went wrong with that hit."}, status_code=500)
 
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
     if not result.replayed and result.state == _foxbot_casino_rounds_v1.STATE_SETTLED:
         reply_text = _foxbot_blackjack_describe_v1(username, result, verb="drew")
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
 
 
 @app.post("/api/studio/casino/play/blackjack/stand")
 async def foxbot_studio_casino_play_blackjack_stand_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     if not _foxbot_blackjack_enabled_v1():
         return JSONResponse({"ok": False, "error": "blackjack is not enabled yet."}, status_code=404)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
 
     round_id = _foxbot_casino_blackjack_v1.get_active_round_id(resolved_creator_id, user_id)
@@ -17386,10 +17491,11 @@ async def foxbot_studio_casino_play_blackjack_stand_v1(payload: dict, request: R
     except Exception:
         return JSONResponse({"ok": False, "error": "something went wrong standing."}, status_code=500)
 
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "blackjack", result)
     if not result.replayed and result.state == _foxbot_casino_rounds_v1.STATE_SETTLED:
         reply_text = _foxbot_blackjack_describe_v1(username, result, verb="stand")
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {"ok": True, "hand": _foxbot_blackjack_hand_view_v1(result)}
 
@@ -17416,10 +17522,7 @@ async def foxbot_studio_casino_play_blackjack_stand_v1(payload: dict, request: R
 
 @app.post("/api/studio/casino/play/slots")
 async def foxbot_studio_casino_play_slots_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     if not _foxbot_slots_enabled_v1():
@@ -17437,10 +17540,16 @@ async def foxbot_studio_casino_play_slots_v1(payload: dict, request: Request):
         return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
-    round_id = f"dashboard:slots:{idempotency_key}"
+    round_id = f"dashboard:slots:{resolved_creator_id}:{idempotency_key}"
 
     try:
         result = _foxbot_casino_slots_v1.play_slots(
@@ -17463,9 +17572,10 @@ async def foxbot_studio_casino_play_slots_v1(payload: dict, request: Request):
         return JSONResponse({"ok": False, "error": "something went wrong with that spin."}, status_code=500)
 
     reply_text = _foxbot_slots_reply_v1(username, wager, result)
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "slots", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "slots", result)
     if not result.replayed:
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -17476,10 +17586,7 @@ async def foxbot_studio_casino_play_slots_v1(payload: dict, request: Request):
 
 @app.post("/api/studio/casino/play/dice")
 async def foxbot_studio_casino_play_dice_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     if not _foxbot_dice_enabled_v1():
@@ -17501,10 +17608,16 @@ async def foxbot_studio_casino_play_dice_v1(payload: dict, request: Request):
         return JSONResponse({"ok": False, "error": "wager must be greater than 0."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or _foxbot_events_v1.resolve_owner_handle()
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+    resolved_creator_handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
-    round_id = f"dashboard:dice:{idempotency_key}"
+    round_id = f"dashboard:dice:{resolved_creator_id}:{idempotency_key}"
 
     try:
         result = _foxbot_casino_dice_v1.play_dice(
@@ -17527,9 +17640,10 @@ async def foxbot_studio_casino_play_dice_v1(payload: dict, request: Request):
         return JSONResponse({"ok": False, "error": "something went wrong with that bet."}, status_code=500)
 
     reply_text = _foxbot_dice_reply_v1(username, wager, result)
-    _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "dice", result)
+    if resolved_creator_handle:
+        _foxbot_casino_emit_win_v1(resolved_creator_handle, username, "dice", result)
     if not result.replayed:
-        _foxbot_casino_post_dashboard_chat_v1(reply_text)
+        _foxbot_casino_post_dashboard_chat_v1(reply_text, creator_id=resolved_creator_id, creator_handle=resolved_creator_handle)
 
     return {
         "ok": True, "outcome": result.outcome, "payout": result.payout,
@@ -17562,10 +17676,7 @@ async def foxbot_studio_casino_play_dice_v1(payload: dict, request: Request):
 
 @app.post("/api/studio/casino/convert")
 async def foxbot_studio_casino_convert_v1(payload: dict, request: Request):
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
+    # Self-service: Layer-1-only, same as the rest of this tab.
     from fastapi.responses import JSONResponse
 
     idempotency_key = str(payload.get("idempotency_key") or "").strip()
@@ -17580,7 +17691,13 @@ async def foxbot_studio_casino_convert_v1(payload: dict, request: Request):
         return JSONResponse({"ok": False, "error": "amount must be greater than 0."}, status_code=400)
 
     resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
-    username = _FOXBOT_DASHBOARD_PLAY_USERNAME
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
     user_id = viewer_key(username)
 
     try:
@@ -17594,7 +17711,7 @@ async def foxbot_studio_casino_convert_v1(payload: dict, request: Request):
         provider = _foxbot_casino_promo_v1.PromoProvider()
         result = provider.deposit(
             resolved_creator_id, user_id, promo_amount,
-            idempotency_key=f"dashboard-convert:{idempotency_key}", display_name=username,
+            idempotency_key=f"dashboard-convert:{resolved_creator_id}:{idempotency_key}", display_name=username,
         )
     except InsufficientFoxCoins:
         balance = get_balance(username, creator_id=resolved_creator_id)

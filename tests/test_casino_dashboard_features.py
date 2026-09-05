@@ -287,11 +287,11 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         with cl._connect() as connection:
             wager_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
-                (f"dashboard:coinflip:{key}", cl.PROMO_WAGER),
+                (f"dashboard:coinflip:{self.creator_id}:{key}", cl.PROMO_WAGER),
             ).fetchone()[0]
             round_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cr.TABLE_ROUNDS} WHERE round_id = %s",
-                (f"dashboard:coinflip:{key}",),
+                (f"dashboard:coinflip:{self.creator_id}:{key}",),
             ).fetchone()[0]
         self.assertEqual(wager_rows, 1, "exactly one wager ledger row for this round_id")
         self.assertEqual(round_rows, 1, "exactly one round row for this round_id")
@@ -312,7 +312,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         with cl._connect() as connection:
             wager_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
-                (f"dashboard:roulette:{key}", cl.PROMO_WAGER),
+                (f"dashboard:roulette:{self.creator_id}:{key}", cl.PROMO_WAGER),
             ).fetchone()[0]
         self.assertEqual(wager_rows, 1)
 
@@ -331,7 +331,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         with cl._connect() as connection:
             wager_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
-                (f"dashboard:crash:{key}", cl.PROMO_WAGER),
+                (f"dashboard:crash:{self.creator_id}:{key}", cl.PROMO_WAGER),
             ).fetchone()[0]
         self.assertEqual(wager_rows, 1)
 
@@ -486,7 +486,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         with cl._connect() as connection:
             attempt_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {promo.TABLE_ATTEMPTS} WHERE idempotency_key = %s",
-                (f"dashboard-convert:{key}",),
+                (f"dashboard-convert:{self.creator_id}:{key}",),
             ).fetchone()[0]
             ledger_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE creator_id = %s AND user_id = %s "
@@ -760,10 +760,10 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         with cl._connect() as connection:
             wager_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
-                (f"dashboard:slots:{key}", cl.PROMO_WAGER),
+                (f"dashboard:slots:{self.creator_id}:{key}", cl.PROMO_WAGER),
             ).fetchone()[0]
             round_rows = connection.execute(
-                f"SELECT COUNT(*) FROM {cr.TABLE_ROUNDS} WHERE round_id = %s", (f"dashboard:slots:{key}",),
+                f"SELECT COUNT(*) FROM {cr.TABLE_ROUNDS} WHERE round_id = %s", (f"dashboard:slots:{self.creator_id}:{key}",),
             ).fetchone()[0]
         self.assertEqual(wager_rows, 1, "exactly one wager -- no double-debit")
         self.assertEqual(round_rows, 1, "exactly one round -- no double-spin")
@@ -897,7 +897,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         with cl._connect() as connection:
             wager_rows = connection.execute(
                 f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE round_id = %s AND type = %s",
-                (f"dashboard:dice:{key}", cl.PROMO_WAGER),
+                (f"dashboard:dice:{self.creator_id}:{key}", cl.PROMO_WAGER),
             ).fetchone()[0]
         self.assertEqual(wager_rows, 1, "exactly one wager -- no double-debit")
 
@@ -1070,7 +1070,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
             json={"bet": 10, "idempotency_key": key}, auth=self.auth,
         )
         self.assertEqual(deal_res.status_code, 200)
-        dashboard_round_id = f"dashboard:blackjack:{key}"
+        dashboard_round_id = f"dashboard:blackjack:{self.creator_id}:{key}"
         self.assertEqual(bj.get_active_round_id(self.creator_id, self.user_id), dashboard_round_id)
         self.assertEqual(self._active_hand_count(), 1)
 
