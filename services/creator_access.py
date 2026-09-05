@@ -7,7 +7,6 @@ data/connected_creators.json registry so FoxBot has one creator record source.
 from __future__ import annotations
 
 import json
-import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -109,10 +108,21 @@ def _ensure_creator(document: dict[str, Any], handle: str, display_name: str | N
 
 
 def access_snapshot(creator: dict[str, Any] | None) -> dict[str, Any]:
+    """FoxBot Free For Everyone v1: access is unconditional -- no trial,
+    subscription, or expiry gates anything anymore. The only way
+    has_access is ever False is an explicit admin block (access_revoked),
+    set only by block_creator()/unblock_creator() below -- never by
+    start_trial/mark_subscriber/verify_current_subscription, so a block
+    survives a creator re-running !joinfox/!access/!verify (same
+    deny-list-survives-re-check discipline as bot-connect's F-access
+    grant/block design). trial_started_at/trial_ends_at/
+    subscription_ends_at are kept purely as historical/cosmetic fields
+    (badges, analytics) -- nothing reads them to decide access anymore.
+    """
     if not isinstance(creator, dict):
         return {
-            "status": "not_started",
-            "has_access": False,
+            "status": "active",
+            "has_access": True,
             "remaining_days": 0,
             "trial_started_at": None,
             "trial_ends_at": None,
@@ -120,38 +130,15 @@ def access_snapshot(creator: dict[str, Any] | None) -> dict[str, Any]:
             "verification_status": "not_requested",
         }
 
-    now = _now()
+    revoked = bool(creator.get("access_revoked"))
     trial_start = _parse(creator.get("trial_started_at"))
     trial_end = _parse(creator.get("trial_ends_at"))
     subscription_end = _parse(creator.get("subscription_ends_at"))
-    revoked = bool(creator.get("access_revoked"))
-
-    status = "expired"
-    end = trial_end
-
-    if revoked:
-        status = "expired"
-        end = subscription_end or trial_end
-    elif subscription_end and now < subscription_end:
-        status = "active"
-        end = subscription_end
-    elif subscription_end and now < subscription_end + timedelta(days=GRACE_DAYS):
-        status = "grace"
-        end = subscription_end + timedelta(days=GRACE_DAYS)
-    elif trial_end and now < trial_end:
-        status = "trialing"
-        end = trial_end
-    elif not trial_start:
-        status = "not_started"
-        end = None
-
-    remaining_seconds = max(0.0, (end - now).total_seconds()) if end else 0.0
-    remaining_days = int(math.ceil(remaining_seconds / 86400.0)) if remaining_seconds else 0
 
     return {
-        "status": status,
-        "has_access": status in {"trialing", "active", "grace"},
-        "remaining_days": remaining_days,
+        "status": "blocked" if revoked else "active",
+        "has_access": not revoked,
+        "remaining_days": 0,
         "trial_started_at": _iso(trial_start) if trial_start else None,
         "trial_ends_at": _iso(trial_end) if trial_end else None,
         "subscription_ends_at": _iso(subscription_end) if subscription_end else None,
@@ -196,7 +183,6 @@ def start_trial(handle: str, display_name: str | None = None) -> dict[str, Any]:
         creator["trial_ends_at"] = _iso(now + timedelta(days=TRIAL_DAYS))
         creator["access_status"] = "trialing"
         creator["subscription_verification_status"] = "not_requested"
-        creator["access_revoked"] = False
         badges = creator.setdefault("badges", [])
         if "FoxBot Trial" not in badges:
             badges.append("FoxBot Trial")
@@ -234,7 +220,6 @@ def mark_subscriber(handle: str, days: int = 30, source: str = "blaze_subscriber
     creator["subscription_verified_at"] = _iso(now)
     creator["subscription_verification_source"] = source
     creator["access_status"] = "active"
-    creator["access_revoked"] = False
     badges = creator.setdefault("badges", [])
     if "FoxBot Subscriber" not in badges:
         badges.append("FoxBot Subscriber")
@@ -313,7 +298,6 @@ def verify_current_subscription(
     creator["subscription_verified_at"] = _iso(now)
     creator["subscription_verification_source"] = source
     creator["access_status"] = "active"
-    creator["access_revoked"] = False
     badges = creator.setdefault("badges", [])
     if "FoxBot Subscriber" not in badges:
         badges.append("FoxBot Subscriber")
@@ -324,6 +308,44 @@ def verify_current_subscription(
 
 
 # === End FoxBot Current Blaze Subscription Verification v1 ===
+
+# === FoxBot Free For Everyone v1 -- Admin Block/Unblock ===
+# The one deny-list kill switch left once access itself is unconditional
+# (access_snapshot() above). access_revoked is read there but, as of this
+# change, written ONLY here -- start_trial/mark_subscriber/
+# verify_current_subscription no longer clear it, so a block persists
+# through any later !joinfox/!access/!verify re-check. Same discipline as
+# bot-connect's F-access grant design: the deny-list is a separate,
+# authoritative switch, never implicitly reset by an unrelated write.
+
+
+def block_creator(handle: str, reason: str = "") -> dict[str, Any]:
+    document = _load_document()
+    _, creator = _ensure_creator(document, handle)
+    creator["access_revoked"] = True
+    creator["access_revoked_at"] = _iso(_now())
+    creator["access_revoked_reason"] = str(reason or "").strip()[:200]
+    _save_document(document)
+    result = access_snapshot(creator)
+    result.update({"ok": True, "handle": clean_handle(handle)})
+    return result
+
+
+def unblock_creator(handle: str) -> dict[str, Any]:
+    document = _load_document()
+    _, creator = _get_creator(document, handle)
+    if not creator:
+        return {"ok": False, "handle": clean_handle(handle), "error": "Creator not found."}
+    creator["access_revoked"] = False
+    creator.pop("access_revoked_at", None)
+    creator.pop("access_revoked_reason", None)
+    _save_document(document)
+    result = access_snapshot(creator)
+    result.update({"ok": True, "handle": clean_handle(handle)})
+    return result
+
+
+# === End FoxBot Free For Everyone v1 -- Admin Block/Unblock ===
 
 # === FoxBot Persistent Creator Registry v1 ===
 from services.storage_paths import storage_path as _foxbot_access_storage_path_v1

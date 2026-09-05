@@ -1187,6 +1187,13 @@ def _foxbot_studio_path_is_gated(path: str) -> bool:
     if normalized.startswith("/api/connected-creators/") and normalized.endswith(("/foxcoins", "/message")):
         return True
 
+    # Same shape again: /api/foxbot/access/{handle}/block|unblock is the
+    # Free-For-Everyone deny-list kill switch -- a dynamic handle segment,
+    # so it can't go in the exact-path set. GET /api/foxbot/access and
+    # /api/foxbot/access/{handle} stay public (read-only status).
+    if normalized.startswith("/api/foxbot/access/") and normalized.endswith(("/block", "/unblock")):
+        return True
+
     return any(normalized.startswith(prefix.rstrip("/")) for prefix in FOXBOT_ADMIN_GATED_PREFIXES)
 
 
@@ -26977,7 +26984,14 @@ _foxbot_connect_process_command_without_access_v1 = _foxbot_connect_process_comm
 
 
 def _foxbot_connect_process_command_v1(handle, message, display_name=None):
-    """Extend FoxBot Connect with trial and subscription access commands."""
+    """FoxBot Free For Everyone v1: !joinfox/!access/!verify no longer gate
+    a trial or subscription -- access is unconditional except an explicit
+    admin block (creator_access.block_creator/unblock_creator). These
+    commands are now pure status confirmations, kept around (rather than
+    removed) because they're what the landing page and chat still tell
+    creators to type, and !joinfox still performs first-time registration
+    for a handle FoxBot hasn't seen before.
+    """
     clean_handle = _foxbot_creator_access_v1.clean_handle(handle)
     clean_message = str(message or "").strip()
     command = clean_message.split()[0].lower() if clean_message.startswith("!") else ""
@@ -26991,16 +27005,16 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
                 display_name=display_name,
             )
 
-        access = _foxbot_creator_access_v1.start_trial(clean_handle, display_name)
-        if access.get("started"):
+        access = _foxbot_creator_access_v1.get_access(clean_handle)
+        if access.get("has_access"):
             reply = (
-                f"@{clean_handle}, your FoxBot 7-day trial is active. "
-                "Use !access anytime to check your status."
+                f"@{clean_handle}, FoxBot is free for every creator -- you're all set. "
+                "Type !foxhelp to see what's available."
             )
         else:
             reply = (
-                f"@{clean_handle}, FoxBot access is {access.get('status')}. "
-                f"Days remaining: {access.get('remaining_days', 0)}."
+                f"@{clean_handle}, your FoxBot access is currently restricted. "
+                "Contact the FoxBot team for help."
             )
 
         return {
@@ -27013,13 +27027,15 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
     if command == "!access":
         access = _foxbot_creator_access_v1.get_access(clean_handle)
-        if access.get("status") == "not_started":
-            reply = f"@{clean_handle}, type !joinfox to start your free 7-day FoxBot trial."
+        if access.get("has_access"):
+            reply = (
+                f"@{clean_handle}, FoxBot access: active. "
+                "Free for every creator -- no trial or subscription needed."
+            )
         else:
             reply = (
-                f"@{clean_handle} FoxBot Access | Status: {access.get('status')} | "
-                f"Days remaining: {access.get('remaining_days', 0)} | "
-                f"Verification: {access.get('verification_status')}"
+                f"@{clean_handle}, your FoxBot access is currently restricted. "
+                "Contact the FoxBot team for help."
             )
         return {
             "ok": True,
@@ -27030,14 +27046,8 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
         }
 
     if command == "!verify":
-        access = _foxbot_creator_access_v1.request_verification(clean_handle)
-        if access.get("ok"):
-            reply = (
-                f"@{clean_handle}, your FoxBot subscription verification request is pending. "
-                "Use !access to check its status."
-            )
-        else:
-            reply = f"@{clean_handle}, type !joinfox before requesting verification."
+        access = _foxbot_creator_access_v1.get_access(clean_handle)
+        reply = f"@{clean_handle}, FoxBot no longer requires a paid subscription -- your access is already active."
         return {
             "ok": True,
             "handled": True,
@@ -27054,11 +27064,11 @@ def _foxbot_connect_process_command_v1(handle, message, display_name=None):
 
     if command in {"!profile", "!rank"} and result.get("handled"):
         access = _foxbot_creator_access_v1.get_access(clean_handle)
-        if access.get("status") != "not_started":
+        if not access.get("has_access"):
             result["access"] = access
             result["reply"] = (
                 str(result.get("reply") or "")
-                + f" | Access: {access.get('status')} ({access.get('remaining_days', 0)} days)"
+                + " | FoxBot access is currently restricted."
             )
 
     return result
@@ -27465,26 +27475,10 @@ def foxbot_sender_identity_v1():
 # === End FoxBot OAuth Token Priority Fix v1 ===
 
 # === FoxBot Blaze Subscription Access v1 ===
-FOXBOT_SUBSCRIPTION_PRICE_USD_V1 = 5
+# FoxBot Free For Everyone v1: the $5/month price and the Blaze subscriber-
+# role detector are gone -- access no longer depends on either. The Blaze
+# profile link is kept only as a place to send creators, not a paywall.
 FOXBOT_SUBSCRIPTION_PROFILE_V1 = "https://blaze.stream/foxbotai"
-
-
-def _foxbot_item_has_subscriber_role_v1(payload):
-    """Detect Blaze subscriber role data in a polling message payload."""
-    if isinstance(payload, dict):
-        for key, value in payload.items():
-            normalized_key = str(key or "").strip().lower()
-            if normalized_key in {"issubscriber", "is_subscriber"} and value is True:
-                return True
-            if normalized_key in {"roles", "badges"} and isinstance(value, list):
-                roles = {str(role or "").strip().lower() for role in value}
-                if roles.intersection({"subscriber", "sub"}):
-                    return True
-            if _foxbot_item_has_subscriber_role_v1(value):
-                return True
-    elif isinstance(payload, list):
-        return any(_foxbot_item_has_subscriber_role_v1(item) for item in payload)
-    return False
 
 
 def _foxbot_multichannel_targets_v1():
@@ -27602,7 +27596,8 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
 
                 if not access.get("has_access"):
                     send_blaze_chat_message(
-                        f"@{clean_username}, start your free 7-day FoxBot trial by typing !joinfox.",
+                        f"@{clean_username}, your FoxBot access is currently restricted. "
+                        "Contact the FoxBot team for help.",
                         channel_id=channel_id,
                         creator_id=resolved_creator_id,
                     )
@@ -27610,48 +27605,24 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
                     continue
 
             if command == "!verify":
-                # Preserve the exact subscription-channel payload for diagnosis.
-                polling_status["last_subscription_verify_payload"] = item
-                polling_status["last_subscription_verify_channel"] = {
-                    "channel_id": channel_id,
-                    "channel_slug": channel_slug,
-                    "is_subscription_channel": is_subscription_channel,
-                    "username": clean_username,
-                }
-                polling_status["last_subscription_verify_detected"] = (
-                    _foxbot_item_has_subscriber_role_v1(item)
-                )
-
+                # FoxBot Free For Everyone v1: nothing left to verify against
+                # Blaze's subscriber role -- access is unconditional. Kept as
+                # a status confirmation, not removed, since existing chat
+                # instructions and habit still point creators at !verify.
                 _foxbot_events_v1.emit_event(
                     creator_handle, "command", actor=clean_username, detail={"command": command}
                 )
 
-                if _foxbot_item_has_subscriber_role_v1(item):
-                    access = _foxbot_creator_access_v1.verify_current_subscription(
-                        clean_username
-                    )
-                    foxbot_reply = (
-                        f"@{clean_username}, your FoxBot subscription is verified. "
-                        "Creator access is active."
-                    )
-                else:
-                    _foxbot_creator_access_v1.request_verification(clean_username)
-                    access = _foxbot_creator_access_v1.get_access(clean_username)
-                    foxbot_reply = (
-                        f"@{clean_username}, FoxBot could not detect an active subscription. "
-                        "Subscribe at blaze.stream/foxbotai, then type !verify again here."
-                    )
+                foxbot_reply = (
+                    f"@{clean_username}, FoxBot no longer requires a paid subscription -- "
+                    "your access is already active."
+                )
 
                 send_blaze_chat_message(foxbot_reply, channel_id=channel_id, creator_id=resolved_creator_id)
                 _foxbot_events_v1.emit_event(
                     creator_handle, "bot_reply", detail={"in_reply_to": command, "viewer": clean_username}
                 )
                 polling_status["last_reply"] = foxbot_reply
-                polling_status["last_subscription_verification"] = {
-                    "handle": clean_username,
-                    "verified": access.get("verification_status") == "verified",
-                    "status": access.get("status"),
-                }
                 processed_count += 1
                 continue
 
@@ -27829,12 +27800,38 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
 def foxbot_subscription_config_v1():
     return {
         "ok": True,
-        "trial_days": _foxbot_creator_access_v1.TRIAL_DAYS,
-        "price_usd_monthly": FOXBOT_SUBSCRIPTION_PRICE_USD_V1,
+        "free": True,
+        "price_usd_monthly": 0,
         "blaze_profile": FOXBOT_SUBSCRIPTION_PROFILE_V1,
         "join_command": "!joinfox",
         "verify_command": "!verify",
     }
+
+
+# === FoxBot Free For Everyone v1 -- Admin Block/Unblock ===
+@app.post("/api/foxbot/access/{handle}/block")
+def foxbot_creator_access_block_v1(request: Request, handle: str, reason: str = ""):
+    """Deny-list kill switch for an otherwise-open-by-default System 1
+    (creator_access.py). Not in FOXBOT_ADMIN_GATED_EXACT_PATHS (the {handle}
+    segment can't be exact-matched), so this is admin-gated in-route here
+    AND matched by suffix in _foxbot_studio_path_is_gated below -- same
+    belt-and-suspenders pattern as /api/connected-creators/{handle}/foxcoins.
+    """
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+    return _foxbot_creator_access_v1.block_creator(handle, reason)
+
+
+@app.post("/api/foxbot/access/{handle}/unblock")
+def foxbot_creator_access_unblock_v1(request: Request, handle: str):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+    return _foxbot_creator_access_v1.unblock_creator(handle)
+
+
+# === End FoxBot Free For Everyone v1 -- Admin Block/Unblock ===
 
 
 # === End FoxBot Blaze Subscription Access v1 ===
