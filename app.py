@@ -23937,6 +23937,73 @@ def foxbot_bot_connect_login_v1():
     return response
 
 
+def _foxbot_bot_connect_success_page_v1(actual_id, display_name, channel_id):
+    """Styled bot-connect success page -- replaces the previous raw
+    <h1>Bot Connected</h1> debug dump now that this is the featured,
+    public creator-facing flow rather than an internal test endpoint.
+    Reuses foxbot-landing.css's own design tokens/classes so it doesn't
+    look like a broken developer page after a designed landing page CTA.
+    """
+    handle_line = f"@{display_name}" if display_name else str(actual_id)
+    if channel_id:
+        channel_note = "Your channel is connected and FoxBot will start monitoring it shortly."
+    else:
+        channel_note = (
+            "FoxBot saved your connection, but couldn't automatically resolve "
+            "your channel. Open your FoxBot dashboard to confirm your channel is set."
+        )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connected | FoxBot AI</title>
+<link rel="icon" type="image/png" href="/static/foxbot-logo.png">
+<link rel="stylesheet" href="/static/css/foxbot-landing.css">
+<style>
+body {{ display: grid; place-items: center; min-height: 100vh; }}
+.connect-success {{
+    max-width: 480px;
+    margin: 0 20px;
+    padding: 40px 34px;
+    text-align: center;
+    border: 1px solid var(--border-bright);
+    border-radius: 20px;
+    background: var(--panel);
+    box-shadow: 0 20px 55px rgba(0,0,0,.25);
+}}
+.connect-success .badge {{
+    display: inline-block;
+    margin-bottom: 18px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(57,255,136,.12);
+    border: 1px solid rgba(57,255,136,.3);
+    color: #39ff88;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}}
+.connect-success h1 {{ margin: 0 0 10px; font-size: 30px; letter-spacing: -.03em; }}
+.connect-success p {{ color: var(--muted); margin: 0 0 22px; }}
+.connect-success .actions {{ display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }}
+</style>
+</head>
+<body>
+<div class="connect-success">
+<span class="badge">Connected</span>
+<h1>You're all set, {handle_line}.</h1>
+<p>{channel_note}</p>
+<div class="actions">
+<a href="/admin" class="button">Open Dashboard</a>
+<a href="/" class="button secondary">Back to FoxBot</a>
+</div>
+</div>
+</body>
+</html>"""
+
+
 def _foxbot_bot_connect_oauth_callback_handle_v1(request: Request, code: str = "", state: str = ""):
     """Shared body for the bot-connect OAuth callback. Reused by both
     /auth/bot-connect/callback (foxbot_bot_connect_callback_v1, below) and
@@ -24040,6 +24107,7 @@ def _foxbot_bot_connect_oauth_callback_handle_v1(request: Request, code: str = "
     # login's own profile read (app.py:20189): a failure here skips the
     # join but must not undo the token save that already succeeded.
     display_name = ""
+    channel_id = ""
     try:
         profile = _foxbot_blaze_http_json_v1(
             "GET",
@@ -24061,23 +24129,59 @@ def _foxbot_bot_connect_oauth_callback_handle_v1(request: Request, code: str = "
     except Exception:
         pass
 
-    # Sub-phase D's join, write side -- actual_id here is the SAME value
-    # verified above and handed to the save primitive, never a
-    # separately-parsed one, so the join and the token slot cannot
-    # disagree on who this creator is.
+    # FoxBot Free For Everyone v1 -- Bot Connect Self-Sufficient Registration:
+    # completing OAuth alone must be enough for a creator to end up actually
+    # monitored, not just token-linked. build_targets()/active_creators()
+    # (services/blaze_multichannel.py, services/creator_access.py) are what
+    # decide which channels get polled -- neither has ever depended on
+    # bot-connect/OAuth, only on a creator_access.json registration with a
+    # resolved channel_id. Previously that registration and channel
+    # resolution were a SEPARATE manual step (!connect/!joinfox in chat, or
+    # the old /get-started handle form); this callback now does both
+    # itself so "click Connect, done" is actually true end to end.
     if display_name:
+        # Full registration -- same bookkeeping !connect grants (badges,
+        # commands, +25 FoxCoins) -- but ONLY on first connect, guarded the
+        # same way !joinfox guards !connect: _foxbot_connect_upsert_creator_v1
+        # is NOT idempotent (it grants +25 FoxCoins and +1 message on every
+        # call), so a later reconnect must not re-trigger that bonus.
+        try:
+            if not _foxbot_connect_get_creator_v1(display_name):
+                _foxbot_connect_upsert_creator_v1(
+                    display_name, display_name=display_name, source="bot_connect_oauth"
+                )
+        except Exception as e:
+            print(f"[FoxBot Bot Connect] could not register handle {display_name!r}: {e}")
+
+        # Resolve + store the channel_id -- this, not the OAuth token
+        # itself, is what active_creators()/build_targets() need to add
+        # this channel to the poll targets.
+        try:
+            resolved = _foxbot_multichannel_service_v1.resolve_channel(
+                display_name, client_id, access_token
+            )
+            if resolved.get("ok"):
+                channel_id = str(resolved.get("channel_id") or "").strip()
+                _foxbot_creator_access_v1.set_channel(
+                    display_name,
+                    channel_id=channel_id,
+                    channel_slug=resolved.get("channel_slug") or display_name,
+                )
+        except Exception as e:
+            print(f"[FoxBot Bot Connect] could not resolve channel for handle {display_name!r}: {e}")
+
+        # Sub-phase D's join, write side -- actual_id here is the SAME value
+        # verified above and handed to the save primitive, never a
+        # separately-parsed one, so the join and the token slot cannot
+        # disagree on who this creator is.
         try:
             _foxbot_connect_set_blaze_id_v1(display_name, actual_id, display_name=display_name)
         except Exception as e:
             print(f"[FoxBot Bot Connect] could not write blaze_id join for handle {display_name!r}: {e}")
 
     return HTMLResponse(
-        f"<h1>Bot Connected</h1>"
-        f"<p>Blaze account <code>{actual_id}</code>"
-        f"{' (@' + display_name + ')' if display_name else ''} is now connected.</p>"
-        f"<p>Access token: {bool(saved.get('accessToken') or saved.get('access_token'))}, "
-        f"refresh token: {bool(saved.get('refreshToken') or saved.get('refresh_token'))}.</p>",
-        status_code=200
+        _foxbot_bot_connect_success_page_v1(actual_id, display_name, channel_id),
+        status_code=200,
     )
 
 
