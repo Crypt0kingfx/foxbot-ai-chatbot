@@ -27692,7 +27692,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
     # live posting vote-shaped chat text that triggered FoxCoin awards before
     # the identity fix; foxbotai is listed defensively even though bot_handle
     # already covers it, so this still holds if that env var is ever misconfigured.
-    known_bot_handles = {"foxbotai", "blazeian_bot_ai"}
+    known_bot_handles = {"foxbotai", "blazeian_bot_ai", "scurvybot", "botger"}
     subscription_commands = {
         "!joinfox",
         "!connect",
