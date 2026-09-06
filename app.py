@@ -8932,6 +8932,35 @@ def _foxbot_item_has_vote_signal_v1(item):
     return item.get("type") == "vote" and isinstance(item.get("actionInfo"), dict)
 
 
+def _foxbot_sender_has_bot_role_v1(item):
+    """SPECULATIVE / best-effort -- unconfirmed whether Blaze populates a
+    "bot" role on sender.roles for a REST-polled chat item the same way it
+    does on the socket-based chat feed's sender.roles (see
+    _foxbot_chat_roles_v1 in services/blaze_native_connector.py, the
+    confirmed-working precedent this mirrors: same field name, same
+    lowercase/normalize-then-membership-test shape, used there for
+    mod/vip/sub/og shoutouts). No real captured payload has confirmed this
+    field exists on this polling loop's item shape specifically -- verify
+    against one (e.g. a fresh raw capture) if suspicious bot activity
+    continues despite the known_bot_handles blocklist this runs alongside.
+
+    Fails OPEN on any missing/malformed data: item not a dict, no "sender"
+    key, sender not a dict, no "roles" key, or roles not a list all return
+    False (not excluded). Only an explicit "bot" string inside roles
+    rejects. A real human is never excluded merely because this field
+    wasn't present."""
+    if not isinstance(item, dict):
+        return False
+    sender = item.get("sender")
+    if not isinstance(sender, dict):
+        return False
+    roles = sender.get("roles")
+    if not isinstance(roles, list):
+        return False
+    normalized = {str(role or "").strip().lower() for role in roles}
+    return "bot" in normalized
+
+
 # === TEMP DIAGNOSTIC — remove once a real payload has been captured ===
 _FOXBOT_DEBUG_SENSITIVE_KEY_MARKERS = (
     "token", "secret", "password", "auth", "cookie", "session",
@@ -8993,8 +9022,6 @@ def _foxbot_capture_viewer_fallback_debug_v1(event_type, raw_item):
     except Exception:
         pass
 # === End TEMP DIAGNOSTIC ===
-
-
 
 
 
@@ -27690,6 +27717,20 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
             continue
         clean_username = str(username or "").strip().lstrip("@")
         if clean_username.lower() == bot_handle or clean_username.lower() in known_bot_handles:
+            continue
+
+        # SPECULATIVE / best-effort -- unconfirmed whether Blaze populates a
+        # "bot" role on this REST-polled item's sender object, the same way
+        # the socket-based chat feed's sender.roles does (see
+        # _foxbot_chat_roles_v1 in blaze_native_connector.py, the
+        # confirmed-working precedent this mirrors for mod/vip/sub
+        # shoutouts). Verify via a real captured payload later if
+        # suspicious bot activity continues despite the known_bot_handles
+        # blocklist above. Fails OPEN: _foxbot_sender_has_bot_role_v1
+        # returns False whenever sender/roles is missing or the wrong
+        # shape, so a real human is never excluded just because this
+        # field wasn't present -- only an explicit "bot" entry rejects.
+        if _foxbot_sender_has_bot_role_v1(item):
             continue
 
         command = str(message_text).strip().split()[0].lower()
