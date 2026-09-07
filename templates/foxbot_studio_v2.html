@@ -1784,8 +1784,11 @@ document.querySelectorAll('.item').forEach(function (item) {
 });
 
 /* ═══ THE PULSE ═══
-   Polls /api/blaze/native/diagnostics every 10s and renders real
-   state. The trace is real messages_seen deltas from the legacy
+   Polls every 10s and renders real state. Admin/tenant-zero sessions
+   poll /api/blaze/native/diagnostics, unchanged. A scoped creator
+   session polls /api/studio/my-bot-status instead -- their own
+   per-creator bot-connect status, resolved once via /api/foxbot/session.
+   The trace is real messages_seen deltas from the legacy
    polling worker (NOT the native connector's chat_messages_received
    — that counter belongs to a different pipeline and stays flat
    even when the bot is genuinely alive via legacy polling, which
@@ -1918,7 +1921,10 @@ document.querySelectorAll('.item').forEach(function (item) {
        Distinct from markUnreachable() so this account never sees the
        scary "Can't reach FoxBot" copy for something that isn't a
        failure at all. reachable stays non-false (not true, not false)
-       so tickClock's existing "poll failed" branch doesn't fire either. */
+       so tickClock's existing "poll failed" branch doesn't fire either.
+       Should no longer fire in normal operation now that scoped
+       sessions are routed to /api/studio/my-bot-status instead of the
+       admin-only diagnostics route -- kept as a defensive fallback. */
     reachable = null;
     lastCheckedAt = Date.now();
     beacon.className = 'beacon loading';
@@ -1928,6 +1934,96 @@ document.querySelectorAll('.item').forEach(function (item) {
     setCheck(checkPosting, 'warn', 'Not available', 'not available for this account');
     setCheck(checkListener, 'warn', 'Not available', 'not available for this account');
     setCheck(checkReply, 'warn', 'Not available', 'not available for this account');
+    draw();
+  }
+
+  function markNoBotInstance(data) {
+    /* Not a permission problem and not an outage -- this scoped creator
+       simply isn't a bot-connect target (!joinfox-style chat access, or
+       no access yet). Same honest, non-scary treatment as
+       markPermissionDenied(), but triggered by a 200 with found:false
+       from /api/studio/my-bot-status, never a 403. */
+    reachable = null;
+    lastCheckedAt = Date.now();
+    beacon.className = 'beacon loading';
+    vitalsLine1.textContent = "You're using FoxBot's chat features — no separate bot instance to show status for";
+    vitalsLine2.textContent = data && data.handle
+      ? 'Connected as @' + data.handle + ' via chat access, not a dedicated bot connection.'
+      : 'This widget shows status for a connected bot instance only.';
+    setCheck(checkToken, 'warn', 'N/A', 'no bot instance connected');
+    setCheck(checkPosting, 'warn', 'N/A', 'no bot instance connected');
+    setCheck(checkListener, 'warn', 'N/A', 'no bot instance connected');
+    setCheck(checkReply, 'warn', 'N/A', 'no bot instance connected');
+    draw();
+  }
+
+  function markScopedStatus(data) {
+    /* Renders /api/studio/my-bot-status's per_target-derived shape --
+       THIS creator's own data only, never tenant-zero's. Deliberately a
+       separate function from markReachable() rather than a shared one:
+       the two endpoints return different shapes (no verified profile
+       call here, see the Posting As note below), and conflating them
+       risks silently overclaiming fidelity this data doesn't have. */
+    if (!data || data.found !== true) { markNoBotInstance(data); return; }
+
+    reachable = true;
+    lastCheckedAt = Date.now();
+    beacon.className = 'beacon';
+
+    var status = data.status || {};
+    var lastOk = status.last_ok;
+    var cycles = typeof status.cycles === 'number' ? status.cycles : 0;
+    var seenCount = typeof status.messages_seen === 'number' ? status.messages_seen : null;
+    var handleText = data.handle ? '@' + data.handle : 'your channel';
+
+    /* Blaze token -- approximated from this creator's own poll-cycle
+       fetch result. Not a dedicated profile-validity call like the admin
+       path's -- multichannel polling has no per-creator profile check
+       today, so this is connectivity, not a verified token check. */
+    if (lastOk === true) {
+      setCheck(checkToken, 'ok', 'Connected', 'last checked ' + relTime(lastCheckedAt));
+    } else if (lastOk === false) {
+      setCheck(checkToken, 'bad', 'Error', String(status.last_error || 'last poll failed'));
+    } else {
+      setCheck(checkToken, 'warn', 'Unknown', 'not polled yet');
+    }
+
+    /* Posting as -- no verified username available per-creator yet;
+       shows the connected channel, not a confirmed bot identity. */
+    setCheck(checkPosting, cycles > 0 ? 'ok' : 'warn', handleText, 'your connected channel');
+
+    /* Chat listener */
+    var running = cycles > 0 && lastOk !== false;
+    var listenerNote = seenCount === null ? 'not polled yet' : seenCount.toLocaleString() + ' messages seen';
+    setCheck(checkListener, running ? 'ok' : 'bad', running ? 'Connected' : 'Disconnected', listenerNote);
+
+    /* Last reply */
+    var replyAtSec = status.last_reply_at || null;
+    if (replyAtSec) {
+      lastReplyAtMs = replyAtSec * 1000;
+      var replyNote = status.last_command ? ('!' + status.last_command + ' → ' + (status.last_username || 'viewer')) : '';
+      setCheck(checkReply, 'ok', relTime(lastReplyAtMs), replyNote);
+    } else {
+      lastReplyAtMs = null;
+      setCheck(checkReply, 'warn', 'No replies yet', 'waiting for first message');
+    }
+
+    vitalsLine1.innerHTML = running
+      ? 'FoxBot is <b>alive</b> in ' + handleText
+      : 'FoxBot listener is <b>down</b> in ' + handleText;
+    vitalsLine2.innerHTML = lastReplyAtMs
+      ? 'Last reply <span class="bot">' + relTime(lastReplyAtMs) + '</span>' + (status.last_command ? ' · answering !' + status.last_command : '')
+      : 'No replies recorded yet this session';
+
+    var nowMessages = seenCount === null ? 0 : seenCount;
+    var replyLanded = !!(replyAtSec && lastPoll && replyAtSec !== lastPoll.lastReplyAtSec) || !!(replyAtSec && !lastPoll);
+    if (lastPoll) {
+      var elapsedSeconds = Math.round((Date.now() - lastPoll.t) / 1000) || 1;
+      var delta = Math.max(0, nowMessages - lastPoll.messagesSeen);
+      pushDelta(elapsedSeconds, delta, replyLanded);
+    }
+    lastPoll = { t: Date.now(), messagesSeen: nowMessages, lastReplyAtSec: replyAtSec };
+
     draw();
   }
 
@@ -2002,13 +2098,45 @@ document.querySelectorAll('.item').forEach(function (item) {
     draw();
   }
 
+  var isAdmin = null; /* null = not yet resolved */
+
+  async function resolveIsAdmin() {
+    if (isAdmin !== null) return isAdmin;
+    try {
+      var res = await fetch('/api/foxbot/session', { cache: 'no-store' });
+      var data = await res.json();
+      isAdmin = !!(data && data.ok && data.is_admin);
+    } catch (err) {
+      /* Unknown -- default to the scoped path. my-bot-status never 403s
+         a legitimate session, so this is the safer default than assuming
+         admin and hitting the admin-only diagnostics route. */
+      isAdmin = false;
+    }
+    return isAdmin;
+  }
+
   async function poll() {
     try {
-      var res = await fetch('/api/blaze/native/diagnostics', { cache: 'no-store' });
+      var admin = await resolveIsAdmin();
+
+      if (admin) {
+        /* Admin/tenant-zero path -- byte-identical to before this
+           change, untouched. */
+        var adminRes = await fetch('/api/blaze/native/diagnostics', { cache: 'no-store' });
+        if (adminRes.status === 403) { markPermissionDenied(); return; }
+        if (!adminRes.ok) throw new Error('HTTP ' + adminRes.status);
+        markReachable(await adminRes.json());
+        return;
+      }
+
+      /* Scoped creator path -- new, additive. Session-scoped server-side
+         (request.state.blaze_id), so this should never 403 for a
+         legitimate logged-in creator; markPermissionDenied() stays only
+         as a defensive fallback. */
+      var res = await fetch('/api/studio/my-bot-status', { cache: 'no-store' });
       if (res.status === 403) { markPermissionDenied(); return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      var data = await res.json();
-      markReachable(data);
+      markScopedStatus(await res.json());
     } catch (err) {
       markUnreachable();
     }

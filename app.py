@@ -2709,7 +2709,12 @@ def home():
 
 @app.get("/dashboard", response_class=HTMLResponse)
 
-def dashboard():
+def dashboard(request: Request):
+    # Security fix: same weak-auth pattern as /foxbot-control -- this old
+    # admin hub (iframes /foxbot-control) had no admin check of its own.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return dashboard_html
 
@@ -9180,7 +9185,16 @@ def check_recent_blaze_messages():
 
 @app.get("/blaze/start-polling-listener")
 
-def start_polling_listener():
+def start_polling_listener(request: Request):
+    # Security fix: this route had no admin check at all -- unlike
+    # /foxbot-control (page visibility only, all real actions already
+    # gated), this one WAS the real action: it directly starts the live
+    # polling_thread that runs the bot for every creator today. Any
+    # approved session (admin or scoped) could hit this URL and actually
+    # start/stop production. Same guard as every other admin-only route.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     global polling_thread
 
@@ -9236,7 +9250,12 @@ def start_polling_listener():
 
 @app.get("/blaze/stop-polling-listener")
 
-def stop_polling_listener():
+def stop_polling_listener(request: Request):
+    # Security fix: same as start_polling_listener above -- this directly
+    # stops the live polling_thread for every creator, with no admin check.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     polling_status["running"] = False
 
@@ -16309,7 +16328,11 @@ setInterval(refreshAll, 5000);
 
 @app.get("/legacy-admin", response_class=HTMLResponse)
 
-def foxbot_admin_page():
+def foxbot_admin_page(request: Request):
+    # Security fix: same weak-auth pattern as /foxbot-control.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     return foxbot_admin_html
 
@@ -18302,7 +18325,12 @@ async def foxbot_blaze_listener_status():
 
 @app.post("/api/blaze/listener/connect")
 
-async def foxbot_blaze_listener_connect():
+async def foxbot_blaze_listener_connect(request: Request):
+    # Security fix: same weak-auth pattern as the polling start/stop
+    # routes -- no admin check, any approved session could flip this.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     BLAZE_LISTENER_STATE["connected"] = True
 
@@ -18322,7 +18350,10 @@ async def foxbot_blaze_listener_connect():
 
 @app.post("/api/blaze/listener/disconnect")
 
-async def foxbot_blaze_listener_disconnect():
+async def foxbot_blaze_listener_disconnect(request: Request):
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     BLAZE_LISTENER_STATE["connected"] = False
 
@@ -18595,7 +18626,11 @@ async def foxbot_favicon_v1():
 
 @app.get("/admin", response_class=HTMLResponse)
 
-async def foxbot_studio_primary_admin():
+async def foxbot_studio_primary_admin(request: Request):
+    # Security fix: same weak-auth pattern as /foxbot-control.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
 
@@ -21700,7 +21735,13 @@ def foxbot_connect_test_panel_v1():
 
 @app.get("/api/blaze/native/status")
 
-def foxbot_blaze_native_status_v1():
+def foxbot_blaze_native_status_v1(request: Request):
+    # Security fix: same weak-auth pattern as /foxbot-control -- read-only,
+    # but leaks platform-wide native-connector state (session_id, message/
+    # reply counts) to any approved session, not just admin.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
 
     from services.blaze_native_connector import config_status
 
@@ -25953,7 +25994,21 @@ setInterval(loadStatus, 10000);
 
 # === FoxBot Control Dashboard v2 ===
 @app.get("/foxbot-control")
-def foxbot_control_dashboard_v2():
+def foxbot_control_dashboard_v2(request: Request):
+    # Security fix: this page's own GET handler had no admin check at all
+    # (no Request param, so it structurally could not call
+    # _foxbot_require_admin_v1) -- it only relied on the generic auth-gate
+    # middleware, which passes ANY approved session (admin OR a scoped,
+    # non-admin creator), not admin specifically. Every POST action this
+    # page's buttons call (native/start, native/stop, live-control/*) was
+    # already correctly admin-gated, so a scoped creator couldn't actually
+    # change platform state -- but they could load the page itself and see
+    # internal admin controls. Same guard, same pattern as every other
+    # admin-only route in this file.
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return guard
+
     from fastapi.responses import HTMLResponse
 
     return HTMLResponse(content="""
@@ -27261,6 +27316,9 @@ def _foxbot_multichannel_target_status_v1(channel_id):
             "last_attempt_at": None,
             "last_ok": None,
             "last_error": None,
+            "last_reply_at": None,
+            "last_command": None,
+            "last_username": None,
             "messages_seen": 0,
             "commands_processed": 0,
             "token_source": None,
@@ -27368,7 +27426,7 @@ def blaze_polling_worker():
                     rows = extract_rows_from_blaze_response(data)
                     target_messages = len(rows)
                     target_processed = _foxbot_process_channel_rows_v1(
-                        target, rows, resolved_creator_id=resolved_creator_id
+                        target, rows, resolved_creator_id=resolved_creator_id, target_status=target_status
                     )
                     cycle_messages += target_messages
                     cycle_processed += target_processed
@@ -27432,6 +27490,63 @@ def foxbot_multichannel_status_v1():
 @app.get("/api/foxbot/multichannel/targets")
 def foxbot_multichannel_targets_v1():
     return _foxbot_multichannel_targets_v1()
+
+
+@app.get("/api/studio/my-bot-status")
+def foxbot_my_bot_status_v1(request: Request):
+    """Per-creator counterpart to /api/blaze/native/diagnostics (which stays
+    admin-only, tenant-zero-scoped, and untouched). Backs the Overview
+    vitals widget for a SCOPED creator session -- never filters the public
+    /api/foxbot/multichannel/status payload client-side; identity comes
+    exclusively from request.state.blaze_id/is_admin (set by the auth-gate
+    middleware), same invariant as /api/foxbot/session and /api/foxbot/events.
+
+    Reads the same _FOXBOT_MULTICHANNEL_STATE_V1 that
+    /api/foxbot/multichannel/status already exposes -- .get(), never the
+    setdefault-based _foxbot_multichannel_target_status_v1(), so a GET here
+    can never fabricate a blank per_target entry as a side effect.
+
+    Three states:
+    - is_admin: {"state": "admin"} -- the widget skips this endpoint
+      entirely for admin and keeps using the existing diagnostics route.
+    - bot_connected: this creator_id is a live bot-connect target --
+      returns their own per_target entry (last_ok, last_error, cycles,
+      messages_seen, last_reply_at/last_command/last_username, token_source).
+    - not_connected: no bot-connect target for this creator_id (covers
+      both !joinfox-only access and no access at all) -- informational,
+      not an error, and never a 403 for a legitimate logged-in creator.
+    """
+    is_admin = bool(getattr(request.state, "is_admin", False))
+    if is_admin:
+        return {"ok": True, "is_admin": True, "state": "admin", "found": False}
+
+    blaze_id = str(getattr(request.state, "blaze_id", "") or "").strip()
+    if not blaze_id:
+        return {"ok": True, "is_admin": False, "state": "not_connected", "found": False, "handle": None}
+
+    for target in _FOXBOT_MULTICHANNEL_STATE_V1.get("targets", []):
+        if not target.get("is_bot_connect_target"):
+            continue
+        if str(target.get("creator_id") or "").strip() != blaze_id:
+            continue
+
+        channel_id = str(target.get("channel_id") or "").strip()
+        status = _FOXBOT_MULTICHANNEL_STATE_V1.get("per_target", {}).get(channel_id) or {}
+        return {
+            "ok": True,
+            "is_admin": False,
+            "state": "bot_connected",
+            "found": True,
+            "handle": target.get("handle"),
+            "channel_slug": target.get("channel_slug"),
+            "status": status,
+        }
+
+    # Not a bot-connect target. Distinguish joinfox-only access from no
+    # access at all only for the handle we return -- the widget renders
+    # both as the same informational "no separate bot instance" state.
+    handle = _foxbot_resolve_handle_for_blaze_id_v1(blaze_id)
+    return {"ok": True, "is_admin": False, "state": "not_connected", "found": False, "handle": handle}
 
 
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
@@ -27633,7 +27748,7 @@ def _foxbot_multichannel_targets_v1():
     )
 
 
-def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
+def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, target_status=None):
     channel_id = str(target.get("channel_id") or "").strip()
     channel_slug = str(target.get("channel_slug") or "").strip()
     channel_key = channel_id or channel_slug
@@ -27842,6 +27957,10 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
                 proof_stats["last_message"] = message_text
                 proof_stats["last_reply_at"] = time.time()
                 polling_status["last_reply"] = foxbot_reply
+                if target_status is not None:
+                    target_status["last_command"] = message_text
+                    target_status["last_username"] = clean_username
+                    target_status["last_reply_at"] = proof_stats["last_reply_at"]
             continue
 
         if not str(message_text).startswith("!"):
@@ -27935,6 +28054,10 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None):
             proof_stats["last_message"] = message_text
             proof_stats["last_reply_at"] = time.time()
             polling_status["last_reply"] = foxbot_reply
+            if target_status is not None:
+                target_status["last_command"] = message_text
+                target_status["last_username"] = clean_username
+                target_status["last_reply_at"] = proof_stats["last_reply_at"]
 
         processed_count += 1
 
