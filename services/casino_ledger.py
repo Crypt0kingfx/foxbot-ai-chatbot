@@ -48,6 +48,7 @@ DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 # (providers/blaze.py, legal-gated) needs zero migration here. Nothing in
 # this codebase writes a BLAZE_* row today.
 PROMO_CONVERT_IN = "PROMO_CONVERT_IN"
+PROMO_CONVERT_OUT = "PROMO_CONVERT_OUT"
 PROMO_WAGER = "PROMO_WAGER"
 PROMO_PAYOUT = "PROMO_PAYOUT"
 PROMO_REFUND = "PROMO_REFUND"
@@ -67,6 +68,7 @@ BLAZE_JACKPOT = "BLAZE_JACKPOT"
 # automatically) are not in this set; nothing in Phase 2 writes those yet.
 IDEMPOTENCY_REQUIRED_TYPES = {
     PROMO_CONVERT_IN,
+    PROMO_CONVERT_OUT,
     PROMO_WAGER,
     PROMO_PAYOUT,
     PROMO_REFUND,

@@ -215,6 +215,7 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
             ("POST", "/api/studio/casino/play/roulette", {"bet_type": "red", "wager": 10, "idempotency_key": "x"}),
             ("POST", "/api/studio/casino/play/crash", {"wager": 10, "target": "2.0", "idempotency_key": "x"}),
             ("POST", "/api/studio/casino/convert", {"amount": 10, "idempotency_key": "x"}),
+            ("POST", "/api/studio/casino/cashout", {"amount": 10, "idempotency_key": "x"}),
         ]
         for method, path, body in cases:
             if method == "GET":
@@ -546,6 +547,123 @@ class CasinoDashboardFeaturesTestCase(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertFalse(res.json()["ok"])
         self.assertEqual(self._promo_balance(), 0)
+
+    # ------------------------------------------------------------------
+    # FEATURE 4b (CASHOUT, Phase 8): thin wrapper over the proven withdraw().
+    # ------------------------------------------------------------------
+    def test_cashout_routes_through_proven_withdraw(self):
+        self._fund_promo(20)
+
+        res = self.client.post(
+            "/api/studio/casino/cashout",
+            json={"amount": 5, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["replayed"])
+        self.assertEqual(data["foxcoin_amount"], 50)  # 5 promo * rate 10
+        self.assertEqual(data["promo_amount"], 5)
+        self.assertEqual(data["promo_balance"], 15)
+
+        self.assertEqual(self._promo_balance(), 15)
+        self.assertEqual(self._foxcoin_balance(), 50)
+
+    def test_cashout_same_idempotency_key_twice_cashes_out_once(self):
+        self._fund_promo(20)
+        key = str(uuid.uuid4())
+        payload = {"amount": 5, "idempotency_key": key}
+
+        first = self.client.post("/api/studio/casino/cashout", json=payload, auth=self.auth)
+        second = self.client.post("/api/studio/casino/cashout", json=payload, auth=self.auth)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_data, second_data = first.json(), second.json()
+
+        self.assertFalse(first_data["replayed"])
+        self.assertTrue(second_data["replayed"], "a repeated idempotency_key must come back replayed=True")
+        self.assertEqual(first_data["promo_balance"], second_data["promo_balance"])
+
+        # No double-debit, no double-credit -- checked against real balances,
+        # not just the JSON response.
+        self.assertEqual(self._promo_balance(), 15, "must have cashed out exactly once, not twice")
+        self.assertEqual(self._foxcoin_balance(), 50, "FoxCoins must be credited exactly once")
+
+        with cl._connect() as connection:
+            attempt_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {promo.TABLE_ATTEMPTS} WHERE idempotency_key = %s",
+                (f"dashboard-cashout:{self.creator_id}:{key}",),
+            ).fetchone()[0]
+            ledger_rows = connection.execute(
+                f"SELECT COUNT(*) FROM {cl.TABLE_LEDGER} WHERE creator_id = %s AND user_id = %s "
+                f"AND currency = %s AND type = %s",
+                (self.creator_id, self.user_id, cr.CURRENCY_PROMO, cl.PROMO_CONVERT_OUT),
+            ).fetchone()[0]
+        self.assertEqual(attempt_rows, 1, "exactly one cashout-attempt row for this idempotency_key")
+        self.assertEqual(ledger_rows, 1, "exactly one PROMO_CONVERT_OUT ledger row -- no double-debit")
+
+    def test_cashout_ignores_payload_creator_id(self):
+        self._fund_promo(20)
+        other_creator_id = f"other-cashout-{uuid.uuid4().hex[:8]}"
+
+        res = self.client.post(
+            "/api/studio/casino/cashout",
+            json={"amount": 5, "idempotency_key": str(uuid.uuid4()), "creator_id": other_creator_id},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 200)
+
+        self.assertEqual(self._promo_balance(), 15)
+        other_balance = cl.get_balance(other_creator_id, self.user_id, cr.CURRENCY_PROMO)
+        self.assertEqual(other_balance, 0, "a payload creator_id must not redirect the cashout elsewhere")
+
+    def test_cashout_insufficient_promo_clean_rejection(self):
+        # No PROMO funded at all.
+        res = self.client.post(
+            "/api/studio/casino/cashout",
+            json={"amount": 5, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(res.status_code, 400)
+        data = res.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("5", data["error"])
+
+        self.assertEqual(self._foxcoin_balance(), 0, "a rejected cashout must not credit any FoxCoins")
+
+    def test_cashout_daily_limit_shared_with_convert(self):
+        self._seed_foxcoins(100000)
+        casino_config.set_config(self.creator_id, daily_promo_limit=5)  # shared with deposit() by design
+
+        # Convert consumes the full daily allowance...
+        convert_res = self.client.post(
+            "/api/studio/casino/convert",
+            json={"amount": 5, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(convert_res.status_code, 200)
+
+        # ...so even cashing out 1 promo of the balance just converted must
+        # be blocked -- the cap is on total daily volume, either direction.
+        cashout_res = self.client.post(
+            "/api/studio/casino/cashout",
+            json={"amount": 1, "idempotency_key": str(uuid.uuid4())},
+            auth=self.auth,
+        )
+        self.assertEqual(cashout_res.status_code, 400)
+        data = cashout_res.json()
+        self.assertFalse(data["ok"])
+        self.assertIn("limit", data["error"].lower())
+        self.assertEqual(self._promo_balance(), 5, "the rejected cashout must not have moved anything")
+
+    def test_cashout_missing_idempotency_key_rejected(self):
+        self._fund_promo(20)
+        res = self.client.post("/api/studio/casino/cashout", json={"amount": 5}, auth=self.auth)
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.json()["ok"])
+        self.assertEqual(self._promo_balance(), 20)
 
     # ------------------------------------------------------------------
     # FEATURE 5: dashboard plays also post to Blaze chat.

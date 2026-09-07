@@ -3468,6 +3468,66 @@ def debit_foxcoins_idempotent(name: str, amount: int, idempotency_key: str, reas
     return dict(result)
 
 
+def credit_foxcoins_idempotent(name: str, amount: int, idempotency_key: str, reason: str = "casino_promo_cashout", creator_id: str = None):
+    """Idempotent credit for casino PROMO -> FoxCoin cashout
+    (providers/promo.py withdraw(), Phase 8) -- the sibling this module
+    lacked until cashout needed it. Every other FoxCoin credit path
+    (add_points/add_foxcoins) is fire-and-forget: replaying the same
+    logical event credits twice. Cashout's second leg runs AFTER the
+    PROMO debit is already durably confirmed (see providers/promo.py's
+    module docstring on ordering), so it must be safe to resume/retry
+    without ever double-crediting -- this function is what makes that true,
+    the same way debit_foxcoins_idempotent() makes the FoxCoin->PROMO
+    debit safe to retry.
+
+    Tracked in a SEPARATE dict (processed_credits) from
+    debit_foxcoins_idempotent's processed_deductions -- same
+    idempotency_key could otherwise theoretically collide across the two
+    directions and this keeps them structurally unable to. Both dicts
+    live in the SAME per-creator economy blob, so a single
+    save_persistent_data() flush still captures the balance mutation and
+    the idempotency marker together, never one without the other.
+    """
+    if not idempotency_key:
+        raise ValueError("idempotency_key is required -- this function exists specifically to make FoxCoin credits safe to retry.")
+
+    amount = int(amount)
+    if amount <= 0:
+        raise ValueError("amount must be a positive integer.")
+
+    clean_name = normalize_viewer_name(name)
+    key = viewer_key(clean_name)
+    economy = _creator_economy_v1(creator_id or _tenant_zero_id())
+
+    processed = economy.setdefault("processed_credits", {})
+
+    existing = processed.get(idempotency_key)
+    if existing is not None:
+        if existing["viewer"] != key or existing["amount"] != amount:
+            raise ValueError(
+                f"idempotency_key {idempotency_key!r} was already used for a different "
+                f"credit ({existing['viewer']}, {existing['amount']}) -- refusing to reuse it."
+            )
+        return dict(existing)
+
+    current = int(economy["balances"].get(key, 0))
+    new_balance = current + amount
+    economy["balances"][key] = new_balance
+
+    result = {"viewer": key, "amount": amount, "reason": reason, "balance": new_balance}
+    processed[idempotency_key] = result
+
+    economy["transactions"].append({
+        "viewer": clean_name,
+        "amount": amount,
+        "reason": reason,
+        "balance": new_balance,
+    })
+    economy["transactions"] = economy["transactions"][-50:]
+
+    return dict(result)
+
+
 # --- Casino Phase 5: chat-command wiring ------------------------------
 # Imports for the previously-dormant Postgres-backed casino subsystem
 # (Phases 2-4: services/casino_ledger.py, services/casino_config.py,
@@ -7737,7 +7797,7 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
             "!stats", "!leaderboard", "!hugs", "!ask", "!arcade", "!goodnight", "!endstream", "!boss", "!bossstatus", "!startboss", "!endboss", "!attack", "!powerattack", "!bossleaderboard", "!foxhunt", "!coinflip", "!roll", "!8ball", "!rps", "!balance", "!points", "!foxcoins", "!rank", "!ranks", "!event", "!events", "!startevent", "!endevent", "!checkin", "!streak", "!streaks", "!resetstreak", "!quest", "!quests", "!questprogress", "!startquest", "!endquest", "!questadd", "!claimquest", "!daily", "!shop", "!redeem", "!redeems", "!clearredeems", "!cooldowns", "!setcooldown", "!clearcooldowns", "!addreward", "!delreward", "!coinleaderboard", "!givepoints", "!takepoints",
 
-            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!casino", "!casinoflip", "!roulette", "!crash", "!blackjack", "!hit", "!stand", "!dice", "!slots"
+            "!shoutout", "!addcmd", "!delcmd", "!commands", "!convert", "!cashout", "!casino", "!casinoflip", "!roulette", "!crash", "!blackjack", "!hit", "!stand", "!dice", "!slots"
 
         }
 
@@ -8125,6 +8185,67 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
                 "response": (
                     f"@{username}, converted {foxcoin_cost} {currency} -> {result['promo_amount']} promo credits! "
                     f"Casino balance: {result['promo_balance']} promo."
+                )
+            }
+
+        if lower_message.startswith("!cashout"):
+
+            if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+                return {"response": f"@{username}, the casino isn't enabled in this channel yet."}
+
+            parts = original_message.split()
+            if len(parts) < 2:
+                return {"response": "Use !cashout amount. Example: !cashout 5 converts casino promo credits back into FoxCoins."}
+
+            try:
+                promo_amount = int(parts[1])
+            except ValueError:
+                return {"response": "Cashout amount must be a whole number. Example: !cashout 5"}
+
+            if promo_amount <= 0:
+                return {"response": "Cashout amount must be greater than 0."}
+
+            user_id = viewer_key(username)
+            currency = get_currency_name()
+
+            try:
+                config = _foxbot_casino_config_v1.get_config(resolved_creator_id)
+            except _foxbot_casino_config_v1.CasinoConfigUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+
+            foxcoin_amount = promo_amount * config.foxcoins_per_promo
+
+            # Same durable idempotency_key discipline as !convert above --
+            # dedupe_key is already channel-scoped and deduplicated by the
+            # polling loop; this is the Postgres-side backstop against the
+            # SAME chat message being reprocessed after a crash/restart.
+            try:
+                provider = _foxbot_casino_promo_v1.PromoProvider()
+                result = provider.withdraw(
+                    resolved_creator_id, user_id, promo_amount,
+                    idempotency_key=f"cashout:{dedupe_key}", display_name=username,
+                )
+            except _foxbot_casino_ledger_v1.InsufficientFunds:
+                promo_balance = _foxbot_casino_ledger_v1.get_balance(
+                    resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+                )
+                return {
+                    "response": f"@{username}, you need {promo_amount} promo credits to cash out "
+                                f"(balance: {promo_balance} promo)."
+                }
+            except _foxbot_casino_promo_v1.DailyLimitExceeded:
+                return {"response": f"@{username}, you've hit today's conversion limit. Try again tomorrow."}
+            except _foxbot_casino_ledger_v1.CasinoUnavailable:
+                return {"response": f"@{username}, the casino is temporarily unavailable. Try again shortly."}
+            except ValueError:
+                return {"response": f"@{username}, that cashout couldn't be processed."}
+            except Exception:
+                return {"response": f"@{username}, something went wrong cashing out. Try again shortly."}
+
+            return {
+                "response": (
+                    f"@{username}, cashed out {result['promo_amount']} promo credits -> {foxcoin_amount} {currency}! "
+                    f"{currency} balance: {result['foxcoin_balance']}."
                 )
             }
 
@@ -17789,6 +17910,65 @@ async def foxbot_studio_casino_convert_v1(payload: dict, request: Request):
         "ok": True,
         "foxcoin_cost": foxcoin_cost,
         "promo_amount": result["promo_amount"],
+        "promo_balance": result["promo_balance"],
+        "replayed": result["replayed"],
+    }
+
+
+@app.post("/api/studio/casino/cashout")
+async def foxbot_studio_casino_cashout_v1(payload: dict, request: Request):
+    # Self-service: Layer-1-only, mirrors /convert above (Phase 8).
+    from fastapi.responses import JSONResponse
+
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        return JSONResponse({"ok": False, "error": "idempotency_key is required."}, status_code=400)
+
+    try:
+        promo_amount = int(payload.get("amount"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "amount must be a whole number."}, status_code=400)
+    if promo_amount <= 0:
+        return JSONResponse({"ok": False, "error": "amount must be greater than 0."}, status_code=400)
+
+    resolved_creator_id = _foxbot_resolve_creator_id_v1(blaze_id=getattr(request.state, "blaze_id", None))
+
+    if not _foxbot_casino_enabled_v1():
+        return JSONResponse({"ok": False, "error": "the casino is not enabled on this platform."}, status_code=503)
+    if not _foxbot_casino_creator_enabled_v1(resolved_creator_id):
+        return JSONResponse({"ok": False, "error": "the casino isn't enabled for this account yet."}, status_code=400)
+
+    username = _foxbot_dashboard_play_username_v1(request)
+    user_id = viewer_key(username)
+
+    try:
+        provider = _foxbot_casino_promo_v1.PromoProvider()
+        result = provider.withdraw(
+            resolved_creator_id, user_id, promo_amount,
+            idempotency_key=f"dashboard-cashout:{resolved_creator_id}:{idempotency_key}", display_name=username,
+        )
+    except _foxbot_casino_ledger_v1.InsufficientFunds:
+        promo_balance = _foxbot_casino_ledger_v1.get_balance(
+            resolved_creator_id, user_id, _foxbot_casino_rounds_v1.CURRENCY_PROMO,
+        )
+        return JSONResponse(
+            {"ok": False, "error": f"Not enough promo credits (need {promo_amount}, have {promo_balance})."},
+            status_code=400,
+        )
+    except _foxbot_casino_promo_v1.DailyLimitExceeded:
+        return JSONResponse({"ok": False, "error": "today's conversion limit has been reached."}, status_code=400)
+    except _foxbot_casino_ledger_v1.CasinoUnavailable:
+        return JSONResponse({"ok": False, "error": "the casino is temporarily unavailable."}, status_code=503)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "that cashout couldn't be processed."}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "something went wrong cashing out."}, status_code=500)
+
+    return {
+        "ok": True,
+        "promo_amount": result["promo_amount"],
+        "foxcoin_amount": result["foxcoin_amount"],
+        "foxcoin_balance": result["foxcoin_balance"],
         "promo_balance": result["promo_balance"],
         "replayed": result["replayed"],
     }

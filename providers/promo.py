@@ -1,36 +1,51 @@
-"""FoxCoin -> casino PROMO credit conversion (Casino Phase 3). The
-currency-specific seam between the FoxCoin economy (app.py's JSON-blob
-store) and the currency-agnostic casino ledger (services/casino_ledger.py).
+"""FoxCoin <-> casino PROMO credit conversion (Casino Phase 3 deposit,
+Phase 8 cashout). The currency-specific seam between the FoxCoin economy
+(app.py's JSON-blob store) and the currency-agnostic casino ledger
+(services/casino_ledger.py).
 
-ONE-WAY BY DESIGN, enforced at two independent layers: services/
-casino_ledger.py defines PROMO_CONVERT_IN but deliberately no
-PROMO_CONVERT_OUT, and withdraw() below raises PromoWithdrawalNotAllowed
-rather than merely being unimplemented. There is no laundering loop.
+Two-way by design as of Phase 8: the Phase 1 decision to keep this loop
+one-way (withdraw() raised PromoWithdrawalNotAllowed) was explicitly
+because the casino was unproven. It has since run live with real players
+for weeks on the same debit-before-credit discipline this module already
+used for deposits -- withdraw() below is the reverse leg, built on the
+identical ordering principle, not a new one.
 
-THE TWO-SYSTEM PROBLEM. The FoxCoin economy is a non-atomic, non-
-idempotent JSON blob (app.py); the casino ledger is atomic, idempotent
-Postgres. Crediting PROMO before the FoxCoin debit is confirmed would let
-a crash between the two steps mint PROMO credits from nothing -- so the
-debit is always attempted and durably recorded as done BEFORE the PROMO
-credit is even attempted. deposit() below tracks each conversion attempt
-through three states in a small Postgres table it owns
-(casino_conversion_attempts):
+THE TWO-SYSTEM PROBLEM, both directions. The FoxCoin economy is a non-
+atomic, non-idempotent JSON blob (app.py); the casino ledger is atomic,
+idempotent Postgres. Whichever side is credited SECOND is the one that
+can safely no-op on a retry; crediting the other side first, before its
+matching debit is durably confirmed, would let a crash between the two
+steps mint currency from nothing. Concretely:
 
-    CLAIMED   -- attempt row inserted, FoxCoins not yet confirmed debited.
-    DEBITED   -- FoxCoins are gone, PROMO not yet credited.
+  deposit()  (FoxCoin -> PROMO): FoxCoin debit first (app.py,
+             debit_foxcoins_idempotent), THEN the PROMO ledger credit.
+  withdraw() (PROMO -> FoxCoin): PROMO ledger debit first (atomic,
+             provably-exactly-once via the ledger's own idempotency-key
+             uniqueness), THEN the FoxCoin credit (app.py,
+             credit_foxcoins_idempotent) -- same principle, ledger side
+             goes first in both directions because it is the side that
+             can prove "already done" on a resume; the FoxCoin blob side
+             goes second because re-issuing an idempotent credit/debit
+             against it is always safe.
+
+Both functions track each attempt through three states in a small
+Postgres table this module owns (casino_conversion_attempts), now with a
+`direction` column ('deposit' or 'cashout') so a resumed attempt knows
+which leg was already committed:
+
+    CLAIMED   -- attempt row inserted, first leg not yet confirmed.
+    DEBITED   -- first leg (debit) is done, second leg (credit) is not.
     COMPLETED -- both sides done.
 
-Both transitions this module drives (CLAIMED -> DEBITED via
-app.debit_foxcoins_idempotent, DEBITED -> COMPLETED via
-casino_ledger.credit) are themselves idempotent on the SAME
+Every transition either function drives is itself idempotent on the SAME
 idempotency_key, which is what makes every state safe to resume from
 after a crash, indefinitely, without special-casing failure: resuming a
-CLAIMED attempt just calls the idempotent debit again (no-op if it already
-happened, a clean InsufficientFoxCoins raise if it didn't and still
-can't); resuming a DEBITED attempt just calls the idempotent credit again.
-Neither step can double-apply. There is deliberately no fourth "failed"
-state -- nothing in this flow needs one, since every step is either
-not-yet-attempted or safely re-attemptable.
+CLAIMED attempt just re-attempts the first leg (no-op if it already
+happened, a clean InsufficientFoxCoins/InsufficientFunds raise if it
+didn't and still can't); resuming a DEBITED attempt just re-issues the
+idempotent second leg. Neither step can double-apply. There is
+deliberately no fourth "failed" state -- nothing in this flow needs one,
+since every step is either not-yet-attempted or safely re-attemptable.
 """
 
 from __future__ import annotations
@@ -54,15 +69,17 @@ STATUS_CLAIMED = "claimed"
 STATUS_DEBITED = "debited"
 STATUS_COMPLETED = "completed"
 
-
-class PromoWithdrawalNotAllowed(Exception):
-    """PROMO credits cannot be converted back to FoxCoins -- one-way by
-    design, not merely unimplemented. See module docstring."""
+DIRECTION_DEPOSIT = "deposit"
+DIRECTION_CASHOUT = "cashout"
 
 
 class DailyLimitExceeded(Exception):
     """The creator's configured daily PROMO conversion limit (services/
-    casino_config.py) would be exceeded by this request."""
+    casino_config.py) would be exceeded by this request -- shared between
+    deposit() and withdraw() by design (Phase 8): it caps total daily
+    PROMO conversion VOLUME in either direction, not each direction
+    independently, so converting up to the limit and immediately cashing
+    back out cannot be used to move twice the configured daily amount."""
 
 
 def _default_debit_foxcoins_idempotent(name, amount, idempotency_key, reason="casino_promo_convert", creator_id=None):
@@ -74,6 +91,14 @@ def _default_debit_foxcoins_idempotent(name, amount, idempotency_key, reason="ca
     import app as _app
 
     return _app.debit_foxcoins_idempotent(name, amount, idempotency_key, reason=reason, creator_id=creator_id)
+
+
+def _default_credit_foxcoins_idempotent(name, amount, idempotency_key, reason="casino_promo_cashout", creator_id=None):
+    # Same deferred-import discipline as _default_debit_foxcoins_idempotent
+    # above, mirrored for the credit side (Phase 8 cashout's second leg).
+    import app as _app
+
+    return _app.credit_foxcoins_idempotent(name, amount, idempotency_key, reason=reason, creator_id=creator_id)
 
 
 def _connect(timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS):
@@ -109,29 +134,40 @@ def _ensure_schema(connection) -> None:
             )
             """
         )
+        # Phase 8 cashout: which direction this attempt moves value, so a
+        # resumed row knows which leg (debit vs credit, and on which
+        # system) was already committed. Existing rows predate this
+        # column and are all deposits by construction -- DEFAULT
+        # 'deposit' backfills them correctly, not just harmlessly.
+        connection.execute(
+            f"""
+            ALTER TABLE {TABLE_ATTEMPTS}
+            ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT '{DIRECTION_DEPOSIT}'
+            """
+        )
         connection.execute(
             f"""
             CREATE INDEX IF NOT EXISTS idx_{TABLE_ATTEMPTS}_creator_user_time
                 ON {TABLE_ATTEMPTS} (creator_id, user_id, created_at DESC)
             """
         )
-        # casino_ledger's own tables must exist before _today_promo_converted()
+        # casino_ledger's own tables must exist before _today_promo_volume()
         # queries TABLE_LEDGER directly below -- cheap and idempotent (IF NOT
         # EXISTS) to call here every time schema readiness is established.
         cl._ensure_schema(connection)
         _schema_ready = True
 
 
-def _claim(connection, idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount):
+def _claim(connection, idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, direction):
     row = connection.execute(
         f"""
         INSERT INTO {TABLE_ATTEMPTS}
-            (idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, status)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, status, direction)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (idempotency_key) DO NOTHING
-        RETURNING idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, status
+        RETURNING idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, status, direction
         """,
-        (idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, STATUS_CLAIMED),
+        (idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, STATUS_CLAIMED, direction),
     ).fetchone()
     if row is not None:
         return row
@@ -140,7 +176,7 @@ def _claim(connection, idempotency_key, creator_id, user_id, foxcoin_amount, pro
     # fetch the existing row to resume from instead of restarting blind.
     return connection.execute(
         f"""
-        SELECT idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, status
+        SELECT idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount, status, direction
         FROM {TABLE_ATTEMPTS} WHERE idempotency_key = %s
         """,
         (idempotency_key,),
@@ -154,16 +190,23 @@ def _set_status(connection, idempotency_key, status):
     )
 
 
-def _today_promo_converted(creator_id, user_id, timeout=DEFAULT_CONNECT_TIMEOUT_SECONDS) -> int:
+def _today_promo_volume(creator_id, user_id, timeout=DEFAULT_CONNECT_TIMEOUT_SECONDS) -> int:
+    """Total PROMO conversion volume today, EITHER direction combined --
+    Phase 8: deposit() and withdraw() share one daily_promo_limit cap, so
+    this sums the absolute size of every PROMO_CONVERT_IN/_OUT ledger row
+    rather than each type separately. amount is stored signed (credits
+    positive, debits negative) -- ABS() makes both directions add to the
+    same running total instead of partially cancelling each other out."""
     with _connect(timeout=timeout) as connection:
         _ensure_schema(connection)
         row = connection.execute(
             f"""
-            SELECT COALESCE(SUM(amount), 0) FROM {cl.TABLE_LEDGER}
-            WHERE creator_id = %s AND user_id = %s AND type = %s
+            SELECT COALESCE(SUM(ABS(amount)), 0) FROM {cl.TABLE_LEDGER}
+            WHERE creator_id = %s AND user_id = %s
+              AND type IN (%s, %s)
               AND created_at >= date_trunc('day', NOW())
             """,
-            (creator_id, user_id, cl.PROMO_CONVERT_IN),
+            (creator_id, user_id, cl.PROMO_CONVERT_IN, cl.PROMO_CONVERT_OUT),
         ).fetchone()
     return int(row[0]) if row else 0
 
@@ -171,10 +214,11 @@ def _today_promo_converted(creator_id, user_id, timeout=DEFAULT_CONNECT_TIMEOUT_
 class PromoProvider(SettlementProvider):
     currency = CURRENCY_PROMO
 
-    def __init__(self, *, debit_foxcoins_idempotent=None, get_config=None):
+    def __init__(self, *, debit_foxcoins_idempotent=None, credit_foxcoins_idempotent=None, get_config=None):
         # Injectable for tests; defaults to the real FoxCoin economy /
         # casino_config accessors in production.
         self._debit_foxcoins_idempotent = debit_foxcoins_idempotent or _default_debit_foxcoins_idempotent
+        self._credit_foxcoins_idempotent = credit_foxcoins_idempotent or _default_credit_foxcoins_idempotent
         self._get_config = get_config or casino_config.get_config
 
     def deposit(
@@ -223,19 +267,25 @@ class PromoProvider(SettlementProvider):
         # exact and safe either way. Tightening this to a hard per-request
         # cap would need a locked daily-counter row, deferred as unneeded
         # complexity unless abuse in practice proves otherwise.
-        already_converted = _today_promo_converted(creator_id, user_id, timeout=timeout)
+        already_converted = _today_promo_volume(creator_id, user_id, timeout=timeout)
         if already_converted + promo_amount > config.daily_promo_limit:
             raise DailyLimitExceeded(
-                f"{user_id}: already converted {already_converted} PROMO today, "
+                f"{user_id}: already converted {already_converted} PROMO today (either direction), "
                 f"limit {config.daily_promo_limit}, requested {promo_amount} more."
             )
 
         with _connect(timeout=timeout) as connection:
             _ensure_schema(connection)
-            attempt = _claim(connection, idempotency_key, creator_id, user_id, foxcoin_cost, promo_amount)
+            attempt = _claim(
+                connection, idempotency_key, creator_id, user_id, foxcoin_cost, promo_amount,
+                direction=DIRECTION_DEPOSIT,
+            )
 
-        (_, a_creator, a_user, a_foxcoin, a_promo, status) = attempt
-        if a_creator != creator_id or a_user != user_id or a_foxcoin != foxcoin_cost or a_promo != promo_amount:
+        (_, a_creator, a_user, a_foxcoin, a_promo, status, a_direction) = attempt
+        if (
+            a_creator != creator_id or a_user != user_id or a_foxcoin != foxcoin_cost
+            or a_promo != promo_amount or a_direction != DIRECTION_DEPOSIT
+        ):
             raise ValueError(
                 f"idempotency_key {idempotency_key!r} was already used for a different "
                 f"conversion request -- refusing to reuse it."
@@ -288,8 +338,135 @@ class PromoProvider(SettlementProvider):
             "replayed": entry.replayed,
         }
 
-    def withdraw(self, creator_id: str, user_id: str, amount: int, *, idempotency_key: str, **kwargs) -> dict:
-        raise PromoWithdrawalNotAllowed(
-            "PROMO credits cannot be converted back to FoxCoins -- one-way by design. "
-            "services/casino_ledger.py defines PROMO_CONVERT_IN with no PROMO_CONVERT_OUT."
+    def withdraw(
+        self,
+        creator_id: str,
+        user_id: str,
+        promo_amount: int,
+        *,
+        idempotency_key: str,
+        display_name: str | None = None,
+        timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        **kwargs,
+    ) -> dict:
+        """Cash out `promo_amount` PROMO credits back into FoxCoins -- the
+        reverse of deposit() (Phase 8; one-way-by-design ended once the
+        casino ran live and proven for weeks -- see module docstring).
+        `user_id` must already be the canonical viewer key, same contract
+        as deposit().
+
+        FoxCoin credit is computed from the SAME casino_config rate as
+        deposit(), as `promo_amount * foxcoins_per_promo` -- exact
+        multiplication both directions, no rounding, no divisibility
+        policy needed: input is denominated in PROMO (the currency
+        actually being debited, the one with a real integer balance),
+        never in FoxCoins, so there is nothing to floor or reject.
+
+        Ordering mirrors deposit()'s debit-before-credit discipline, legs
+        reversed: the PROMO ledger debit (atomic, provably-exactly-once)
+        happens FIRST and is durably recorded as done BEFORE the FoxCoin
+        credit (the non-atomic side) is even attempted -- a crash between
+        the two can only ever resume into crediting FoxCoins, never
+        re-debiting PROMO.
+
+        daily_promo_limit is shared with deposit() -- see
+        _today_promo_volume() and DailyLimitExceeded.
+
+        Safe to call twice with the same idempotency_key: whichever stage
+        a prior attempt reached, this resumes from there and returns the
+        same result rather than moving value again.
+        """
+        if not idempotency_key:
+            raise ValueError("idempotency_key is required.")
+        if not isinstance(promo_amount, int) or isinstance(promo_amount, bool) or promo_amount <= 0:
+            raise ValueError("promo_amount must be a positive integer.")
+
+        creator_id = str(creator_id or "").strip()
+        user_id = str(user_id or "").strip()
+        if not creator_id or not user_id:
+            raise ValueError("creator_id and user_id are required.")
+
+        config = self._get_config(creator_id, timeout=timeout)
+        foxcoin_amount = promo_amount * config.foxcoins_per_promo
+
+        # Same shared, loosely-enforced (pre-transaction) daily cap as
+        # deposit() -- see that method's comment for the race-window note,
+        # which applies identically here.
+        already_converted = _today_promo_volume(creator_id, user_id, timeout=timeout)
+        if already_converted + promo_amount > config.daily_promo_limit:
+            raise DailyLimitExceeded(
+                f"{user_id}: already converted {already_converted} PROMO today (either direction), "
+                f"limit {config.daily_promo_limit}, requested {promo_amount} more."
+            )
+
+        with _connect(timeout=timeout) as connection:
+            _ensure_schema(connection)
+            attempt = _claim(
+                connection, idempotency_key, creator_id, user_id, foxcoin_amount, promo_amount,
+                direction=DIRECTION_CASHOUT,
+            )
+
+        (_, a_creator, a_user, a_foxcoin, a_promo, status, a_direction) = attempt
+        if (
+            a_creator != creator_id or a_user != user_id or a_foxcoin != foxcoin_amount
+            or a_promo != promo_amount or a_direction != DIRECTION_CASHOUT
+        ):
+            raise ValueError(
+                f"idempotency_key {idempotency_key!r} was already used for a different "
+                f"cashout request -- refusing to reuse it."
+            )
+
+        # The PROMO debit is attempted/re-confirmed on every call regardless
+        # of resume point: fresh (CLAIMED), it debits for real and raises
+        # InsufficientFunds before any mutation if the balance is too low,
+        # leaving the attempt safely resumable at CLAIMED; resumed
+        # (DEBITED/COMPLETED), casino_ledger's own idempotency-key lookup
+        # short-circuits it to the already-committed row (replayed=True) --
+        # never a second debit. This is the entry the result is built from
+        # (the ledger side is the one with a real transaction_id -- the
+        # FoxCoin blob side has none), mirroring deposit()'s use of the
+        # PROMO credit entry for the same reason, reversed.
+        debit_entry = self._debit_promo(creator_id, user_id, promo_amount, idempotency_key, display_name, timeout)
+
+        if status == STATUS_CLAIMED:
+            with _connect(timeout=timeout) as connection:
+                _ensure_schema(connection)
+                _set_status(connection, idempotency_key, STATUS_DEBITED)
+            status = STATUS_DEBITED
+
+        if status == STATUS_DEBITED:
+            foxcoin_result = self._credit_foxcoins(user_id, foxcoin_amount, idempotency_key, creator_id)
+            with _connect(timeout=timeout) as connection:
+                _ensure_schema(connection)
+                _set_status(connection, idempotency_key, STATUS_COMPLETED)
+            return self._as_withdraw_result(promo_amount, foxcoin_amount, debit_entry, foxcoin_result)
+
+        # STATUS_COMPLETED: credit_foxcoins_idempotent is itself idempotent
+        # on idempotency_key, so re-issuing it here just returns the
+        # original result instead of crediting again.
+        foxcoin_result = self._credit_foxcoins(user_id, foxcoin_amount, idempotency_key, creator_id)
+        return self._as_withdraw_result(promo_amount, foxcoin_amount, debit_entry, foxcoin_result)
+
+    def _debit_promo(self, creator_id, user_id, promo_amount, idempotency_key, display_name, timeout):
+        return cl.debit(
+            creator_id, user_id, CURRENCY_PROMO, promo_amount, cl.PROMO_CONVERT_OUT,
+            idempotency_key=idempotency_key, display_name=display_name,
+            metadata={"source": "foxcoin_cashout"}, timeout=timeout,
         )
+
+    def _credit_foxcoins(self, user_id, foxcoin_amount, idempotency_key, creator_id):
+        return self._credit_foxcoins_idempotent(
+            user_id, foxcoin_amount, idempotency_key,
+            reason="casino_promo_cashout", creator_id=creator_id,
+        )
+
+    @staticmethod
+    def _as_withdraw_result(promo_amount, foxcoin_amount, debit_entry, foxcoin_result) -> dict:
+        return {
+            "promo_amount": promo_amount,
+            "foxcoin_amount": foxcoin_amount,
+            "foxcoin_balance": foxcoin_result["balance"],
+            "promo_balance": debit_entry.balance_after,
+            "transaction_id": debit_entry.transaction_id,
+            "replayed": debit_entry.replayed,
+        }

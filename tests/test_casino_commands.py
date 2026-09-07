@@ -96,7 +96,7 @@ class CasinoCommandsDormancyTestCase(unittest.TestCase):
     def test_flag_off_all_casino_commands_silent(self):
         self.assertFalse(app._foxbot_casino_enabled_v1())
         for message in (
-            "!convert 5", "!convert", "!casinoflip heads 10", "!casino",
+            "!convert 5", "!convert", "!cashout 5", "!cashout", "!casinoflip heads 10", "!casino",
             "!roulette red 10", "!crash 10 2.5", "!blackjack 10", "!hit", "!stand",
             "!dice high 10", "!slots 10",
         ):
@@ -290,6 +290,48 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
         self.assertTrue(all(replies))
         self.assertEqual(self._promo_balance(), 5, "same dedupe_key must not double-convert")
         self.assertEqual(app.get_balance(self.username, creator_id=self.creator_id), 1000 - 50)
+
+    # ------------------------------------------------------------------
+    def test_cashout_command_works(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+
+        reply = app.chat(message="!cashout 5", username=self.username).get("response", "")
+
+        self.assertIn("cashed out", reply.lower())
+        self.assertIn("50", reply)  # foxcoin credit = 5 promo * rate 10
+        self.assertEqual(self._promo_balance(), 15)
+        self.assertEqual(app.get_balance(self.username, creator_id=self.creator_id), 1000 - 200 + 50)
+
+    def test_cashout_idempotent_on_repeated_dedupe_key(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        key = f"dedupe-{uuid.uuid4().hex[:8]}"
+
+        replies = [
+            app.chat(message="!cashout 5", username=self.username, dedupe_key=key).get("response", "")
+            for _ in range(3)
+        ]
+
+        self.assertTrue(all(replies))
+        self.assertEqual(self._promo_balance(), 15, "same dedupe_key must not double-cashout")
+        self.assertEqual(app.get_balance(self.username, creator_id=self.creator_id), 1000 - 200 + 50)
+
+    def test_cashout_insufficient_promo_rejected_no_clamp(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 3", username=self.username)
+        foxcoin_before = app.get_balance(self.username, creator_id=self.creator_id)
+
+        reply = app.chat(message="!cashout 5", username=self.username).get("response", "")
+
+        self.assertTrue(reply)
+        self.assertNotIn("Traceback", reply)
+        self.assertIn("3", reply)  # current promo balance surfaced, not silently clamped
+        self.assertEqual(self._promo_balance(), 3, "rejected cashout must not touch the promo balance")
+        self.assertEqual(
+            app.get_balance(self.username, creator_id=self.creator_id), foxcoin_before,
+            "rejected cashout must not credit any FoxCoins",
+        )
 
     # ------------------------------------------------------------------
     def test_casinoflip_command_win(self):
@@ -743,6 +785,17 @@ class CasinoCommandsFunctionalTestCase(unittest.TestCase):
             self.assertTrue(reply, f"{bad!r} should get a helpful reply, not silence")
             self.assertNotIn("Traceback", reply)
         self.assertEqual(self._promo_balance(), 0, "no rejected input should move any money")
+
+    def test_invalid_cashout_input_rejected_gracefully(self):
+        self._seed_foxcoins(1000)
+        app.chat(message="!convert 20", username=self.username)
+        balance_before = self._promo_balance()
+
+        for bad in ("!cashout", "!cashout abc", "!cashout -5", "!cashout 0"):
+            reply = app.chat(message=bad, username=self.username).get("response", "")
+            self.assertTrue(reply, f"{bad!r} should get a helpful reply, not silence")
+            self.assertNotIn("Traceback", reply)
+        self.assertEqual(self._promo_balance(), balance_before, "no rejected input should move any money")
 
     def test_invalid_casinoflip_input_rejected_gracefully(self):
         self._seed_foxcoins(1000)
