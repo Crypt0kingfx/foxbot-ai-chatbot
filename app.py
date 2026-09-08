@@ -3191,6 +3191,15 @@ from games import blackjack as _foxbot_casino_blackjack_v1
 from games import dice as _foxbot_casino_dice_v1
 from games import slots as _foxbot_casino_slots_v1
 
+# TTS Stream Overlay v1: sibling of the casino win overlay above, reusing
+# its exact emit_event()/foxbot_events/polling pattern for a second,
+# independently-addable OBS browser source (/overlay/tts) that speaks
+# notable casino wins aloud via the browser's own free SpeechSynthesis
+# API. See services/tts_config.py's module docstring for why this is
+# keyed by creator_handle, not creator_id, unlike casino_config above.
+from services import tts_config as _foxbot_tts_config_v1
+from services import tts_filter as _foxbot_tts_filter_v1
+
 # Casino Studio Tab v1: the allowlist a POST to /api/studio/casino/
 # game-config/{game_id} is checked against -- built from each game
 # module's own GAME_ID rather than hardcoded strings, so it can never
@@ -3475,6 +3484,88 @@ def _foxbot_casino_emit_win_v1(creator_handle: str, username: str, game_id: str,
         if detail is None:
             return
         _foxbot_events_v1.emit_event(creator_handle, "casino_win", actor=username, detail=detail)
+        _foxbot_tts_emit_v1(creator_handle, username, detail)
+    except Exception:
+        pass
+
+
+# === TTS Stream Overlay v1 ===
+# A pure side-effect layered on top of the ALREADY-EMITTED casino_win event
+# above, not a new source of truth: reads only the same {game, payout,
+# highlight} detail dict _foxbot_casino_notable_win_v1 already produced
+# (write-time-safe by construction -- see that function's own docstring),
+# and only ever calls emit_event(), same as casino_win itself. Called from
+# INSIDE _foxbot_casino_emit_win_v1's own try/except, after its replayed/
+# notable checks, so a bug here can never re-fire on a replayed round,
+# never surface as a chat-command error, and never affect the payout
+# already returned to the caller -- identical guarantee, same mechanism.
+
+_FOXBOT_TTS_GAME_LABEL_V1 = {
+    "coinflip": "coinflip", "roulette": "roulette", "crash": "crash",
+    "blackjack": "blackjack", "slots": "slots", "dice": "dice",
+}
+
+# creator_handle -> monotonic time.time() of the last line actually spoken.
+# In-memory only, same "not durable, just a rate limiter" shape as
+# services/blaze_native_connector.py's _EVENT_THANK_YOU_COOLDOWNS -- a
+# restart resetting this to empty just means the next win after a deploy
+# isn't held to a cooldown it can't remember, not a correctness bug.
+_FOXBOT_TTS_COOLDOWN_TRACKER_V1 = {}
+
+
+def _foxbot_tts_build_line_v1(username: str, detail: dict) -> str:
+    """Pure function: the same display-safe {game, payout, highlight}
+    fields the visual overlay already renders, turned into a spoken
+    sentence. No new data read here beyond what's already in `detail`."""
+    game = str((detail or {}).get("game") or "").strip()
+    label = _FOXBOT_TTS_GAME_LABEL_V1.get(game, "the casino")
+    payout = int((detail or {}).get("payout") or 0)
+    highlight = str((detail or {}).get("highlight") or "").strip()
+    name = str(username or "").strip() or "someone"
+
+    line = f"{name} just won {payout} promo credits on {label}"
+    if highlight:
+        line += f" with {highlight}"
+    return line + "!"
+
+
+def _foxbot_tts_emit_v1(creator_handle: str, username: str, detail: dict) -> None:
+    """Gates a just-settled notable win behind the creator's own TTS
+    config (opt-in, off by default) before speaking it: enabled, payout
+    floor, per-creator cooldown, then the profanity filter as the last
+    check before anything is written -- `username` is the one field here
+    a viewer actually controls (their own display name), so it's the only
+    realistic vector for something that shouldn't be read aloud.
+
+    Deliberately swallows CasinoConfigUnavailable-style errors the same
+    way the casino_win emit above swallows everything: TTS being
+    unconfigured or the database being briefly unreachable must never be
+    visible to the caller.
+    """
+    try:
+        if not creator_handle or not isinstance(detail, dict):
+            return
+
+        config = _foxbot_tts_config_v1.get_config(creator_handle)
+        if not config.enabled:
+            return
+
+        payout = int(detail.get("payout") or 0)
+        if payout < config.min_payout:
+            return
+
+        now = time.time()
+        last_spoken = _FOXBOT_TTS_COOLDOWN_TRACKER_V1.get(creator_handle, 0)
+        if now - last_spoken < config.cooldown_seconds:
+            return
+
+        line = _foxbot_tts_build_line_v1(username, detail)[: config.char_limit]
+
+        if not _foxbot_tts_filter_v1.is_clean(line):
+            return
+
+        _FOXBOT_TTS_COOLDOWN_TRACKER_V1[creator_handle] = now
+        _foxbot_events_v1.emit_event(creator_handle, "tts_message", actor=username, detail={"text": line})
     except Exception:
         pass
 
@@ -10044,6 +10135,165 @@ casino_overlay_html = """
     }
   }
 
+  poll();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>
+"""
+
+# TTS Stream Overlay v1: no visual card by design -- this page is meant to
+# sit in OBS purely for its audio output. The on-page status text (voices
+# found / last spoken line) stays in the DOM for the creator's own setup
+# verification but is visually near-invisible during a real stream
+# (tiny, low-opacity, corner-anchored) rather than hidden outright --
+# fully hiding it would remove the one way a creator can confirm, inside
+# their ACTUAL OBS browser source, which voices genuinely loaded there
+# (see services/tts_config.py's module docstring: voice availability is
+# environment-specific and can't be assumed from outside OBS).
+tts_overlay_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FoxBot TTS Overlay</title>
+<style>
+  html, body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  #status {
+    position: fixed;
+    bottom: 6px;
+    left: 6px;
+    max-width: 60vw;
+    font-size: 11px;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.35);
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+    white-space: pre-wrap;
+    pointer-events: none;
+  }
+  #testBtn {
+    position: fixed;
+    bottom: 6px;
+    right: 6px;
+    font-size: 11px;
+    padding: 4px 8px;
+    opacity: 0.5;
+  }
+</style>
+</head>
+<body>
+  <div id="status">FoxBot TTS overlay loading...</div>
+  <button id="testBtn" type="button">Test voice</button>
+
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var handle = params.get("handle") || "";
+  var dataUrl = "/overlay/tts-data" + (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
+
+  var statusEl = document.getElementById("status");
+  var testBtn = document.getElementById("testBtn");
+
+  var seen = new Set();
+  var queue = [];
+  var speaking = false;
+  var initialized = false;
+  var currentVoiceName = "";
+  var currentVolume = 80;
+
+  function describeVoices() {
+    var voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+    if (!voices.length) return "0 voices found yet (waiting on onvoiceschanged)...";
+    return voices.length + " voice(s): " + voices.map(function (v) { return v.name; }).join(", ");
+  }
+
+  function refreshStatus(extra) {
+    statusEl.textContent = "FoxBot TTS | " + describeVoices() + (extra ? ("\\n" + extra) : "");
+  }
+
+  function pickVoice() {
+    var voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    var match = voices.find(function (v) { return v.name === currentVoiceName; });
+    // Falls back to the browser's own default voice (or the first
+    // available one) whenever the configured name isn't present in THIS
+    // browser's live list -- a different machine, a removed voice pack,
+    // or TTS simply never configured yet must never mean silence.
+    return match || voices.find(function (v) { return v.default; }) || voices[0];
+  }
+
+  function speakNext() {
+    if (speaking || queue.length === 0) return;
+    if (!('speechSynthesis' in window)) return;
+
+    speaking = true;
+    var line = queue.shift();
+
+    var utterance = new SpeechSynthesisUtterance(line);
+    var voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    utterance.volume = Math.max(0, Math.min(100, currentVolume)) / 100;
+
+    utterance.onend = utterance.onerror = function () {
+      speaking = false;
+      speakNext();
+    };
+
+    refreshStatus('Speaking: "' + line + '"');
+    window.speechSynthesis.speak(utterance);
+  }
+
+  async function poll() {
+    try {
+      var res = await fetch(dataUrl, { cache: "no-store" });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.ok) return;
+
+      currentVoiceName = data.voice_name || "";
+      currentVolume = typeof data.volume === "number" ? data.volume : 80;
+
+      (data.lines || []).forEach(function (item) {
+        if (!item.id || seen.has(item.id) || !item.text) return;
+        seen.add(item.id);
+        // Same catch-up-safe convention as /overlay/casino-data: a page
+        // load (or an OBS reload mid-stream) silently catches up to
+        // "current" instead of replaying a burst of old lines.
+        if (initialized) queue.push(item.text);
+      });
+      initialized = true;
+      if (!speaking) refreshStatus();
+      speakNext();
+    } catch (err) {
+      // Silent -- a transient network blip should skip a poll, not spam
+      // the on-page status with an error on a live stream overlay.
+    }
+  }
+
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = function () { refreshStatus(); };
+  }
+
+  testBtn.addEventListener("click", function () {
+    if (!('speechSynthesis' in window)) {
+      refreshStatus("speechSynthesis is not available in this browser.");
+      return;
+    }
+    var utterance = new SpeechSynthesisUtterance("FoxBot text to speech test.");
+    var voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    utterance.volume = Math.max(0, Math.min(100, currentVolume)) / 100;
+    window.speechSynthesis.speak(utterance);
+  });
+
+  refreshStatus();
   poll();
   setInterval(poll, 2000);
 })();
@@ -17666,6 +17916,145 @@ async def foxbot_overlay_casino_data_v1(handle: str = ""):
 @app.get("/overlay/casino", response_class=HTMLResponse)
 async def foxbot_overlay_casino_page_v1():
     return casino_overlay_html
+
+
+# === TTS Stream Overlay v1: dashboard config + the SEPARATE OBS page ===
+# Deliberately a standalone /overlay/tts page rather than a ?tts=1 flag on
+# /overlay/casino: OBS browser sources are one-capability-per-source, so a
+# creator who wants the visual win card without the spoken line (or vice
+# versa) needs to be able to add/remove each independently. Config routes
+# below sit under /api/studio/ (already Layer-1-gated by
+# FOXBOT_ADMIN_GATED_PREFIXES) and are self-service, scoped by the
+# session's own handle -- same shape as the casino config routes above,
+# just resolved via _foxbot_resolve_event_handle_v1 (handle) instead of
+# _foxbot_resolve_creator_id_v1 (id), per services/tts_config.py's own
+# docstring on why this table is handle-keyed.
+
+
+@app.get("/api/studio/tts/config")
+async def foxbot_studio_tts_config_get_v1(request: Request):
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+    if not handle:
+        return {
+            "ok": True, "creator_handle": "", "enabled": _foxbot_tts_config_v1.DEFAULT_TTS_ENABLED,
+            "voice_name": _foxbot_tts_config_v1.DEFAULT_VOICE_NAME, "volume": _foxbot_tts_config_v1.DEFAULT_VOLUME,
+            "char_limit": _foxbot_tts_config_v1.DEFAULT_CHAR_LIMIT, "min_payout": _foxbot_tts_config_v1.DEFAULT_MIN_PAYOUT,
+            "cooldown_seconds": _foxbot_tts_config_v1.DEFAULT_COOLDOWN_SECONDS,
+        }
+
+    from fastapi.responses import JSONResponse
+
+    try:
+        config = _foxbot_tts_config_v1.get_config(handle)
+    except _foxbot_tts_config_v1.TtsConfigUnavailable:
+        return JSONResponse(
+            {"ok": False, "error": "TTS config requires DATABASE_URL -- not configured."}, status_code=503,
+        )
+
+    return {
+        "ok": True,
+        "creator_handle": handle,
+        "enabled": config.enabled,
+        "voice_name": config.voice_name,
+        "volume": config.volume,
+        "char_limit": config.char_limit,
+        "min_payout": config.min_payout,
+        "cooldown_seconds": config.cooldown_seconds,
+    }
+
+
+@app.post("/api/studio/tts/config")
+async def foxbot_studio_tts_config_post_v1(payload: dict, request: Request):
+    from fastapi.responses import JSONResponse
+
+    handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
+    if not handle:
+        return JSONResponse({"ok": False, "error": "no channel resolved for this account yet."}, status_code=400)
+
+    # Only keys actually present in the payload are passed through --
+    # set_config()'s own partial-update contract preserves every field
+    # this call omits, same as the casino config POST above.
+    kwargs = {}
+
+    if "enabled" in payload:
+        kwargs["enabled"] = bool(payload["enabled"])
+
+    if "voice_name" in payload:
+        kwargs["voice_name"] = str(payload["voice_name"] or "")
+
+    for numeric_field in ("volume", "char_limit", "min_payout", "cooldown_seconds"):
+        if numeric_field in payload:
+            try:
+                kwargs[numeric_field] = int(payload[numeric_field])
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    {"ok": False, "error": f"{numeric_field} must be a whole number."}, status_code=400,
+                )
+
+    try:
+        config = _foxbot_tts_config_v1.set_config(handle, **kwargs)
+    except _foxbot_tts_config_v1.TtsConfigUnavailable:
+        return JSONResponse(
+            {"ok": False, "error": "TTS config requires DATABASE_URL -- not configured."}, status_code=503,
+        )
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+    return {
+        "ok": True,
+        "creator_handle": handle,
+        "enabled": config.enabled,
+        "voice_name": config.voice_name,
+        "volume": config.volume,
+        "char_limit": config.char_limit,
+        "min_payout": config.min_payout,
+        "cooldown_seconds": config.cooldown_seconds,
+    }
+
+
+# Public, unauthenticated data endpoint -- same shape as /overlay/casino-data
+# (anonymous OBS browser source, scoped by ?handle= since there's no
+# session to resolve identity from). voice_name/volume are bundled in here
+# too, not just the spoken lines: the overlay page itself is the anonymous
+# caller that needs them, and neither field is sensitive (no money/PII),
+# same reasoning as bundling {game, payout, highlight} into the public
+# casino-data response.
+@app.get("/overlay/tts-data")
+async def foxbot_overlay_tts_data_v1(handle: str = ""):
+    creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
+
+    voice_name = _foxbot_tts_config_v1.DEFAULT_VOICE_NAME
+    volume = _foxbot_tts_config_v1.DEFAULT_VOLUME
+    try:
+        config = _foxbot_tts_config_v1.get_config(creator_handle)
+        voice_name = config.voice_name
+        volume = config.volume
+    except Exception:
+        # Unconfigured or DB briefly unreachable -- fall back to module
+        # defaults rather than failing the whole poll; `lines` below still
+        # depends on foxbot_events, which fails its own way independently.
+        pass
+
+    rows = _foxbot_events_v1.fetch_events(creator_handle, limit=50)
+    if rows is None:
+        return {"ok": False, "creator_handle": creator_handle, "voice_name": voice_name, "volume": volume, "lines": []}
+
+    lines = []
+    for kind, actor, detail, created_at in rows:
+        if kind != "tts_message":
+            continue
+        detail = detail or {}
+        lines.append({
+            "id": created_at.isoformat() if created_at else None,
+            "text": detail.get("text", ""),
+        })
+
+    return {"ok": True, "creator_handle": creator_handle, "voice_name": voice_name, "volume": volume, "lines": lines}
+
+
+@app.get("/overlay/tts", response_class=HTMLResponse)
+async def foxbot_overlay_tts_page_v1():
+    return tts_overlay_html
 
 
 @app.post("/api/studio/action/live/{action}")
