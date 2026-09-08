@@ -584,5 +584,88 @@ class TtsOverlayIntegrationTestCase(unittest.TestCase):
         self.assertIn("e2e-viewer", detail["text"])
 
 
+class TtsStudioV2UiSmokeTestCase(unittest.TestCase):
+    """No DATABASE_URL required -- /studio-v2 is served as a static HTML
+    file (app.py:18798), no server-side rendering of tts_config data into
+    it, so this only needs a valid session, not a database. A real,
+    end-to-end browser-driven (Playwright + the actual installed Chrome)
+    verification of the load/edit/save/reload round-trip and the 4-voice
+    dropdown population was run manually against a throwaway local server
+    instance before this test was added -- see the commit description for
+    the captured result. This test is the permanent, fast regression
+    guard: it can't drive real browser JS, but it DOES prove the markup
+    and wiring that JS depends on can never silently vanish (a renamed
+    element id, a dropped nav button, a typo'd endpoint path) without a
+    test failing.
+    """
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(app.app)
+        self._env_patches = {}
+        for key, value in {
+            "STUDIO_SESSION_SECRET": "test-secret-do-not-use-in-prod",
+            "STUDIO_APPROVED_BLAZE_USER_IDS": "",
+            "STUDIO_AUTH_MODE": "both",
+        }.items():
+            self._env_patches[key] = os.environ.get(key)
+            os.environ[key] = value
+
+        self.admin_blaze_id = f"test-tts-ui-admin-{uuid.uuid4().hex[:10]}"
+        os.environ["STUDIO_APPROVED_BLAZE_USER_IDS"] = self.admin_blaze_id
+        self._tz_patch = mock.patch.object(app, "_tenant_zero_id", return_value=self.admin_blaze_id)
+        self._tz_patch.start()
+
+    def tearDown(self):
+        self._tz_patch.stop()
+        for key, value in self._env_patches.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def _cookies(self):
+        token = app._foxbot_dashboard_session_sign_v1(self.admin_blaze_id, "test-admin")
+        return {"foxbot_dashboard_session": token}
+
+    def test_studio_v2_page_contains_tts_nav_and_section(self):
+        res = self.client.get("/studio-v2", cookies=self._cookies())
+        self.assertEqual(res.status_code, 200)
+
+        self.assertIn('data-target="page-tts"', res.text)
+        self.assertIn("Text-to-Speech", res.text)
+        self.assertIn('id="page-tts"', res.text)
+
+    def test_studio_v2_page_contains_all_expected_tts_form_fields(self):
+        res = self.client.get("/studio-v2", cookies=self._cookies())
+        for element_id in (
+            "ttsToggleBtn", "ttsVoice", "ttsVolume", "ttsVolumeValue",
+            "ttsMinPayout", "ttsCharLimit", "ttsSaveBtn",
+        ):
+            self.assertIn(f'id="{element_id}"', res.text, f"missing #{element_id} in the TTS section")
+
+    def test_studio_v2_page_wires_the_already_tested_config_endpoint(self):
+        """The JS must call the SAME /api/studio/tts/config endpoint
+        TtsConfigEndpointIsolationTestCase/TtsConfigPersistenceTestCase
+        already prove is self-service and cross-creator-isolated -- not a
+        new, untested endpoint."""
+        res = self.client.get("/studio-v2", cookies=self._cookies())
+        self.assertIn("/api/studio/tts/config", res.text)
+
+    def test_studio_v2_tts_save_payload_never_includes_a_handle_field(self):
+        """Structural proof (mirroring TtsConfigEndpointIsolationTestCase's
+        server-side check) that the CLIENT never constructs a payload
+        naming a creator/handle at all -- the isolation guarantee holds
+        end to end, not just because the server ignores an extra field."""
+        res = self.client.get("/studio-v2", cookies=self._cookies())
+        marker = "async function postTts"
+        tts_section_start = res.text.find(marker)
+        self.assertGreater(tts_section_start, -1, "expected the TTS script block (postTts helper) to be present")
+        tts_js = res.text[tts_section_start:]
+        for forbidden in ("creator_handle", "creator_id", "handle:"):
+            self.assertNotIn(forbidden, tts_js)
+
+
 if __name__ == "__main__":
     unittest.main()

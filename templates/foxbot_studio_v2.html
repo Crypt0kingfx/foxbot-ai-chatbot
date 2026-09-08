@@ -765,6 +765,7 @@ body::before {
         <button class="group-head" data-toggle><span class="caret"></span>Stream Tools</button>
         <div class="group-items">
           <button class="item" data-target="page-events">Stream Events</button>
+          <button class="item" data-target="page-tts">Text-to-Speech</button>
           <button class="item">Commands</button>
           <button class="item">Moderation</button>
         </div>
@@ -1171,6 +1172,56 @@ body::before {
         <h2 class="card-title">Active event</h2>
       </div>
       <div id="eventStatus"></div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-tts" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Text-to-Speech</h1>
+      <p class="page-sub">Reads notable casino wins aloud on your /overlay/tts OBS browser source, using the browser's own free built-in voice engine.</p>
+    </div>
+
+    <section class="card" aria-label="Text-to-speech settings">
+      <div class="card-head">
+        <h2 class="card-title">Voice &amp; playback</h2>
+      </div>
+      <p class="card-sub">Voices shown here reflect THIS browser — your OBS overlay may show a different set. Open /overlay/tts and use its "Test voice" button to confirm what's actually available there.</p>
+
+      <div class="action-row">
+        <button type="button" id="ttsToggleBtn" class="step-go" disabled>—</button>
+      </div>
+      <p class="dismiss-error" id="ttsToggleError" hidden></p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Voice</span>
+          <select id="ttsVoice" class="field-input">
+            <option value="">Browser default</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Volume — <span id="ttsVolumeValue">80</span></span>
+          <input type="range" id="ttsVolume" min="0" max="100" value="80">
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Minimum payout to trigger TTS</span>
+          <input type="text" id="ttsMinPayout" class="field-input" placeholder="—">
+        </label>
+        <label class="field">
+          <span class="field-label">Character limit</span>
+          <input type="text" id="ttsCharLimit" class="field-input" placeholder="—">
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button type="button" id="ttsSaveBtn" class="step-go">Save settings</button>
+      </div>
+      <p class="dismiss-error" id="ttsSaveError" hidden></p>
     </section>
 
     </section>
@@ -4182,6 +4233,141 @@ document.querySelectorAll('.item').forEach(function (item) {
   pollCasinoWins();
   setInterval(pollCasinoStats, POLL_MS);
   setInterval(pollCasinoWins, POLL_MS);
+})();
+
+/* ═══ TTS ═══
+   Config (enabled, voice, volume, min payout, char limit) is NOT polled --
+   same "load once, refetch only after a successful save" convention as
+   Casino above, so an in-progress edit is never overwritten by a
+   background refetch. The voice dropdown is populated from THIS
+   browser's own window.speechSynthesis.getVoices() -- never a hardcoded
+   list -- same reasoning /overlay/tts's own voice discovery already
+   uses: voice availability is environment-specific, and this dashboard's
+   browser may not match OBS's browser source, which is why the card-sub
+   note above points creators at /overlay/tts's own "Test voice" button
+   for the voice list that actually matters for their stream. */
+(function () {
+  function val(id, fallback) {
+    var el = document.getElementById(id);
+    var v = (el && el.value || '').trim();
+    return v || fallback || '';
+  }
+
+  async function postTts(path, payload) {
+    var res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* fall through to the ok:false below */ }
+    if (!res.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || ('HTTP ' + res.status));
+    }
+    return data;
+  }
+
+  var toggleBtn = document.getElementById('ttsToggleBtn');
+  var toggleError = document.getElementById('ttsToggleError');
+  var saveError = document.getElementById('ttsSaveError');
+  var voiceSelect = document.getElementById('ttsVoice');
+  var volumeInput = document.getElementById('ttsVolume');
+  var volumeValue = document.getElementById('ttsVolumeValue');
+  var currentTtsEnabled = null;
+  var currentVoiceName = '';
+
+  volumeInput.addEventListener('input', function () {
+    volumeValue.textContent = volumeInput.value;
+  });
+
+  function populateVoices() {
+    if (!('speechSynthesis' in window)) return;
+    var voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return;
+
+    // Preserve whatever's currently selected (server-loaded value, or an
+    // in-progress pick) across a re-population -- getVoices() can fire
+    // onvoiceschanged more than once as the browser's voice list loads.
+    var previousValue = voiceSelect.value || currentVoiceName;
+    voiceSelect.innerHTML = '<option value="">Browser default</option>';
+    voices.forEach(function (v) {
+      var opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = v.name + ' (' + v.lang + ')';
+      voiceSelect.appendChild(opt);
+    });
+
+    var stillPresent = Array.prototype.some.call(voiceSelect.options, function (o) { return o.value === previousValue; });
+    voiceSelect.value = stillPresent ? previousValue : '';
+  }
+
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = populateVoices;
+  }
+  populateVoices();
+
+  async function loadTtsConfig() {
+    toggleBtn.disabled = true;
+    try {
+      var res = await fetch('/api/studio/tts/config', { cache: 'no-store' });
+      var data = await res.json();
+      if (!res.ok || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+
+      toggleError.hidden = true;
+      currentTtsEnabled = !!data.enabled;
+      toggleBtn.disabled = false;
+      toggleBtn.textContent = currentTtsEnabled ? 'Turn TTS off' : 'Turn TTS on';
+
+      currentVoiceName = data.voice_name || '';
+      populateVoices();
+      voiceSelect.value = currentVoiceName;
+
+      volumeInput.value = data.volume;
+      volumeValue.textContent = data.volume;
+      document.getElementById('ttsMinPayout').value = data.min_payout;
+      document.getElementById('ttsCharLimit').value = data.char_limit;
+    } catch (err) {
+      toggleBtn.textContent = '—';
+      toggleError.textContent = err.message || "Can't load TTS config — unreachable.";
+      toggleError.hidden = false;
+    }
+  }
+
+  toggleBtn.addEventListener('click', async function () {
+    if (currentTtsEnabled === null) return;
+    toggleBtn.disabled = true;
+    toggleError.hidden = true;
+    try {
+      await postTts('/api/studio/tts/config', { enabled: !currentTtsEnabled });
+      await loadTtsConfig();
+    } catch (err) {
+      toggleError.textContent = err.message || 'Action failed — try again.';
+      toggleError.hidden = false;
+      toggleBtn.disabled = false;
+    }
+  });
+
+  document.getElementById('ttsSaveBtn').addEventListener('click', async function () {
+    var btn = document.getElementById('ttsSaveBtn');
+    btn.disabled = true;
+    saveError.hidden = true;
+    try {
+      await postTts('/api/studio/tts/config', {
+        voice_name: voiceSelect.value,
+        volume: val('ttsVolume', '80'),
+        min_payout: val('ttsMinPayout', ''),
+        char_limit: val('ttsCharLimit', '')
+      });
+      await loadTtsConfig();
+    } catch (err) {
+      saveError.textContent = err.message || 'Action failed — try again.';
+      saveError.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  loadTtsConfig();
 })();
 </script>
 
