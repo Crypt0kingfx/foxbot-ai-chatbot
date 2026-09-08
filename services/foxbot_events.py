@@ -65,6 +65,21 @@ def _connect():
 
 
 def _ensure_schema(connection) -> None:
+    """NOTE (found while adding the TTS chat-readout cursor work, which
+    leans on this table much harder than before): _schema_ready is a
+    process-wide flag shared across every connection, but each connection
+    runs in its OWN transaction. Without the explicit commit() below,
+    setting the flag true here does NOT mean the CREATE TABLE is visible
+    to a DIFFERENT connection yet -- only that THIS connection's
+    (uncommitted) transaction ran it. Reproduced directly against a fresh
+    database: connection A runs this, sets the flag, but hasn't committed;
+    connection B (already inside its own emit_event() background thread)
+    checks the flag, sees "ready", skips CREATE TABLE entirely, and then
+    fails its own INSERT with "relation \"foxbot_events\" does not exist"
+    -- A's table isn't real from B's transaction's point of view until A
+    commits. The commit() call makes the flag and the actual database
+    state agree before any other connection is allowed to trust it.
+    """
     global _schema_ready
     if _schema_ready:
         return
@@ -101,6 +116,7 @@ def _ensure_schema(connection) -> None:
             )
             """
         )
+        connection.commit()
         _schema_ready = True
 
 
@@ -182,6 +198,74 @@ def fetch_events(creator_handle: str, limit: int = 20) -> list[tuple] | None:
     except Exception as error:
         _set_error(error)
         print(f"FoxBot events read failed: {error}")
+        return None
+
+
+def fetch_events_after(creator_handle: str, kind: str, after_id: int, limit: int = 50) -> list[tuple] | None:
+    """Events of `kind` for a creator with id > after_id, OLDEST first --
+    the server-cursor read path for /overlay/tts-data (see
+    services/tts_config.py's ack_event()), as opposed to fetch_events()'s
+    "most recent N, newest first" shape used by the poll-only overlays
+    that have no cursor of their own. Returns None on a database failure,
+    same convention as fetch_events().
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+    capped_limit = max(1, min(int(limit or 50), 200))
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            cursor = connection.execute(
+                """
+                SELECT id, actor, detail, created_at
+                FROM foxbot_events
+                WHERE creator_handle = %s AND kind = %s AND id > %s
+                ORDER BY id ASC
+                LIMIT %s
+                """,
+                (handle, str(kind or ""), int(after_id or 0), capped_limit),
+            )
+            rows = cursor.fetchall()
+        _set_error(None)
+        return rows
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot events read (after cursor) failed: {error}")
+        return None
+
+
+def fetch_max_event_id(creator_handle: str, kind: str) -> int | None:
+    """Highest foxbot_events.id of `kind` recorded for a creator, or 0 if
+    none exist yet. Returns None (not 0) on a database failure -- same
+    "checked vs couldn't check" convention as event_exists()/count_events().
+    Used to bootstrap a fresh server-owned TTS cursor to "now" without
+    replaying history (see tts_config.ack_event() and /overlay/tts-data).
+    """
+    if not is_configured():
+        return None
+
+    from services import creator_access
+
+    handle = creator_access.clean_handle(creator_handle) or resolve_owner_handle()
+
+    try:
+        with _connect() as connection:
+            _ensure_schema(connection)
+            cursor = connection.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM foxbot_events WHERE creator_handle = %s AND kind = %s",
+                (handle, str(kind or "")),
+            )
+            row = cursor.fetchone()
+        _set_error(None)
+        return int(row[0]) if row else 0
+    except Exception as error:
+        _set_error(error)
+        print(f"FoxBot max-event-id check failed (kind={kind}): {error}")
         return None
 
 

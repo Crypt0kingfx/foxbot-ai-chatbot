@@ -1189,10 +1189,23 @@ body::before {
       </div>
       <p class="card-sub">Voices shown here reflect THIS browser — your OBS overlay may show a different set. Open /overlay/tts and use its "Test voice" button to confirm what's actually available there.</p>
 
-      <div class="action-row">
-        <button type="button" id="ttsToggleBtn" class="step-go" disabled>—</button>
+      <div class="field-row">
+        <div class="field">
+          <span class="field-label">Win announcements</span>
+          <div class="action-row">
+            <button type="button" id="ttsToggleBtn" class="step-go" disabled>—</button>
+          </div>
+          <p class="dismiss-error" id="ttsToggleError" hidden></p>
+        </div>
+        <div class="field">
+          <span class="field-label">Read chat aloud</span>
+          <div class="action-row">
+            <button type="button" id="ttsChatToggleBtn" class="step-go" disabled>—</button>
+          </div>
+          <p class="dismiss-error" id="ttsChatToggleError" hidden></p>
+        </div>
       </div>
-      <p class="dismiss-error" id="ttsToggleError" hidden></p>
+      <p class="card-sub">Each toggle is independent and takes effect within a few seconds — the overlay polls for changes, no reload needed.</p>
 
       <div class="field-row">
         <label class="field">
@@ -4269,11 +4282,14 @@ document.querySelectorAll('.item').forEach(function (item) {
 
   var toggleBtn = document.getElementById('ttsToggleBtn');
   var toggleError = document.getElementById('ttsToggleError');
+  var chatToggleBtn = document.getElementById('ttsChatToggleBtn');
+  var chatToggleError = document.getElementById('ttsChatToggleError');
   var saveError = document.getElementById('ttsSaveError');
   var voiceSelect = document.getElementById('ttsVoice');
   var volumeInput = document.getElementById('ttsVolume');
   var volumeValue = document.getElementById('ttsVolumeValue');
   var currentTtsEnabled = null;
+  var currentChatEnabled = null;
   var currentVoiceName = '';
 
   volumeInput.addEventListener('input', function () {
@@ -4308,15 +4324,22 @@ document.querySelectorAll('.item').forEach(function (item) {
 
   async function loadTtsConfig() {
     toggleBtn.disabled = true;
+    chatToggleBtn.disabled = true;
     try {
       var res = await fetch('/api/studio/tts/config', { cache: 'no-store' });
       var data = await res.json();
       if (!res.ok || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
 
       toggleError.hidden = true;
-      currentTtsEnabled = !!data.enabled;
+      chatToggleError.hidden = true;
+
+      currentTtsEnabled = !!data.read_wins_enabled;
       toggleBtn.disabled = false;
-      toggleBtn.textContent = currentTtsEnabled ? 'Turn TTS off' : 'Turn TTS on';
+      toggleBtn.textContent = currentTtsEnabled ? 'Turn win announcements off' : 'Turn win announcements on';
+
+      currentChatEnabled = !!data.read_chat_enabled;
+      chatToggleBtn.disabled = false;
+      chatToggleBtn.textContent = currentChatEnabled ? 'Turn chat readout off' : 'Turn chat readout on';
 
       currentVoiceName = data.voice_name || '';
       populateVoices();
@@ -4328,6 +4351,7 @@ document.querySelectorAll('.item').forEach(function (item) {
       document.getElementById('ttsCharLimit').value = data.char_limit;
     } catch (err) {
       toggleBtn.textContent = '—';
+      chatToggleBtn.textContent = '—';
       toggleError.textContent = err.message || "Can't load TTS config — unreachable.";
       toggleError.hidden = false;
     }
@@ -4338,12 +4362,26 @@ document.querySelectorAll('.item').forEach(function (item) {
     toggleBtn.disabled = true;
     toggleError.hidden = true;
     try {
-      await postTts('/api/studio/tts/config', { enabled: !currentTtsEnabled });
+      await postTts('/api/studio/tts/config', { read_wins_enabled: !currentTtsEnabled });
       await loadTtsConfig();
     } catch (err) {
       toggleError.textContent = err.message || 'Action failed — try again.';
       toggleError.hidden = false;
       toggleBtn.disabled = false;
+    }
+  });
+
+  chatToggleBtn.addEventListener('click', async function () {
+    if (currentChatEnabled === null) return;
+    chatToggleBtn.disabled = true;
+    chatToggleError.hidden = true;
+    try {
+      await postTts('/api/studio/tts/config', { read_chat_enabled: !currentChatEnabled });
+      await loadTtsConfig();
+    } catch (err) {
+      chatToggleError.textContent = err.message || 'Action failed — try again.';
+      chatToggleError.hidden = false;
+      chatToggleBtn.disabled = false;
     }
   });
 

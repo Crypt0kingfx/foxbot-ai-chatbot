@@ -3547,7 +3547,7 @@ def _foxbot_tts_emit_v1(creator_handle: str, username: str, detail: dict) -> Non
             return
 
         config = _foxbot_tts_config_v1.get_config(creator_handle)
-        if not config.enabled:
+        if not config.read_wins_enabled:
             return
 
         payout = int(detail.get("payout") or 0)
@@ -3566,6 +3566,77 @@ def _foxbot_tts_emit_v1(creator_handle: str, username: str, detail: dict) -> Non
 
         _FOXBOT_TTS_COOLDOWN_TRACKER_V1[creator_handle] = now
         _foxbot_events_v1.emit_event(creator_handle, "tts_message", actor=username, detail={"text": line})
+    except Exception:
+        pass
+
+
+# === TTS Chat Readout v1 ===
+# Sibling of the win-announcement hook above, with its own independent
+# toggle (read_chat_enabled), its own cooldown tracker, and its own event
+# kind ("tts_chat_message" vs "tts_message") so the two streams never share
+# rate-limit state or a playback cursor -- see services/tts_config.py's
+# TtsConfig docstring on last_acked_win_event_id/last_acked_chat_event_id.
+#
+# Called from _foxbot_process_channel_rows_v1, the one place that sees
+# EVERY raw chat row for a channel before any command dispatch or
+# auto-recognition logic runs -- not the casino settlement path, which
+# only ever sees bot-generated win text. That means, unlike
+# _foxbot_tts_emit_v1's `detail` (entirely server-built), the text handed
+# to this function is arbitrary user input, screened by the SAME
+# services/tts_filter.is_clean() call as wins, on the SAME final assembled
+# line (so a profane username in "username says: ..." is caught too, not
+# just a profane message body).
+#
+# Whole body wrapped in try/except: pass, same discipline as
+# _foxbot_tts_emit_v1 -- this call site sits before command dispatch in the
+# per-row loop, so a bug here must never be able to affect `command`
+# parsing, dedup tracking, or any reply actually sent to chat.
+
+_FOXBOT_TTS_CHAT_COOLDOWN_TRACKER_V1 = {}
+
+
+def _foxbot_tts_build_chat_line_v1(username: str, message_text: str) -> str:
+    name = str(username or "").strip() or "someone"
+    text = str(message_text or "").strip()
+    return f"{name} says: {text}"
+
+
+def _foxbot_tts_emit_chat_message_v1(creator_handle: str, username: str, message_text: str) -> None:
+    """Gates a genuine chat message behind the creator's own
+    read_chat_enabled toggle, a minimum length (so a bare "lol" doesn't
+    trigger TTS), and a per-creator cooldown a good deal shorter than the
+    win-announcement one (chat is meant to feel closer to real-time),
+    before the profanity screen -- last check before anything is written,
+    same order as the win path.
+
+    Bot commands (anything starting with "!") are excluded unconditionally:
+    they're addressed to the bot, not the stream's audience, and reading
+    "!convert 500" aloud on every use would be noise, not signal. Not
+    creator-configurable yet -- revisit if requested.
+    """
+    try:
+        text = str(message_text or "").strip()
+        if not text or text.startswith("!"):
+            return
+
+        config = _foxbot_tts_config_v1.get_config(creator_handle)
+        if not config.read_chat_enabled:
+            return
+        if len(text) < config.chat_min_chars:
+            return
+
+        now = time.time()
+        last_spoken = _FOXBOT_TTS_CHAT_COOLDOWN_TRACKER_V1.get(creator_handle, 0)
+        if now - last_spoken < config.chat_cooldown_seconds:
+            return
+
+        line = _foxbot_tts_build_chat_line_v1(username, text)[: config.char_limit]
+
+        if not _foxbot_tts_filter_v1.is_clean(line):
+            return
+
+        _FOXBOT_TTS_CHAT_COOLDOWN_TRACKER_V1[creator_handle] = now
+        _foxbot_events_v1.emit_event(creator_handle, "tts_chat_message", actor=username, detail={"text": line})
     except Exception:
         pass
 
@@ -10197,14 +10268,34 @@ tts_overlay_html = """
   var params = new URLSearchParams(window.location.search);
   var handle = params.get("handle") || "";
   var dataUrl = "/overlay/tts-data" + (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
+  var ackUrl = "/overlay/tts-ack";
 
   var statusEl = document.getElementById("status");
   var testBtn = document.getElementById("testBtn");
 
-  var seen = new Set();
-  var queue = [];
+  // Max queue depth: a burst of chat (or, less likely, wins) can arrive
+  // faster than it can be spoken. Rather than let the queue grow without
+  // bound and fall further and further behind "now", cap it -- once full,
+  // new polls drop the OLDEST queued item(s) to make room, so playback
+  // always tracks toward current rather than grinding through a stale
+  // backlog if the tab was backgrounded/throttled for a while.
+  var MAX_QUEUE_DEPTH = 6;
+  // A short deliberate pause between utterances. Calling speechSynthesis
+  // .speak() again the instant one utterance's onend fires has been
+  // observed to clip/overlap the tail of one line into the start of the
+  // next on some browsers' SpeechSynthesis implementations.
+  var MIN_GAP_MS = 300;
+
+  var queue = [];              // {id, stream, text}
+  // Ids currently queued or mid-speech, not yet acked. Without this, an
+  // item sitting in `queue` behind others would get RE-fetched (and
+  // re-pushed, i.e. spoken twice) on every poll until it finally reaches
+  // the front and gets acked -- the server only stops offering an item
+  // once its ack has actually landed, and that can be several poll
+  // cycles after it was first queued.
+  var pending = new Set();
   var speaking = false;
-  var initialized = false;
+  var polling = false;
   var currentVoiceName = "";
   var currentVolume = 80;
 
@@ -10215,7 +10306,7 @@ tts_overlay_html = """
   }
 
   function refreshStatus(extra) {
-    statusEl.textContent = "FoxBot TTS | " + describeVoices() + (extra ? ("\\n" + extra) : "");
+    statusEl.textContent = "FoxBot TTS | " + describeVoices() + " | queued: " + queue.length + (extra ? ("\\n" + extra) : "");
   }
 
   function pickVoice() {
@@ -10229,28 +10320,51 @@ tts_overlay_html = """
     return match || voices.find(function (v) { return v.default; }) || voices[0];
   }
 
+  function ack(item) {
+    // Fire-and-forget -- the server treats every ack as best-effort. If
+    // this request is lost, the item simply gets offered (and spoken or
+    // dropped) again on a later poll, which is the safe direction to
+    // fail in: at-least-once, never a silent permanent skip.
+    try {
+      fetch(ackUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handle: handle, stream: item.stream, event_id: item.id }),
+        keepalive: true,
+      }).catch(function () {});
+    } catch (err) {
+      // Some environments (very old browsers) may not support fetch's
+      // keepalive option or throw synchronously -- never let this take
+      // down playback.
+    }
+  }
+
   function speakNext() {
     if (speaking || queue.length === 0) return;
     if (!('speechSynthesis' in window)) return;
 
     speaking = true;
-    var line = queue.shift();
+    var item = queue.shift();
 
-    var utterance = new SpeechSynthesisUtterance(line);
+    var utterance = new SpeechSynthesisUtterance(item.text);
     var voice = pickVoice();
     if (voice) utterance.voice = voice;
     utterance.volume = Math.max(0, Math.min(100, currentVolume)) / 100;
 
     utterance.onend = utterance.onerror = function () {
+      pending.delete(item.id);
+      ack(item);
       speaking = false;
-      speakNext();
+      setTimeout(speakNext, MIN_GAP_MS);
     };
 
-    refreshStatus('Speaking: "' + line + '"');
+    refreshStatus('Speaking: "' + item.text + '"');
     window.speechSynthesis.speak(utterance);
   }
 
   async function poll() {
+    if (polling) return;
+    polling = true;
     try {
       var res = await fetch(dataUrl, { cache: "no-store" });
       if (!res.ok) return;
@@ -10261,19 +10375,24 @@ tts_overlay_html = """
       currentVolume = typeof data.volume === "number" ? data.volume : 80;
 
       (data.lines || []).forEach(function (item) {
-        if (!item.id || seen.has(item.id) || !item.text) return;
-        seen.add(item.id);
-        // Same catch-up-safe convention as /overlay/casino-data: a page
-        // load (or an OBS reload mid-stream) silently catches up to
-        // "current" instead of replaying a burst of old lines.
-        if (initialized) queue.push(item.text);
+        if (!item.id || !item.text || !item.stream || pending.has(item.id)) return;
+        pending.add(item.id);
+        queue.push(item);
       });
-      initialized = true;
+
+      while (queue.length > MAX_QUEUE_DEPTH) {
+        var dropped = queue.shift();
+        pending.delete(dropped.id);
+        ack(dropped);
+      }
+
       if (!speaking) refreshStatus();
       speakNext();
     } catch (err) {
       // Silent -- a transient network blip should skip a poll, not spam
       // the on-page status with an error on a live stream overlay.
+    } finally {
+      polling = false;
     }
   }
 
@@ -17936,10 +18055,14 @@ async def foxbot_studio_tts_config_get_v1(request: Request):
     handle = _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None))
     if not handle:
         return {
-            "ok": True, "creator_handle": "", "enabled": _foxbot_tts_config_v1.DEFAULT_TTS_ENABLED,
+            "ok": True, "creator_handle": "",
+            "read_wins_enabled": _foxbot_tts_config_v1.DEFAULT_TTS_ENABLED,
             "voice_name": _foxbot_tts_config_v1.DEFAULT_VOICE_NAME, "volume": _foxbot_tts_config_v1.DEFAULT_VOLUME,
             "char_limit": _foxbot_tts_config_v1.DEFAULT_CHAR_LIMIT, "min_payout": _foxbot_tts_config_v1.DEFAULT_MIN_PAYOUT,
             "cooldown_seconds": _foxbot_tts_config_v1.DEFAULT_COOLDOWN_SECONDS,
+            "read_chat_enabled": _foxbot_tts_config_v1.DEFAULT_READ_CHAT_ENABLED,
+            "chat_cooldown_seconds": _foxbot_tts_config_v1.DEFAULT_CHAT_COOLDOWN_SECONDS,
+            "chat_min_chars": _foxbot_tts_config_v1.DEFAULT_CHAT_MIN_CHARS,
         }
 
     from fastapi.responses import JSONResponse
@@ -17954,12 +18077,15 @@ async def foxbot_studio_tts_config_get_v1(request: Request):
     return {
         "ok": True,
         "creator_handle": handle,
-        "enabled": config.enabled,
+        "read_wins_enabled": config.read_wins_enabled,
         "voice_name": config.voice_name,
         "volume": config.volume,
         "char_limit": config.char_limit,
         "min_payout": config.min_payout,
         "cooldown_seconds": config.cooldown_seconds,
+        "read_chat_enabled": config.read_chat_enabled,
+        "chat_cooldown_seconds": config.chat_cooldown_seconds,
+        "chat_min_chars": config.chat_min_chars,
     }
 
 
@@ -17973,16 +18099,24 @@ async def foxbot_studio_tts_config_post_v1(payload: dict, request: Request):
 
     # Only keys actually present in the payload are passed through --
     # set_config()'s own partial-update contract preserves every field
-    # this call omits, same as the casino config POST above.
+    # this call omits, same as the casino config POST above. This is what
+    # lets the dashboard's two one-click toggle buttons each POST just
+    # their own flag without touching the other, or any of voice/volume/
+    # min_payout/char_limit/chat_cooldown_seconds/chat_min_chars.
     kwargs = {}
 
-    if "enabled" in payload:
-        kwargs["enabled"] = bool(payload["enabled"])
+    if "read_wins_enabled" in payload:
+        kwargs["read_wins_enabled"] = bool(payload["read_wins_enabled"])
+
+    if "read_chat_enabled" in payload:
+        kwargs["read_chat_enabled"] = bool(payload["read_chat_enabled"])
 
     if "voice_name" in payload:
         kwargs["voice_name"] = str(payload["voice_name"] or "")
 
-    for numeric_field in ("volume", "char_limit", "min_payout", "cooldown_seconds"):
+    for numeric_field in (
+        "volume", "char_limit", "min_payout", "cooldown_seconds", "chat_cooldown_seconds", "chat_min_chars",
+    ):
         if numeric_field in payload:
             try:
                 kwargs[numeric_field] = int(payload[numeric_field])
@@ -18003,12 +18137,15 @@ async def foxbot_studio_tts_config_post_v1(payload: dict, request: Request):
     return {
         "ok": True,
         "creator_handle": handle,
-        "enabled": config.enabled,
+        "read_wins_enabled": config.read_wins_enabled,
         "voice_name": config.voice_name,
         "volume": config.volume,
         "char_limit": config.char_limit,
         "min_payout": config.min_payout,
         "cooldown_seconds": config.cooldown_seconds,
+        "read_chat_enabled": config.read_chat_enabled,
+        "chat_cooldown_seconds": config.chat_cooldown_seconds,
+        "chat_min_chars": config.chat_min_chars,
     }
 
 
@@ -18019,37 +18156,116 @@ async def foxbot_studio_tts_config_post_v1(payload: dict, request: Request):
 # caller that needs them, and neither field is sensitive (no money/PII),
 # same reasoning as bundling {game, payout, highlight} into the public
 # casino-data response.
+#
+# Server-owned cursor v1: unlike the old version of this endpoint (always
+# "most recent 50", client de-duped locally by a page-local Set keyed on
+# created_at), each of the two TTS streams (win/chat) has its own
+# last_acked_*_event_id high-water mark stored in tts_config, advanced only
+# by the overlay's own POST /overlay/tts-ack AFTER it actually finishes
+# with a line (spoken, errored, or explicitly dropped for queue depth).
+# This endpoint only ever returns events strictly after that mark, so a
+# page reload mid-backlog re-offers exactly the lines that were never
+# actually confirmed, not "everything since the dawn of time" and not
+# "silently nothing" -- see tts_config.ack_event()'s docstring for the
+# full reasoning (this replaces both a reload-loses-queued-lines bug and a
+# two-open-overlay-instances-both-speak-everything bug in the old design).
 @app.get("/overlay/tts-data")
 async def foxbot_overlay_tts_data_v1(handle: str = ""):
     creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
 
     voice_name = _foxbot_tts_config_v1.DEFAULT_VOICE_NAME
     volume = _foxbot_tts_config_v1.DEFAULT_VOLUME
+    config = None
     try:
         config = _foxbot_tts_config_v1.get_config(creator_handle)
         voice_name = config.voice_name
         volume = config.volume
     except Exception:
         # Unconfigured or DB briefly unreachable -- fall back to module
-        # defaults rather than failing the whole poll; `lines` below still
-        # depends on foxbot_events, which fails its own way independently.
+        # defaults and no lines rather than failing the whole poll.
         pass
 
-    rows = _foxbot_events_v1.fetch_events(creator_handle, limit=50)
-    if rows is None:
+    if config is None:
         return {"ok": False, "creator_handle": creator_handle, "voice_name": voice_name, "volume": volume, "lines": []}
 
-    lines = []
-    for kind, actor, detail, created_at in rows:
-        if kind != "tts_message":
+    merged = []
+    for stream, kind, cursor, enabled in (
+        ("win", "tts_message", config.last_acked_win_event_id, config.read_wins_enabled),
+        ("chat", "tts_chat_message", config.last_acked_chat_event_id, config.read_chat_enabled),
+    ):
+        # cursor < 0 (-1) means "never bootstrapped for this stream" -- a
+        # brand new creator, or an existing creator's first request after
+        # this cursor column was introduced (win-TTS shipped before this,
+        # with real historical tts_message rows already in prod). This
+        # must be a DIFFERENT check from "cursor == 0": 0 is also the
+        # legitimate, ONGOING state of "bootstrapped, but nothing has
+        # happened for this stream yet" -- collapsing the two (an earlier
+        # version of this endpoint did exactly that) meant that once a
+        # stream bootstrapped against an empty history, cursor stayed at
+        # 0 forever, so literally the NEXT poll re-triggered "never
+        # initialized" catch-up and silently swallowed the first
+        # genuinely new event as if it were backlog. mark_stream_bootstrapped
+        # (as opposed to ack_event) is what lets this persist an actual 0
+        # -- seeing this as done, not still pending.
+        if cursor < 0:
+            max_id = _foxbot_events_v1.fetch_max_event_id(creator_handle, kind) or 0
+            _foxbot_tts_config_v1.mark_stream_bootstrapped(creator_handle, stream, max_id)
             continue
-        detail = detail or {}
-        lines.append({
-            "id": created_at.isoformat() if created_at else None,
-            "text": detail.get("text", ""),
-        })
+
+        # A disabled stream gets silently fast-forwarded to "now" on every
+        # poll while it stays off (regular ack_event is fine here --
+        # cursor is already a real, bootstrapped value by this point, so
+        # there's never a 0-needs-to-be-persisted case to worry about),
+        # so (a) turning read_chat_enabled back on later starts from
+        # "now", never dumping whatever chat backlog piled up while it
+        # was off, and (b) the fetch-time safety net backs up the
+        # emit-time gate (_foxbot_tts_emit_chat_message_v1) for the race
+        # where a message was written just before the toggle flipped off.
+        if not enabled:
+            max_id = _foxbot_events_v1.fetch_max_event_id(creator_handle, kind)
+            if max_id and max_id > cursor:
+                _foxbot_tts_config_v1.ack_event(creator_handle, stream, max_id)
+            continue
+
+        rows = _foxbot_events_v1.fetch_events_after(creator_handle, kind, cursor, limit=50)
+        for event_id, actor, detail, created_at in rows or []:
+            detail = detail or {}
+            merged.append((event_id, stream, detail.get("text", "")))
+
+    # Sorted by id (== insertion order in the shared foxbot_events table,
+    # since it's a single BIGSERIAL sequence for every kind), so a win and
+    # a chat message close together are handed to the client in the same
+    # chronological order they actually happened, not "all wins then all
+    # chats".
+    merged.sort(key=lambda row: row[0])
+    lines = [{"id": event_id, "stream": stream, "text": text} for event_id, stream, text in merged]
 
     return {"ok": True, "creator_handle": creator_handle, "voice_name": voice_name, "volume": volume, "lines": lines}
+
+
+# Public, unauthenticated -- same trust model as /overlay/tts-data and
+# /overlay/casino-data (anonymous OBS browser source, no session to
+# authenticate against). Confirms the overlay has actually finished with
+# one line (spoken/errored/dropped-for-depth), advancing that stream's
+# server-owned cursor. See tts_config.ack_event() for the clamp/monotonic
+# guarantees that keep this safe despite being unauthenticated: a forged
+# event_id can never skip further ahead than events that genuinely exist.
+@app.post("/overlay/tts-ack")
+async def foxbot_overlay_tts_ack_v1(payload: dict):
+    handle = str(payload.get("handle") or "").strip() or _foxbot_events_v1.resolve_owner_handle()
+    stream = str(payload.get("stream") or "").strip().lower()
+
+    try:
+        event_id = int(payload.get("event_id"))
+    except (TypeError, ValueError):
+        return {"ok": False}
+
+    try:
+        _foxbot_tts_config_v1.ack_event(handle, stream, event_id)
+    except Exception:
+        pass
+
+    return {"ok": True}
 
 
 @app.get("/overlay/tts", response_class=HTMLResponse)
@@ -28040,6 +28256,22 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
         # field wasn't present -- only an explicit "bot" entry rejects.
         if _foxbot_sender_has_bot_role_v1(item):
             continue
+
+        # TTS Chat Readout v1: pure side-effect, sees every genuine chat row
+        # here before any command dispatch below -- see
+        # _foxbot_tts_emit_chat_message_v1's own docstring for why this
+        # exact spot (after bot exclusion, before `command` is even parsed).
+        # The try/except here is belt-and-suspenders on top of that
+        # function's own internal one (same discipline as
+        # _foxbot_casino_emit_win_v1's call to _foxbot_tts_emit_v1): this
+        # per-row loop drives real command dispatch and replies for every
+        # row after this point, so nothing about this hook -- not even an
+        # error the function's own guard somehow doesn't catch -- may ever
+        # abort that.
+        try:
+            _foxbot_tts_emit_chat_message_v1(creator_handle, clean_username, message_text)
+        except Exception:
+            pass
 
         command = str(message_text).strip().split()[0].lower()
 
