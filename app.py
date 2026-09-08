@@ -2039,356 +2039,6 @@ html_content = """
 
 
 
-dashboard_html = """
-
-<!DOCTYPE html>
-
-<html lang="en">
-
-<head>
-
-    <meta charset="UTF-8">
-
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>FoxBot Control Dashboard</title>
-
-    <style>
-
-        body {
-
-            margin: 0;
-
-            font-family: Arial, sans-serif;
-
-            background: linear-gradient(135deg, #0b1020, #111827, #1f2937);
-
-            color: white;
-
-            padding: 30px;
-
-        }
-
-        .dashboard {
-
-            max-width: 1000px;
-
-            margin: 0 auto;
-
-            background: rgba(17, 24, 39, 0.95);
-
-            border: 1px solid rgba(255,255,255,0.08);
-
-            border-radius: 22px;
-
-            padding: 28px;
-
-            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-
-        }
-
-        .brand { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-
-        .brand img {
-
-            width: 76px;
-
-            height: 76px;
-
-            border-radius: 18px;
-
-            object-fit: cover;
-
-            border: 2px solid rgba(249, 115, 22, 0.45);
-
-        }
-
-        h1 { margin: 0; font-size: 32px; }
-
-        p { color: #cbd5e1; line-height: 1.5; }
-
-        .grid {
-
-            display: grid;
-
-            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-
-            gap: 14px;
-
-            margin-top: 24px;
-
-        }
-
-        button, a.button {
-
-            display: block;
-
-            text-align: center;
-
-            text-decoration: none;
-
-            background: linear-gradient(135deg, #f97316, #ea580c);
-
-            color: white;
-
-            border: none;
-
-            border-radius: 14px;
-
-            padding: 15px 16px;
-
-            font-weight: bold;
-
-            cursor: pointer;
-
-            font-size: 15px;
-
-        }
-
-        .secondary { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-
-        .danger { background: linear-gradient(135deg, #dc2626, #991b1b); }
-
-        .proof-grid {
-
-            display: grid;
-
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-
-            gap: 12px;
-
-            margin-top: 24px;
-
-        }
-
-        .proof-card {
-
-            background: #0f172a;
-
-            border: 1px solid rgba(255,255,255,0.08);
-
-            border-radius: 16px;
-
-            padding: 16px;
-
-        }
-
-        .proof-card strong {
-
-            display: block;
-
-            color: #94a3b8;
-
-            font-size: 13px;
-
-            margin-bottom: 8px;
-
-            text-transform: uppercase;
-
-            letter-spacing: 0.5px;
-
-        }
-
-        .proof-card span {
-
-            font-size: 20px;
-
-            font-weight: bold;
-
-            color: #fdba74;
-
-        }
-
-        .output {
-
-            margin-top: 24px;
-
-            background: #0f172a;
-
-            border-radius: 16px;
-
-            padding: 18px;
-
-            min-height: 180px;
-
-            white-space: pre-wrap;
-
-            overflow-x: auto;
-
-            border: 1px solid rgba(255,255,255,0.08);
-
-            color: #e5e7eb;
-
-        }
-
-        .note { margin-top: 18px; color: #94a3b8; font-size: 14px; }
-
-    </style>
-
-</head>
-
-<body>
-
-    <div class="dashboard">
-
-        <div class="brand">
-
-            <img src="/static/foxbot-logo.png" alt="FoxBot Logo">
-
-            <div>
-
-                <h1>FoxBot Control Dashboard</h1>
-
-                <p>Manage your Blaze-connected AI chatbot from one place.</p>
-
-            </div>
-
-        </div>
-
-
-
-        <p>
-
-            Use this dashboard to connect FoxBot to Blaze, start the chat listener,
-
-            check status, and test real chat commands.
-
-        </p>
-
-
-
-        <div class="proof-grid">
-
-            <div class="proof-card"><strong>Blaze Connected</strong><span id="proofConnected">Loading</span></div>
-
-            <div class="proof-card"><strong>Listener</strong><span id="proofListener">Loading</span></div>
-
-            <div class="proof-card"><strong>Messages Checked</strong><span id="proofChecks">0</span></div>
-
-            <div class="proof-card"><strong>Commands Processed</strong><span id="proofCommands">0</span></div>
-
-            <div class="proof-card"><strong>Last Command</strong><span id="proofLastCommand">None</span></div>
-
-            <div class="proof-card"><strong>Last User</strong><span id="proofLastUser">None</span></div>
-
-        </div>
-
-
-
-        <div class="grid">
-
-            <button onclick="callEndpoint('/blaze/start-polling-listener')">Start Listener</button>
-
-            <button class="danger" onclick="callEndpoint('/blaze/stop-polling-listener')">Stop Listener</button>
-
-            <button class="secondary" onclick="callEndpoint('/blaze/polling-status')">Check Status</button>
-
-            <button class="secondary" onclick="callEndpoint('/blaze/check-recent-messages')">Check Recent Chat</button>
-
-            <button onclick="callEndpoint('/blaze/send-test-message')">Send Test Message</button>
-
-            <button onclick="callEndpoint('/blaze/run-command?message=!foxhelp&username=Ryan')">Run !foxhelp</button>
-
-            <button onclick="callEndpoint('/blaze/judge-demo')">Run Judge Demo</button>
-
-            <a class="button secondary" href="/">Open Demo Chat</a>
-
-            <a class="button secondary" href="/judges">Judges Page</a>
-
-            <a class="button secondary" href="/features">Features</a>
-
-        </div>
-
-
-
-        <div class="output" id="output">FoxBot dashboard ready.</div>
-
-
-
-        <div class="note">
-
-            After every Render restart, click Login with Blaze first, then Start Listener.
-
-        </div>
-
-    </div>
-
-
-
-    <script>
-
-        async function refreshProof() {
-
-            try {
-
-                const response = await fetch('/proof');
-
-                const data = await response.json();
-
-                const proof = data.proof || {};
-
-                document.getElementById("proofConnected").textContent = proof.blaze_connected ? "Yes" : "No";
-
-                document.getElementById("proofListener").textContent = proof.listener_running ? "Running" : "Stopped";
-
-                document.getElementById("proofChecks").textContent = proof.messages_checked ?? 0;
-
-                document.getElementById("proofCommands").textContent = proof.commands_processed ?? 0;
-
-                document.getElementById("proofLastCommand").textContent = proof.last_command || "None";
-
-                document.getElementById("proofLastUser").textContent = proof.last_username || "None";
-
-            } catch (error) {
-
-                document.getElementById("proofConnected").textContent = "Error";
-
-            }
-
-        }
-
-
-
-        async function callEndpoint(url) {
-
-            const output = document.getElementById("output");
-
-            output.textContent = "Loading " + url + "...";
-
-            try {
-
-                const response = await fetch(url);
-
-                const data = await response.json();
-
-                output.textContent = JSON.stringify(data, null, 2);
-
-                refreshProof();
-
-            } catch (error) {
-
-                output.textContent = "Error: " + error;
-
-            }
-
-        }
-
-
-
-        refreshProof();
-
-        setInterval(refreshProof, 5000);
-
-    </script>
-
-</body>
-
-</html>
-
-"""
-
-
-
 judges_html = """
 
 <!DOCTYPE html>
@@ -2707,16 +2357,10 @@ def home():
 
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard")
 
-def dashboard(request: Request):
-    # Security fix: same weak-auth pattern as /foxbot-control -- this old
-    # admin hub (iframes /foxbot-control) had no admin check of its own.
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
-    return dashboard_html
+def dashboard():
+    return RedirectResponse(url="/studio-v2")
 
 
 
@@ -16591,16 +16235,6 @@ except Exception:
 
 
 
-@app.get("/legacy-admin", response_class=HTMLResponse)
-
-async def foxbot_studio_admin():
-
-    with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
-
-        return f.read()
-
-
-
 @app.get("/api/studio/stats")
 
 async def foxbot_studio_stats():
@@ -18757,13 +18391,10 @@ async def blaze_service_event(raw_event: dict, request: Request):
 
 
 
-@app.get("/studio", response_class=HTMLResponse)
+@app.get("/studio")
 
 async def foxbot_studio_clean():
-
-    with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
-
-        return f.read()
+    return RedirectResponse(url="/studio-v2")
 
 
 
@@ -18804,17 +18435,10 @@ async def foxbot_favicon_v1():
     return FileResponse("static/foxbot-logo.png", media_type="image/png")
 
 
-@app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin")
 
-async def foxbot_studio_primary_admin(request: Request):
-    # Security fix: same weak-auth pattern as /foxbot-control.
-    guard = _foxbot_require_admin_v1(request)
-    if guard:
-        return guard
-
-    with open("templates/foxbot_studio.html", "r", encoding="utf-8") as f:
-
-        return f.read()
+async def foxbot_studio_primary_admin():
+    return RedirectResponse(url="/studio-v2")
 
 
 

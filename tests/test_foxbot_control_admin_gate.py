@@ -6,6 +6,10 @@ specifically):
 
   - /foxbot-control, /dashboard, /admin, /legacy-admin -- admin HTML pages
     whose own real actions were already gated; visibility-only exposure.
+    (/dashboard and /admin were later retired to redirects onto
+    /studio-v2 -- stale-route cleanup, not a further security change --
+    see the dashboard/admin redirect tests below. /legacy-admin is
+    untouched.)
   - GET /api/blaze/native/status -- read-only, leaked platform-wide
     native-connector state to any approved session.
   - GET /blaze/start-polling-listener, /blaze/stop-polling-listener --
@@ -145,19 +149,43 @@ class FoxbotControlAdminGateTestCase(unittest.TestCase):
             self.assertEqual(res.status_code, 403, f"{path} should still be admin-only")
 
     # ==================================================================
-    # The other admin HTML pages with the same visibility-only gap.
+    # /legacy-admin keeps the original visibility-only fix: admin-only,
+    # still renders the real page.
     # ==================================================================
-    def test_scoped_creator_denied_dashboard_admin_legacy_admin(self):
-        cookies = self._as_scoped_creator()
-        for path in ("/dashboard", "/admin", "/legacy-admin"):
-            res = self.client.get(path, cookies=cookies)
-            self.assertEqual(res.status_code, 403, f"{path} should now be admin-only")
+    def test_scoped_creator_denied_legacy_admin(self):
+        res = self.client.get("/legacy-admin", cookies=self._as_scoped_creator())
+        self.assertEqual(res.status_code, 403, "/legacy-admin should still be admin-only")
 
-    def test_admin_still_gets_dashboard_admin_legacy_admin_unchanged(self):
+    def test_admin_still_gets_legacy_admin_unchanged(self):
+        res = self.client.get("/legacy-admin", cookies=self._as_admin())
+        self.assertEqual(res.status_code, 200, "/legacy-admin should be unchanged for admin")
+
+    # ==================================================================
+    # /dashboard and /admin were retired to thin redirects onto
+    # /studio-v2 (the real current dashboard) -- no per-route admin check
+    # left to enforce, since /studio-v2 already applies the same outer
+    # approved-session gate (below) to whoever lands there. An
+    # unauthenticated caller never reaches the redirect at all: the outer
+    # gate still 401s on /dashboard and /admin themselves, same as before.
+    # ==================================================================
+    def test_no_session_denied_dashboard_and_admin_before_any_redirect(self):
+        for path in ("/dashboard", "/admin"):
+            res = self.client.get(path, follow_redirects=False)
+            self.assertEqual(res.status_code, 401, f"{path} should still 401 with no session")
+
+    def test_scoped_creator_redirected_from_dashboard_and_admin_to_studio_v2(self):
+        cookies = self._as_scoped_creator()
+        for path in ("/dashboard", "/admin"):
+            res = self.client.get(path, cookies=cookies, follow_redirects=False)
+            self.assertEqual(res.status_code, 307, f"{path} should redirect")
+            self.assertEqual(res.headers["location"], "/studio-v2")
+
+    def test_admin_redirected_from_dashboard_and_admin_to_studio_v2(self):
         cookies = self._as_admin()
-        for path in ("/dashboard", "/admin", "/legacy-admin"):
-            res = self.client.get(path, cookies=cookies)
-            self.assertEqual(res.status_code, 200, f"{path} should be unchanged for admin")
+        for path in ("/dashboard", "/admin"):
+            res = self.client.get(path, cookies=cookies, follow_redirects=False)
+            self.assertEqual(res.status_code, 307, f"{path} should redirect")
+            self.assertEqual(res.headers["location"], "/studio-v2")
 
     # ==================================================================
     # Read-only platform-wide state leak.
