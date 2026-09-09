@@ -18208,9 +18208,27 @@ async def foxbot_overlay_tts_data_v1(handle: str = ""):
         # (as opposed to ack_event) is what lets this persist an actual 0
         # -- seeing this as done, not still pending.
         if cursor < 0:
-            max_id = _foxbot_events_v1.fetch_max_event_id(creator_handle, kind) or 0
-            _foxbot_tts_config_v1.mark_stream_bootstrapped(creator_handle, stream, max_id)
-            continue
+            if stream == "chat":
+                # Unlike "win" (tts_message), which shipped long before this
+                # cursor column and can have real, legitimate pre-existing
+                # history that must never be dumped as a "new" burst on
+                # first contact -- "chat" (tts_chat_message) was introduced
+                # in this SAME deploy, so there is no pre-existing backlog
+                # to protect against replaying for it, ever. Bootstrapping
+                # it to current-max like win does silently and PERMANENTLY
+                # eats any message sent in the ordinary window between a
+                # creator flipping read_chat_enabled on and the overlay's
+                # next ~2s poll -- exactly the realistic "turn it on, then
+                # immediately test it in chat" sequence. Bootstrapping to 0
+                # instead means the very next fetch_events_after() call
+                # below picks up everything that's already there, once,
+                # which is the correct one-time catch-up for a stream that
+                # never had a "too much old history" problem to begin with.
+                _foxbot_tts_config_v1.mark_stream_bootstrapped(creator_handle, stream, 0)
+            else:
+                max_id = _foxbot_events_v1.fetch_max_event_id(creator_handle, kind) or 0
+                _foxbot_tts_config_v1.mark_stream_bootstrapped(creator_handle, stream, max_id)
+                continue
 
         # A disabled stream gets silently fast-forwarded to "now" on every
         # poll while it stays off (regular ack_event is fine here --

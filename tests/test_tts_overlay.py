@@ -1247,6 +1247,61 @@ class TtsOverlayIntegrationTestCase(unittest.TestCase):
             data["lines"], [], "re-enabling must never replay the backlog that piled up while the toggle was off",
         )
 
+    def test_chat_messages_sent_before_the_overlays_first_ever_poll_are_not_lost(self):
+        """Real-world sequence that actually happened in production for
+        creator crypt0k1ng96 on 2026-09-09: the creator turns
+        read_chat_enabled ON, then IMMEDIATELY types a chat message to test
+        it -- all before the overlay page has ever polled /overlay/tts-data
+        even once (last_acked_chat_event_id is still -1, since this cursor
+        column was introduced in the very same deploy as read_chat_enabled
+        itself, so EVERY creator, however long they've had win-TTS running,
+        starts at -1 for chat specifically).
+
+        Unlike the win stream (test_first_ever_contact_does_not_replay_existing_backlog),
+        where "first contact" bootstrapping to current-max and skipping
+        backlog is correct -- real historical tts_message rows can predate
+        the cursor mechanism itself, per tts_config.py's own docstring --
+        there is no equivalent legitimate backlog for tts_chat_message: that
+        kind never existed before this feature shipped, so nothing genuine
+        can be sitting there to protect against replaying. Bootstrapping
+        chat to current-max on first contact (the current code, shared with
+        win) therefore silently and PERMANENTLY eats any message sent in
+        the ordinary window between "turn the toggle on" and "the overlay's
+        next 2-second poll" -- exactly the two messages this test
+        reproduces, sent through the real, unmocked
+        _foxbot_tts_emit_chat_message_v1 gate (not a raw emit_event call),
+        matching production exactly.
+        """
+        tts_config.set_config(self.creator_handle, read_chat_enabled=True, chat_cooldown_seconds=1)
+
+        app._foxbot_tts_emit_chat_message_v1(self.creator_handle, "princessjamesy", "Fist my bump")
+        self._wait_for_events("tts_chat_message")
+        time.sleep(1.1)  # clear the per-creator chat cooldown, same as the ~2min real-world gap
+        app._foxbot_tts_emit_chat_message_v1(self.creator_handle, "princessjamesy", "Fist my bump again")
+
+        deadline = time.time() + 3.0
+        rows = []
+        while time.time() < deadline:
+            rows = foxbot_events.fetch_events(self.creator_handle, limit=50)
+            rows = [r for r in (rows or []) if r[0] == "tts_chat_message"]
+            if len(rows) >= 2:
+                break
+            time.sleep(0.1)
+        self.assertEqual(len(rows), 2, "expected both real chat-gated messages to have landed in foxbot_events")
+
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app.app)
+        data = self._poll(client)  # the overlay's FIRST EVER poll for this handle
+
+        chat_lines = [line for line in data["lines"] if line["stream"] == "chat"]
+        self.assertEqual(
+            [line["text"] for line in chat_lines],
+            ["princessjamesy says: Fist my bump", "princessjamesy says: Fist my bump again"],
+            "both real, already-written chat messages must be offered on the overlay's first poll, "
+            "not silently eaten by the win-style 'first contact bootstraps past everything' behavior",
+        )
+
     def test_win_and_chat_lines_interleave_chronologically(self):
         """Both streams share the same underlying foxbot_events id
         sequence, so a win and a chat message close together must come
