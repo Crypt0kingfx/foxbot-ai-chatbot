@@ -242,6 +242,28 @@ class AutoEventRowWiringTestCase(unittest.TestCase):
         self.assertEqual(event.get("event_type"), "follow")
         self.assertEqual(event.get("username"), "nashvillelou")
 
+    def test_bot_role_sender_suppresses_but_still_classifies_as_follow(self):
+        """FIX 1: the sender.roles=="bot" check (_foxbot_sender_has_bot_role_v1)
+        used to `continue` past auto-event parsing entirely -- the same trap
+        the CacheBot known_bot_handles fix closed. Follows arrive ONLY as a
+        bot's text announcement, so this must suppress (TTS + command
+        dispatch), not skip the row outright, or follow detection dies
+        silently the day Blaze starts populating this field. Fails on the
+        old `continue`."""
+        row = self._row_from_fixture("650a7beb-7a59-4d42-8e1a-bd546382e539")
+        row["sender"]["roles"] = ["bot"]
+
+        app._foxbot_process_channel_rows_v1(self.target, [row])
+
+        self.mock_tts.assert_not_called()
+        self.mock_chat.assert_not_called()
+
+        auto_event_result = app.polling_status.get("last_auto_event")
+        self.assertIsNotNone(auto_event_result)
+        event = auto_event_result.get("event") or {}
+        self.assertEqual(event.get("event_type"), "follow")
+        self.assertEqual(event.get("username"), "nashvillelou")
+
     def test_cachebot_gifted_sub_text_row_fires_no_giftsub_and_skips_tts(self):
         row = self._row_from_fixture("876ef2b7-91ab-4f42-8135-9f5752d8659e")
         app._foxbot_process_channel_rows_v1(self.target, [row])

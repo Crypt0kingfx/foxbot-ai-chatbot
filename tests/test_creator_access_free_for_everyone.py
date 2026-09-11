@@ -26,12 +26,7 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) so storage_paths.py's Neon "
-    "hydration path runs honestly instead of being mocked away."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 # DATA_PATH is resolved once, at import time, from this env var -- must be
 # set before services.creator_access is ever imported in this process.

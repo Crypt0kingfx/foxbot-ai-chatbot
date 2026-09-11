@@ -32,13 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import services.casino_ledger as cl  # noqa: E402
 
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) to prove the row lock, "
-    "transaction rollback, and idempotency-constraint behavior honestly. "
-    "They are skipped, not faked, without one."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 
 @unittest.skipUnless(DATABASE_CONFIGURED, SKIP_REASON)

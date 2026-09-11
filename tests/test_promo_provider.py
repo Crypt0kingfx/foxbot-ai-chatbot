@@ -29,13 +29,7 @@ import services.casino_config as casino_config  # noqa: E402
 import services.casino_ledger as cl  # noqa: E402
 
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) to prove the claim/debit/credit "
-    "ordering and idempotency honestly. They are skipped, not faked, "
-    "without one."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 
 @unittest.skipUnless(DATABASE_CONFIGURED, SKIP_REASON)
