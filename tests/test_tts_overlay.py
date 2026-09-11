@@ -369,6 +369,41 @@ class TtsEmitHookTestCase(unittest.TestCase):
                 connection.execute(f"DELETE FROM {casino_config.TABLE_CONFIG} WHERE creator_id = %s", (creator_id,))
 
 
+class TtsEmoteStripTestCase(unittest.TestCase):
+    """No DATABASE_URL required -- pure checks on
+    app._foxbot_tts_strip_emotes_v1, the [emote:<uuid>] token stripper.
+    Confirmed against 30 real prod tts_chat_message rows: Blaze renders
+    custom emotes inline as this literal token, with no emote name
+    anywhere in the payload, so the fix is removal, not substitution."""
+
+    def test_strips_single_emote_token(self):
+        result = app._foxbot_tts_strip_emotes_v1("[emote:d2e848a3-3eec-455a-82f3-ed51969a111b]")
+        self.assertEqual(result, "")
+
+    def test_strips_multiple_emote_tokens_to_empty(self):
+        result = app._foxbot_tts_strip_emotes_v1(
+            "[emote:841539a5-88cd-4532-85c1-5589bc530b1b] [emote:841539a5-88cd-4532-85c1-5589bc530b1b] "
+            "[emote:841539a5-88cd-4532-85c1-5589bc530b1b] [emote:841539a5-88cd-4532-85c1-5589bc530b1b]",
+        )
+        self.assertEqual(result, "")
+
+    def test_leaves_plain_text_untouched(self):
+        result = app._foxbot_tts_strip_emotes_v1("that was a great round honestly")
+        self.assertEqual(result, "that was a great round honestly")
+
+    def test_mixed_emote_and_text_collapses_whitespace(self):
+        result = app._foxbot_tts_strip_emotes_v1("lol [emote:841539a5-88cd-4532-85c1-5589bc530b1b] that was wild")
+        self.assertEqual(result, "lol that was wild")
+
+    def test_none_and_empty_never_raise(self):
+        self.assertEqual(app._foxbot_tts_strip_emotes_v1(None), "")
+        self.assertEqual(app._foxbot_tts_strip_emotes_v1(""), "")
+
+    def test_unclosed_or_malformed_token_does_not_swallow_real_text(self):
+        result = app._foxbot_tts_strip_emotes_v1("[emote:no closing bracket here so this should survive")
+        self.assertEqual(result, "[emote:no closing bracket here so this should survive")
+
+
 class TtsChatEmitHookTestCase(unittest.TestCase):
     """No DATABASE_URL required -- mocks tts_config.get_config and
     emit_event, same shape as TtsEmitHookTestCase, but for
@@ -424,6 +459,54 @@ class TtsChatEmitHookTestCase(unittest.TestCase):
         with mock.patch.object(tts_config, "get_config", return_value=self._config()):
             app._foxbot_tts_emit_chat_message_v1("some-handle", "viewer1", "!convert 500")
             app._foxbot_tts_emit_chat_message_v1("some-handle", "viewer1", "!cashout")
+        self.mock_emit.assert_not_called()
+
+    def test_emote_only_message_never_emits_and_does_not_advance_cooldown(self):
+        """The regression that matters: chat_min_chars defaults to 4 and an
+        emote token is ~45 chars, so before the strip-before-gate fix an
+        emote-only message PASSED the length gate, emitted "username says:"
+        with an empty body, and advanced the cooldown tracker -- suppressing
+        the next genuine message for the full cooldown window."""
+        with mock.patch.object(tts_config, "get_config", return_value=self._config()):
+            app._foxbot_tts_emit_chat_message_v1(
+                "some-handle", "viewer1", "[emote:841539a5-88cd-4532-85c1-5589bc530b1b]",
+            )
+        self.mock_emit.assert_not_called()
+        self.assertNotIn("some-handle", app._FOXBOT_TTS_CHAT_COOLDOWN_TRACKER_V1)
+
+    def test_multiple_emotes_only_never_emits(self):
+        with mock.patch.object(tts_config, "get_config", return_value=self._config()):
+            app._foxbot_tts_emit_chat_message_v1(
+                "some-handle", "viewer1",
+                "[emote:841539a5-88cd-4532-85c1-5589bc530b1b] [emote:841539a5-88cd-4532-85c1-5589bc530b1b] "
+                "[emote:841539a5-88cd-4532-85c1-5589bc530b1b]",
+            )
+        self.mock_emit.assert_not_called()
+
+    def test_mixed_emote_and_text_emits_with_emote_stripped(self):
+        with mock.patch.object(tts_config, "get_config", return_value=self._config()):
+            app._foxbot_tts_emit_chat_message_v1(
+                "some-handle", "viewer1", "lol [emote:841539a5-88cd-4532-85c1-5589bc530b1b] that was wild",
+            )
+        self.mock_emit.assert_called_once()
+        call_kwargs = self.mock_emit.call_args[1]
+        self.assertEqual(call_kwargs["detail"]["text"], "viewer1 says: lol that was wild")
+
+    def test_no_emotes_message_unaffected_by_strip(self):
+        with mock.patch.object(tts_config, "get_config", return_value=self._config()):
+            app._foxbot_tts_emit_chat_message_v1("some-handle", "viewer1", "that was a great round honestly")
+        self.mock_emit.assert_called_once()
+        call_kwargs = self.mock_emit.call_args[1]
+        self.assertEqual(call_kwargs["detail"]["text"], "viewer1 says: that was a great round honestly")
+
+    def test_emote_prefixed_command_still_excluded(self):
+        """Cleaning the emote token first means a command hidden behind one
+        is now correctly recognised as a command and excluded -- it was not
+        before, since "[emote:...] !convert 500" didn't start with "!"."""
+        with mock.patch.object(tts_config, "get_config", return_value=self._config()):
+            app._foxbot_tts_emit_chat_message_v1(
+                "some-handle", "viewer1", "[emote:841539a5-88cd-4532-85c1-5589bc530b1b] !convert 500",
+            )
         self.mock_emit.assert_not_called()
 
     def test_below_min_chars_never_emits(self):
