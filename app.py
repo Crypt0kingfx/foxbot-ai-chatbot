@@ -54,6 +54,8 @@ import json
 
 import random
 
+import re
+
 import threading
 
 import time
@@ -3594,6 +3596,20 @@ def _foxbot_tts_emit_v1(creator_handle: str, username: str, detail: dict) -> Non
 
 _FOXBOT_TTS_CHAT_COOLDOWN_TRACKER_V1 = {}
 
+_FOXBOT_TTS_EMOTE_TOKEN_RE_V1 = re.compile(r"\[emote:[^\]\s]{1,64}\]")
+
+
+def _foxbot_tts_strip_emotes_v1(text: str) -> str:
+    """Blaze renders custom emotes as [emote:<uuid>] inline in message text --
+    confirmed against 30 real prod rows. Spoken verbatim, SAPI reads the UUID
+    aloud. No emote name is available anywhere in the payload, so the token is
+    removed rather than substituted; a message that was nothing but emotes
+    cleans to empty and is dropped by the caller's existing `if not text`
+    guard. Bounded to 64 chars and excluding whitespace/']' so a malformed or
+    unclosed token can never swallow real message text."""
+    stripped = _FOXBOT_TTS_EMOTE_TOKEN_RE_V1.sub(" ", str(text or ""))
+    return re.sub(r"\s{2,}", " ", stripped).strip()
+
 
 def _foxbot_tts_build_chat_line_v1(username: str, message_text: str) -> str:
     name = str(username or "").strip() or "someone"
@@ -3615,7 +3631,7 @@ def _foxbot_tts_emit_chat_message_v1(creator_handle: str, username: str, message
     creator-configurable yet -- revisit if requested.
     """
     try:
-        text = str(message_text or "").strip()
+        text = _foxbot_tts_strip_emotes_v1(message_text)
         if not text or text.startswith("!"):
             return
 
