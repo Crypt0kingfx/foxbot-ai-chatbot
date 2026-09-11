@@ -8829,6 +8829,42 @@ def find_chat_username(payload):
     return find_first_string(payload, ["displayName", "username", "slug", "name"]) or "viewer"
 
 
+def _foxbot_row_author_handle_v1(item):
+    """WHO POSTED this chat-feed row -- as opposed to who a structural
+    auto-event is ABOUT, which _foxbot_resolve_auto_event_username_v1 can
+    rewrite to a handle mentioned INSIDE a CacheBot announcement's text.
+    The two must never be conflated: a bot-identity check that reads the
+    rewritten "about" value instead of the actual author silently stops
+    firing for exactly the rows it exists to catch (a CacheBot announcement
+    rewritten to e.g. "nashvillelou" would never match "cachebot" in
+    known_bot_handles again).
+
+    Only a row Blaze attaches a "sender" object to carries this (the
+    CacheBot [NEW FOLLOWER]/[GIFTED SUB] text rows do). The real captured
+    structural rows -- type=="vote", "subscribed", "gift_sent" -- have no
+    "sender" key at all, confirmed against every one of the 20 real
+    captures in tests/fixtures/real_auto_event_captures.json. Returns ""
+    for those (and for anything else with no usable sender identity), so
+    callers fall back to clean_username -- preserving today's behavior for
+    every structural row exactly."""
+    if not isinstance(item, dict):
+        return ""
+
+    sender = item.get("sender")
+    if not isinstance(sender, dict):
+        return ""
+
+    slug = sender.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        return slug.strip().lower()
+
+    display_name = sender.get("displayName")
+    if isinstance(display_name, str) and display_name.strip():
+        return display_name.strip().lower()
+
+    return ""
+
+
 def _foxbot_resolve_auto_event_username_v1(item, message_text):
     """Vote events carry the real voter identity nested under
     actionInfo.senderDisplayName (actionInfo.senderId as fallback), not any
@@ -8841,11 +8877,33 @@ def _foxbot_resolve_auto_event_username_v1(item, message_text):
     part of this fix. A real chat message that merely mentions "vote" has
     no actionInfo at all, so it falls straight through to the unchanged
     find_chat_username(item) call below -- the direct-message path is
-    untouched."""
+    untouched.
+
+    Extended for three more structural shapes, all confirmed against real
+    captures from viewer_fallback_debug_log (the root cause of the
+    long-standing "@viewer thank-you" bug):
+      - type=="gift_sent": the real gifter is actionInfo.senderDisplayName
+        (actionInfo.senderSlug as fallback). The top-level item has no
+        displayName/username/slug/name find_chat_username would find, so
+        without this branch it silently fell back to "viewer".
+      - type=="subscribed": same shape, actionInfo.displayName
+        (actionInfo.slug as fallback).
+      - CacheBot's own [NEW FOLLOWER]/[GIFTED SUB] text announcements: the
+        real subject is named inline in the message ("...Welcome to the
+        channel, @nashvillelou!"), not the sender (CacheBot itself) --
+        extract the first @handle from the message text. Scoped to
+        CacheBot's own sender identity (sender.slug/displayName=="cachebot"),
+        never every type=="text" row, so an ordinary chat message that
+        happens to @-mention someone is never misattributed to the person
+        mentioned instead of its actual author.
+    Any of these falling through (field absent, non-CacheBot text with no
+    match) reaches the same unchanged find_chat_username(item) call below."""
     lower = str(message_text or "").lower()
 
+    item_dict = item if isinstance(item, dict) else {}
+
     if "voted" in lower or "vote" in lower:
-        action_info = item.get("actionInfo") if isinstance(item, dict) else None
+        action_info = item_dict.get("actionInfo")
 
         if isinstance(action_info, dict):
             sender_display_name = action_info.get("senderDisplayName")
@@ -8855,6 +8913,35 @@ def _foxbot_resolve_auto_event_username_v1(item, message_text):
             sender_id = action_info.get("senderId")
             if sender_id:
                 return str(sender_id).strip()
+
+    item_type = item_dict.get("type")
+
+    if item_type == "gift_sent":
+        action_info = item_dict.get("actionInfo")
+        if isinstance(action_info, dict):
+            sender_display_name = action_info.get("senderDisplayName")
+            if isinstance(sender_display_name, str) and sender_display_name.strip():
+                return sender_display_name.strip()
+
+            sender_slug = action_info.get("senderSlug")
+            if isinstance(sender_slug, str) and sender_slug.strip():
+                return sender_slug.strip()
+
+    if item_type == "subscribed":
+        action_info = item_dict.get("actionInfo")
+        if isinstance(action_info, dict):
+            display_name = action_info.get("displayName")
+            if isinstance(display_name, str) and display_name.strip():
+                return display_name.strip()
+
+            slug = action_info.get("slug")
+            if isinstance(slug, str) and slug.strip():
+                return slug.strip()
+
+    if item_type == "text" and _foxbot_row_author_handle_v1(item_dict) == "cachebot":
+        handle_match = re.search(r"@([A-Za-z0-9_]+)", str(message_text or ""))
+        if handle_match:
+            return handle_match.group(1)
 
     return find_chat_username(item)
 
@@ -8878,6 +8965,26 @@ def _foxbot_item_has_vote_signal_v1(item):
     if not isinstance(item, dict):
         return False
     return item.get("type") == "vote" and isinstance(item.get("actionInfo"), dict)
+
+
+def _foxbot_item_has_sub_signal_v1(item):
+    """True only when a chat-feed row carries Blaze's own structured
+    subscribe marker: top-level type=="subscribed" AND a sibling actionInfo
+    dict -- confirmed present together on all 11 real captures from
+    viewer_fallback_debug_log (the "subscribed for N months..." rows).
+    Mirrors _foxbot_item_has_vote_signal_v1 exactly: type is the
+    authoritative "this is a sub" signal, actionInfo is what carries the
+    data needed to attribute (displayName/slug) and size (newCount) the
+    reward.
+
+    A CacheBot [GIFTED SUB]/[NEW FOLLOWER] text announcement, or any other
+    type=="text" row that merely mentions "subscribed", has neither field
+    and returns False -- those are a separate, non-authoritative arrival of
+    an event this structural row already owns (see the giftsub/sub text
+    exclusion in parse_auto_chat_event)."""
+    if not isinstance(item, dict):
+        return False
+    return item.get("type") == "subscribed" and isinstance(item.get("actionInfo"), dict)
 
 
 def _foxbot_sender_has_bot_role_v1(item):
@@ -19600,13 +19707,35 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer", item: dic
 
 
 
-    elif "subscribed" in lower or "new sub" in lower or "new subscription" in lower:
+    elif _foxbot_item_has_sub_signal_v1(item):
 
         event_type = "sub"
 
+        action_info = (item or {}).get("actionInfo") or {}
+
+        new_count = action_info.get("newCount")
+
+        if isinstance(new_count, int) and not isinstance(new_count, bool) and new_count > 0:
+
+            amount = new_count
 
 
-    elif "gifted" in lower and ("sub" in lower or "subscription" in lower):
+
+    # A type=="text" row (CacheBot's own [GIFTED SUB] announcement) matches
+    # this same "gifted" + "sub"/"subscription" keyword pair as the real
+    # structural gift_sent row -- both arrive for the SAME event. The
+    # structural gift_sent row is authoritative (it carries the real
+    # actionInfo needed to attribute and size the reward); a text row must
+    # never independently classify as giftsub, or the gift gets counted
+    # twice. Do NOT "fix" this by loosening the exclusion back to keywords
+    # only -- see HUNK 3 of the auto-event-attribution fix. Text rows may
+    # still classify as follow above, since no structural follow row exists
+    # in any real capture.
+    elif (
+        (item or {}).get("type") != "text"
+        and "gifted" in lower
+        and ("sub" in lower or "subscription" in lower)
+    ):
 
         event_type = "giftsub"
 
@@ -28250,7 +28379,7 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
     # live posting vote-shaped chat text that triggered FoxCoin awards before
     # the identity fix; foxbotai is listed defensively even though bot_handle
     # already covers it, so this still holds if that env var is ever misconfigured.
-    known_bot_handles = {"foxbotai", "blazeian_bot_ai", "scurvybot", "botger"}
+    known_bot_handles = {"foxbotai", "blazeian_bot_ai", "scurvybot", "botger", "cachebot"}
     subscription_commands = {
         "!joinfox",
         "!connect",
@@ -28274,8 +28403,26 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
         if not message_text:
             continue
         clean_username = str(username or "").strip().lstrip("@")
-        if clean_username.lower() == bot_handle or clean_username.lower() in known_bot_handles:
-            continue
+
+        # WHO POSTED this row (author_handle, via _foxbot_row_author_handle_v1)
+        # is checked against known_bot_handles here, never clean_username --
+        # _foxbot_resolve_auto_event_username_v1 can rewrite clean_username to
+        # the handle mentioned INSIDE a bot's own announcement text (e.g.
+        # CacheBot's "@nashvillelou" follow announcement), and that rewrite
+        # must never blind this check to the bot that actually posted the row.
+        # A structural vote/subscribed/gift_sent row has no "sender" object at
+        # all, so author_handle is "" and this falls back to clean_username,
+        # preserving today's behavior for those rows exactly.
+        author_handle = _foxbot_row_author_handle_v1(item)
+        bot_check_handle = author_handle or clean_username.lower()
+        suppress_chat_side_effects = bot_check_handle == bot_handle or bot_check_handle in known_bot_handles
+        # A bot-authored row must NOT skip the rest of this loop outright --
+        # CacheBot's [NEW FOLLOWER]/[GIFTED SUB] announcements are the ONLY
+        # source for those events (no structural follow row exists in any
+        # real capture), so it still has to reach handle_auto_chat_event
+        # below. Only the chat-only side effects (TTS readout, command
+        # dispatch, any chat-message reward) are suppressed for it -- see the
+        # suppress_chat_side_effects checks further down this loop.
 
         # SPECULATIVE / best-effort -- unconfirmed whether Blaze populates a
         # "bot" role on this REST-polled item's sender object, the same way
@@ -28301,15 +28448,27 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
         # per-row loop drives real command dispatch and replies for every
         # row after this point, so nothing about this hook -- not even an
         # error the function's own guard somehow doesn't catch -- may ever
-        # abort that.
-        try:
-            _foxbot_tts_emit_chat_message_v1(creator_handle, clean_username, message_text)
-        except Exception:
-            pass
+        # abort that. Skipped entirely for a bot-authored row
+        # (suppress_chat_side_effects) -- a CacheBot announcement must never
+        # be read aloud under the viewer name its own text happens to
+        # mention (e.g. "nashvillelou says: [NEW FOLLOWER]...").
+        if not suppress_chat_side_effects:
+            try:
+                _foxbot_tts_emit_chat_message_v1(creator_handle, clean_username, message_text)
+            except Exception:
+                pass
 
         command = str(message_text).strip().split()[0].lower()
 
         if is_subscription_channel:
+            # Subscription channels have no auto-event path below (this
+            # branch always `continue`s before ever reaching
+            # handle_auto_chat_event) -- so unlike the main path, there is
+            # nothing for a bot-authored row to fall through to here. Skip
+            # it outright, same as today.
+            if suppress_chat_side_effects:
+                continue
+
             if command not in subscription_commands:
                 access = _foxbot_creator_access_v1.get_access(clean_username)
 
@@ -28420,6 +28579,14 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
                     target_status["last_command"] = message_text
                     target_status["last_username"] = clean_username
                     target_status["last_reply_at"] = proof_stats["last_reply_at"]
+            continue
+
+        # Auto-event handling above always runs for a bot-authored row (a
+        # CacheBot follow/giftsub announcement is the only source for that
+        # event, and already `continue`d above if it fired). What must NOT
+        # run for one is command dispatch below -- a bot's own text should
+        # never be treated as a chat command.
+        if suppress_chat_side_effects:
             continue
 
         if not str(message_text).startswith("!"):
