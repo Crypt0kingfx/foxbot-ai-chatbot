@@ -1,0 +1,407 @@
+[
+  {
+    "raw_item": {
+      "id": "acaeb2ad-ba16-414d-8871-548e0170c672",
+      "type": "vote",
+      "message": "piweb is giving 10 Votes to jt_squared2.",
+      "channelId": "8c847dcf-65a9-4234-8980-c59102c8aa60",
+      "createdAt": "2026-09-10T19:57:30.000Z",
+      "actionInfo": {
+        "amount": 10,
+        "senderId": "a8a0bb13-c6cb-4369-ad3d-ba0a17169852",
+        "senderDisplayName": "piweb"
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "vote",
+    "captured_at": "2026-09-10T19:57:42.960132+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "946ce42c-a458-46eb-966f-0be803dd98b5",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 6 months, currently on a 1 month streak!",
+      "channelId": "1162d5b2-eac6-404e-bd4d-cf2432ac38d2",
+      "createdAt": "2026-09-10T20:28:09.000Z",
+      "actionInfo": {
+        "slug": "hiray",
+        "newCount": 1,
+        "senderId": "853294cd-a637-4f01-9e8c-a2fd67bcd3ed",
+        "renewCount": 6,
+        "displayName": "hiray",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-10T20:28:38.420673+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "876ef2b7-91ab-4f42-8135-9f5752d8659e",
+      "type": "text",
+      "sender": {
+        "id": "dd614280-a2fd-4f93-bc06-ffdc2867c82f",
+        "slug": "cachebot",
+        "roles": [
+          "moderator",
+          "og"
+        ],
+        "isOwner": false,
+        "avatarUrl": "https://cdn.blaze.stream/site/default_blaze.png",
+        "isFollower": true,
+        "displayName": "CacheBot",
+        "isSubscriber": false
+      },
+      "message": "🎁 [GIFTED SUB]: @marioscy5 just gifted a sub to a lucky community member! Absolute legend.",
+      "replyTo": null,
+      "channelId": "9894c44d-f081-494d-b15e-c4456837fee3",
+      "createdAt": "2026-09-10T20:42:16.000Z",
+      "replyToMessageId": null,
+      "isHyperLinkAllowed": true
+    },
+    "event_type": "giftsub",
+    "captured_at": "2026-09-10T20:42:16.434783+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "36c08261-8998-4036-bb6e-360f6081d1c3",
+      "type": "gift_sent",
+      "message": "is gifting 1 Sub to Zer0Cache's community. This user gifted a total of 2 in the channel!",
+      "channelId": "9894c44d-f081-494d-b15e-c4456837fee3",
+      "createdAt": "2026-09-10T20:41:22.000Z",
+      "actionInfo": {
+        "amount": 1,
+        "senderId": "3bccdf81-654d-4135-86ac-f0d392a4c718",
+        "senderSlug": "marioscy5",
+        "senderDisplayName": "marioscy5",
+        "channelDisplayName": "Zer0Cache"
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "giftsub",
+    "captured_at": "2026-09-10T20:42:16.905198+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "7f4f71cd-376e-4132-9edc-5c0e4c458a48",
+      "type": "vote",
+      "message": "NashvilleLou is giving 1 Vote to Zer0Cache.",
+      "channelId": "9894c44d-f081-494d-b15e-c4456837fee3",
+      "createdAt": "2026-09-10T20:50:54.000Z",
+      "actionInfo": {
+        "amount": 1,
+        "senderId": "0a20a3be-b6fc-4c10-9fa3-d55aa4a61240",
+        "senderDisplayName": "NashvilleLou"
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "vote",
+    "captured_at": "2026-09-10T20:50:57.527664+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "650a7beb-7a59-4d42-8e1a-bd546382e539",
+      "type": "text",
+      "sender": {
+        "id": "dd614280-a2fd-4f93-bc06-ffdc2867c82f",
+        "slug": "cachebot",
+        "roles": [
+          "moderator",
+          "og"
+        ],
+        "isOwner": false,
+        "avatarUrl": "https://cdn.blaze.stream/site/default_blaze.png",
+        "isFollower": true,
+        "displayName": "CacheBot",
+        "isSubscriber": false
+      },
+      "message": "✨ [NEW FOLLOWER]: Welcome to the channel, @nashvillelou! Thank you for the follow!.",
+      "replyTo": null,
+      "channelId": "9894c44d-f081-494d-b15e-c4456837fee3",
+      "createdAt": "2026-09-10T20:50:49.000Z",
+      "replyToMessageId": null,
+      "isHyperLinkAllowed": true
+    },
+    "event_type": "follow",
+    "captured_at": "2026-09-10T20:50:57.906857+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "24d34345-134b-41c0-8d84-bcc0319fbada",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 2 months, currently on a 1 month streak!",
+      "channelId": "b9c5a280-713e-4870-b505-623751badfa0",
+      "createdAt": "2026-09-10T21:54:51.000Z",
+      "actionInfo": {
+        "slug": "dynastykingd",
+        "newCount": 1,
+        "senderId": "8350bc03-0935-4629-90c5-74a9cf6d8384",
+        "renewCount": 2,
+        "displayName": "DynastyKingD",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-10T21:55:27.293020+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "1c7f40fb-6bda-4416-9aef-e8059cafed2a",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 2 months, currently on a 2 months streak!",
+      "channelId": "ee01abbf-4c0c-444c-ab41-c473134e55a6",
+      "createdAt": "2026-09-10T22:07:00.000Z",
+      "actionInfo": {
+        "slug": "octo",
+        "newCount": 1,
+        "senderId": "aeee90d3-fbdc-4b10-a1d2-864ab3ad2635",
+        "renewCount": 2,
+        "displayName": "octo",
+        "streakCount": 2
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-10T22:07:22.810692+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "605a8b21-459e-452e-a9fa-2f2f7cf1540f",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 1 month, currently on a 1 month streak!",
+      "channelId": "1162d5b2-eac6-404e-bd4d-cf2432ac38d2",
+      "createdAt": "2026-09-10T22:19:13.000Z",
+      "actionInfo": {
+        "slug": "lasvegasape",
+        "newCount": 1,
+        "senderId": "219b844b-8ab1-439c-9195-2798858ff1a7",
+        "renewCount": 1,
+        "displayName": "lasvegasape",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-10T22:20:14.712039+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "99efe6c3-c1cf-4f82-b529-6d8d07ac88e3",
+      "type": "vote",
+      "message": "time is giving 10 Votes to jt_squared2.",
+      "channelId": "8c847dcf-65a9-4234-8980-c59102c8aa60",
+      "createdAt": "2026-09-10T22:29:16.000Z",
+      "actionInfo": {
+        "amount": 10,
+        "senderId": "25b30dc5-23f5-4bea-94ce-ba178c73c022",
+        "senderDisplayName": "time"
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "vote",
+    "captured_at": "2026-09-10T22:29:20.812832+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "9be58d97-af96-48ed-b7bb-a57670f873d9",
+      "type": "vote",
+      "message": "NashvilleLou is giving 1 Vote to Big_Scaggs.",
+      "channelId": "32f25a13-b4b5-4c8f-a909-0a2db12aca69",
+      "createdAt": "2026-09-11T01:17:14.000Z",
+      "actionInfo": {
+        "amount": 1,
+        "senderId": "0a20a3be-b6fc-4c10-9fa3-d55aa4a61240",
+        "senderDisplayName": "NashvilleLou"
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "vote",
+    "captured_at": "2026-09-11T01:17:27.210852+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "a8cd2f7d-1cc0-492b-af5a-a6c32001d4aa",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 4 months, currently on a 2 months streak!",
+      "channelId": "1162d5b2-eac6-404e-bd4d-cf2432ac38d2",
+      "createdAt": "2026-09-11T01:50:07.000Z",
+      "actionInfo": {
+        "slug": "xeukuxaixang",
+        "newCount": 1,
+        "senderId": "e4825903-47a5-4dbb-86ba-1f58c6049ad4",
+        "renewCount": 4,
+        "displayName": "xeukuxaixang",
+        "streakCount": 2
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T01:50:15.739767+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "0cdd441e-54d3-48a7-8199-06f8bff927df",
+      "type": "text",
+      "sender": {
+        "id": "dd614280-a2fd-4f93-bc06-ffdc2867c82f",
+        "slug": "cachebot",
+        "roles": [
+          "moderator",
+          "og"
+        ],
+        "isOwner": false,
+        "avatarUrl": "https://cdn.blaze.stream/site/default_blaze.png",
+        "isFollower": true,
+        "displayName": "CacheBot",
+        "isSubscriber": false
+      },
+      "message": "✨ [NEW FOLLOWER]: Welcome to the channel, @grim1angel! Thank you for the follow!.",
+      "replyTo": null,
+      "channelId": "9894c44d-f081-494d-b15e-c4456837fee3",
+      "createdAt": "2026-09-11T04:32:13.000Z",
+      "replyToMessageId": null,
+      "isHyperLinkAllowed": true
+    },
+    "event_type": "follow",
+    "captured_at": "2026-09-11T04:32:20.901197+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "cbe72e6d-2e97-4250-9393-b927f4b5d585",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 3 months, currently on a 1 month streak!",
+      "channelId": "6b969c07-915f-40b6-8c39-c93f0c71ea7e",
+      "createdAt": "2026-09-11T14:33:50.000Z",
+      "actionInfo": {
+        "slug": "ruri666",
+        "newCount": 1,
+        "senderId": "bc5bdd90-db42-4614-af7e-0df7e584b647",
+        "renewCount": 3,
+        "displayName": "Ruri666",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T14:34:07.363449+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "9b1eafa7-f0f5-4dfe-b504-4d7a6f498e92",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 3 months, currently on a 1 month streak!",
+      "channelId": "6b969c07-915f-40b6-8c39-c93f0c71ea7e",
+      "createdAt": "2026-09-11T14:34:50.000Z",
+      "actionInfo": {
+        "slug": "tinapay",
+        "newCount": 1,
+        "senderId": "bd8c0550-54fd-48d6-bb48-f0226f0a213b",
+        "renewCount": 3,
+        "displayName": "Tinapay",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T14:35:03.270693+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "ea1178a8-fa4d-4c68-b67d-0d2cdcfa9528",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 1 month, currently on a 1 month streak!",
+      "channelId": "6b969c07-915f-40b6-8c39-c93f0c71ea7e",
+      "createdAt": "2026-09-11T14:39:20.000Z",
+      "actionInfo": {
+        "slug": "piggymoto",
+        "newCount": 1,
+        "senderId": "f05ae37d-dc5b-4aec-bb78-40828c5eda12",
+        "renewCount": 1,
+        "displayName": "piggymoto",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T14:39:23.098056+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "5e005c94-3ed2-42a2-b0b5-7823c06ab09f",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 5 months, currently on a 2 months streak!",
+      "channelId": "6b969c07-915f-40b6-8c39-c93f0c71ea7e",
+      "createdAt": "2026-09-11T14:55:19.000Z",
+      "actionInfo": {
+        "slug": "korosuplays",
+        "newCount": 1,
+        "senderId": "b10d6195-7cf2-4d3f-ada2-4ce767a69d5b",
+        "renewCount": 5,
+        "displayName": "korosuplays",
+        "streakCount": 2
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T14:55:32.099179+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "e2dda02c-d734-45ab-9fe3-df090915852a",
+      "type": "subscribed",
+      "message": "subscribed for 3 months. Total is now 8 months, currently on a 3 months streak!",
+      "channelId": "18415f84-7186-46e6-ab4b-6ecacf1937ae",
+      "createdAt": "2026-09-11T15:09:09.000Z",
+      "actionInfo": {
+        "slug": "makeitmetal",
+        "newCount": 3,
+        "senderId": "58950ad2-950b-4431-9fb5-32221e9e035d",
+        "renewCount": 8,
+        "displayName": "MakeItMetal",
+        "streakCount": 3
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T15:09:21.064462+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "3100a48e-6c6a-405f-b10f-6fe04af178bc",
+      "type": "subscribed",
+      "message": "subscribed for 1 month. Total is now 1 month, currently on a 1 month streak!",
+      "channelId": "6b969c07-915f-40b6-8c39-c93f0c71ea7e",
+      "createdAt": "2026-09-11T15:13:54.000Z",
+      "actionInfo": {
+        "slug": "kariman",
+        "newCount": 1,
+        "senderId": "47e7af43-ed87-499b-a90d-8d8dc468abb5",
+        "renewCount": 1,
+        "displayName": "kariman",
+        "streakCount": 1
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "sub",
+    "captured_at": "2026-09-11T15:14:07.853776+00:00"
+  },
+  {
+    "raw_item": {
+      "id": "bdd490fc-da83-4d64-a6f1-65ad83ab9008",
+      "type": "vote",
+      "message": "retrogains12 is giving 1 Vote to crypt0k1ng96.",
+      "channelId": "b9c5a280-713e-4870-b505-623751badfa0",
+      "createdAt": "2026-09-11T15:25:03.000Z",
+      "actionInfo": {
+        "amount": 1,
+        "senderId": "1e92519f-e2cc-4232-912c-78ab50bb98c1",
+        "senderDisplayName": "retrogains12"
+      },
+      "replyToMessageId": null
+    },
+    "event_type": "vote",
+    "captured_at": "2026-09-11T15:25:05.652013+00:00"
+  }
+]
