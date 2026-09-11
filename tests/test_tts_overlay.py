@@ -32,12 +32,7 @@ import services.tts_config as tts_config  # noqa: E402
 import services.tts_filter as tts_filter  # noqa: E402
 
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) to prove the actual config "
-    "persistence and overlay routes honestly."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 
 def _make_tts_config(**overrides):

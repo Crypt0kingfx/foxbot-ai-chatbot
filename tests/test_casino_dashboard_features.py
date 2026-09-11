@@ -44,12 +44,7 @@ def _deck_with_prefix(*cards):
     return list(cards) + rest
 
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) to prove the actual HTTP "
-    "wiring, idempotency, and scoping honestly."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 STUDIO_ADMIN_USER = os.getenv("STUDIO_ADMIN_USER", "")
 STUDIO_ADMIN_PASSWORD = os.getenv("STUDIO_ADMIN_PASSWORD", "")

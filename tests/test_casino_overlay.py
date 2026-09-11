@@ -40,12 +40,7 @@ import services.casino_rng as casino_rng  # noqa: E402
 import services.foxbot_events as foxbot_events  # noqa: E402
 
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) to prove the actual event "
-    "row and the full command-layer regression honestly."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 
 class _FakeResult:

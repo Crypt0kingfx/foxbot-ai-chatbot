@@ -32,13 +32,7 @@ import services.casino_ledger as cl  # noqa: E402
 import services.casino_rounds as cr  # noqa: E402
 
 
-DATABASE_CONFIGURED = bool(os.getenv("DATABASE_URL"))
-SKIP_REASON = (
-    "DATABASE_URL not set -- these tests need a real Postgres database "
-    "(a throwaway/dev one, not production) to prove the row lock, "
-    "deck-integrity resume, per-hit idempotency, and lazy-timeout "
-    "behavior honestly."
-)
+from tests.db_guard import DATABASE_CONFIGURED, SKIP_REASON  # noqa: E402
 
 
 def _deck_with_prefix(*cards):
