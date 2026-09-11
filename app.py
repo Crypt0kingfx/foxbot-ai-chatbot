@@ -28435,8 +28435,13 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
         # returns False whenever sender/roles is missing or the wrong
         # shape, so a real human is never excluded just because this
         # field wasn't present -- only an explicit "bot" entry rejects.
+        # Suppresses rather than `continue`s past auto-event parsing, same
+        # reasoning as the known_bot_handles check above it: follows arrive
+        # ONLY as a bot's text announcement, so a hard skip here would
+        # silently kill follow detection the day Blaze starts populating
+        # this field, with nothing pointing at this line.
         if _foxbot_sender_has_bot_role_v1(item):
-            continue
+            suppress_chat_side_effects = True
 
         # TTS Chat Readout v1: pure side-effect, sees every genuine chat row
         # here before any command dispatch below -- see
