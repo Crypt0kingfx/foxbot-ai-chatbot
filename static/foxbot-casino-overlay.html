@@ -1,485 +1,124 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=1920, height=1080">
-<title>FoxBot Casino Overlay</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FoxBot Casino Commands Ticker</title>
 <!--
-  FoxBot Casino - OBS Browser Source overlay (static, no API calls).
+  FoxBot Casino - OBS Browser Source ticker (static, no API calls).
   URL:  https://foxbot-ai-chatbot.onrender.com/static/foxbot-casino-overlay.html
   OBS:  Browser Source, Width 1920, Height 1080. Background is transparent.
+  Same style as crypt0k1ng_obs_commands_ticker_v2.html.
 
   Optional query params:
-    ?scale=0.9      shrink/grow the bar (default 1)
-    ?bottom=24      px gap from the bottom edge (default 28)
-    ?spotlight=0    turn off the rotating command highlight
-    ?preview=1      dark checkerboard backdrop for checking it in a normal browser
+    ?speed=115   scroll speed in pixels per second (default 115)
+    ?bottom=92   lift the strip N px off the bottom edge (default 0), e.g.
+                 to stack it directly above the existing commands ticker
 -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --orange: #ff7a1a;
-    --orange-hot: #ff9a3c;
-    --gold: #ffc94a;
-    --gold-soft: #f5d487;
-    --ink: #0b0a10;
-    --panel: rgba(14, 11, 18, 0.86);
-    --panel-2: rgba(24, 18, 28, 0.92);
-    --line: rgba(255, 170, 70, 0.28);
-    --text: #fff7ec;
-    --muted: #cdbba3;
-    --scale: 1;
-    --bottom: 28px;
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
   html, body {
-    width: 1920px;
-    height: 1080px;
+    margin: 0;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     background: transparent;
-    color: var(--text);
-    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
   }
-
-  body.preview {
-    background:
-      radial-gradient(ellipse at 30% 20%, #2a3140 0%, transparent 60%),
-      repeating-conic-gradient(#1b1d24 0% 25%, #22252e 0% 50%) 0 0 / 40px 40px;
-  }
-
-  /* ---------- Bar shell ---------- */
-  .bar-wrap {
+  body { font-family: Arial, Helvetica, sans-serif; }
+  .ticker {
     position: absolute;
-    left: 50%;
-    bottom: var(--bottom);
-    transform: translateX(-50%) scale(var(--scale));
-    transform-origin: 50% 100%;
-    width: 1860px;
-    animation: rise 900ms cubic-bezier(.2, .9, .25, 1.1) both;
-  }
-
-  @keyframes rise {
-    from { opacity: 0; transform: translateX(-50%) translateY(40px) scale(var(--scale)); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(var(--scale)); }
-  }
-
-  .bar {
-    position: relative;
-    display: grid;
-    grid-template-columns: 400px 1fr;
-    gap: 22px;
-    padding: 16px 18px 16px 16px;
-    border-radius: 22px;
-    background:
-      linear-gradient(180deg, rgba(255, 140, 40, 0.07), transparent 40%),
-      var(--panel);
-    box-shadow:
-      0 0 0 1px var(--line),
-      0 18px 50px rgba(0, 0, 0, 0.55),
-      inset 0 1px 0 rgba(255, 220, 160, 0.10);
-    overflow: hidden;
-    isolation: isolate;
-  }
-
-  /* animated gold/orange edge */
-  .bar::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 22px;
-    padding: 2px;
-    background: linear-gradient(90deg,
-      transparent 0%, var(--orange) 18%, var(--gold) 30%, transparent 46%,
-      transparent 54%, var(--gold) 70%, var(--orange) 82%, transparent 100%);
-    background-size: 220% 100%;
-    animation: edge 7s linear infinite;
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-            mask-composite: exclude;
-    pointer-events: none;
-    opacity: 0.85;
-    z-index: 2;
-  }
-  @keyframes edge { to { background-position: -220% 0; } }
-
-  /* faint felt pattern */
-  .bar::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(circle at 1px 1px, rgba(255, 200, 120, 0.06) 1px, transparent 1.5px) 0 0 / 14px 14px;
-    pointer-events: none;
-    z-index: -1;
-  }
-
-  /* ---------- Brand block ---------- */
-  .brand {
-    position: relative;
+    left: 0;
+    right: 0;
+    bottom: var(--bottom, 0px);
+    height: 92px;
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 10px 18px 10px 12px;
-    border-radius: 16px;
-    background:
-      radial-gradient(120% 140% at 0% 50%, rgba(255, 122, 26, 0.28), transparent 60%),
-      var(--panel-2);
-    box-shadow: inset 0 0 0 1px rgba(255, 170, 70, 0.18);
-  }
-
-  .chip-logo {
-    position: relative;
-    flex: 0 0 auto;
-    width: 104px;
-    height: 104px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    /* casino chip ring */
-    background:
-      repeating-conic-gradient(var(--gold) 0 15deg, #1a1016 15deg 30deg);
-    box-shadow: 0 0 0 3px #1a1016, 0 0 24px rgba(255, 140, 40, 0.45);
-    animation: chipspin 18s linear infinite;
-  }
-  .chip-logo::before {
-    content: "";
-    position: absolute;
-    inset: 9px;
-    border-radius: 50%;
-    background: #120d12;
-    box-shadow: inset 0 0 0 2px rgba(255, 201, 74, 0.8);
-  }
-  .chip-logo img,
-  .chip-logo .fallback {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    object-fit: cover;
-    animation: chipspin 18s linear infinite reverse; /* keep logo upright */
-  }
-  .chip-logo .fallback {
-    display: none;
-    place-items: center;
-    font-family: "Rajdhani", sans-serif;
-    font-weight: 700;
-    font-size: 38px;
-    color: var(--orange);
-    background: radial-gradient(circle, #2a1a14, #120d12);
-  }
-  .chip-logo.no-img img { display: none; }
-  .chip-logo.no-img .fallback { display: grid; }
-  @keyframes chipspin { to { transform: rotate(360deg); } }
-
-  .brand-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--gold-soft);
-  }
-  .live-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--orange);
-    box-shadow: 0 0 0 0 rgba(255, 122, 26, 0.7);
-    animation: pulse 1.8s ease-out infinite;
-  }
-  @keyframes pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(255, 122, 26, 0.7); }
-    70%  { box-shadow: 0 0 0 10px rgba(255, 122, 26, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(255, 122, 26, 0); }
-  }
-
-  .title {
-    font-family: "Rajdhani", sans-serif;
-    font-weight: 700;
-    font-size: 46px;
-    line-height: 0.95;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    background: linear-gradient(180deg, #fff3dc 0%, var(--gold) 45%, var(--orange) 100%);
-    -webkit-background-clip: text;
-            background-clip: text;
-    color: transparent;
-    filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.45));
-    white-space: nowrap;
     overflow: hidden;
-    padding-right: 2px;
+    box-sizing: border-box;
+    background: rgba(0,0,0,.78);
+    border-top: 3px solid #ff9d00;
   }
-  .title .suits {
-    font-size: 26px;
-    letter-spacing: 0.08em;
-    vertical-align: 6px;
-    margin-left: 6px;
-  }
-
-  .help {
-    margin-top: 4px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-  }
-
-  /* ---------- Command grid ---------- */
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 10px;
-  }
-
-  .cmd {
-    position: relative;
+  .track {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-radius: 14px;
-    background: linear-gradient(180deg, rgba(40, 30, 38, 0.95), rgba(20, 15, 22, 0.95));
-    box-shadow: inset 0 0 0 1px rgba(255, 170, 70, 0.16);
-    transition: box-shadow 450ms ease, transform 450ms ease, background 450ms ease;
-    min-width: 0;
-  }
-
-  .cmd .icon {
-    flex: 0 0 auto;
-    width: 40px;
-    height: 40px;
-    border-radius: 11px;
-    display: grid;
-    place-items: center;
-    font-size: 22px;
-    line-height: 1;
-    color: var(--gold);
-    background: radial-gradient(circle at 30% 25%, rgba(255, 170, 70, 0.28), rgba(255, 122, 26, 0.08));
-    box-shadow: inset 0 0 0 1px rgba(255, 190, 90, 0.35);
-  }
-  .cmd .icon svg { width: 22px; height: 22px; }
-
-  .cmd .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-
-  .cmd .label {
-    font-size: 11.5px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--gold-soft);
-    opacity: 0.9;
+    width: max-content;
     white-space: nowrap;
+    will-change: transform;
+    animation: scroll var(--duration, 30s) linear infinite;
   }
-
-  .cmd .code {
-    font-family: "JetBrains Mono", "Consolas", monospace;
+  .segment {
+    display: inline-flex;
+    align-items: center;
+    gap: 26px;
+    padding-right: 70px;
+    font-size: 36px;
     font-weight: 800;
-    font-size: 21px;
-    color: var(--text);
-    white-space: nowrap;
-    letter-spacing: -0.01em;
-    overflow: hidden;
+    line-height: 1;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0,0,0,.9);
   }
-  .cmd .code .bang { color: var(--orange); }
-  .cmd .code .arg  { color: var(--gold); }
-  .cmd .code .sep  { color: var(--muted); font-weight: 700; font-size: 16px; padding: 0 4px; font-family: "Inter", sans-serif; }
+  .label { color: #ff9d00; font-weight: 900; }
+  .sep { color: #ff9d00; font-weight: 900; }
 
-  .cmd.help-cmd {
-    background: linear-gradient(180deg, rgba(255, 122, 26, 0.22), rgba(60, 26, 12, 0.9));
-    box-shadow: inset 0 0 0 1px rgba(255, 150, 60, 0.45);
-  }
-
-  /* spotlight state */
-  .cmd.lit {
-    transform: translateY(-3px);
-    background: linear-gradient(180deg, rgba(70, 42, 26, 0.98), rgba(32, 18, 16, 0.98));
-    box-shadow:
-      inset 0 0 0 1.5px var(--gold),
-      0 0 22px rgba(255, 150, 40, 0.45),
-      0 8px 18px rgba(0, 0, 0, 0.4);
-  }
-  .cmd.lit .icon {
-    color: #1a1016;
-    background: linear-gradient(180deg, var(--gold), var(--orange));
-    box-shadow: 0 0 14px rgba(255, 170, 60, 0.7);
-  }
-  .cmd.lit::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 14px;
-    background: linear-gradient(105deg, transparent 30%, rgba(255, 240, 200, 0.18) 50%, transparent 70%);
-    background-size: 250% 100%;
-    animation: sheen 1.4s ease-out 1;
-    pointer-events: none;
-  }
-  @keyframes sheen { from { background-position: 150% 0; } to { background-position: -100% 0; } }
-
-  .footnote {
-    position: absolute;
-    right: 26px;
-    top: -30px;
-    padding: 5px 14px;
-    border-radius: 999px 999px 0 0;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #1a1016;
-    background: linear-gradient(180deg, var(--gold), var(--orange));
-    box-shadow: 0 -4px 16px rgba(255, 140, 40, 0.35);
+  @keyframes scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(calc(-1 * var(--distance, 50%))); }
   }
 </style>
 </head>
 <body>
-  <div class="bar-wrap" id="barWrap">
-    <div class="footnote">Free play &middot; Type in chat</div>
-    <div class="bar">
-
-      <section class="brand">
-        <div class="chip-logo" id="chipLogo">
-          <img src="/static/foxbot-logo.png" alt="FoxBot" onerror="document.getElementById('chipLogo').classList.add('no-img')">
-          <div class="fallback">FB</div>
-        </div>
-        <div class="brand-text">
-          <div class="eyebrow"><span class="live-dot"></span>FoxBot AI &middot; Live</div>
-          <div class="title">FoxBot Casino</div>
-          <div class="help">Play with promo credits right from chat</div>
-        </div>
-      </section>
-
-      <section class="grid" id="grid">
-        <div class="cmd">
-          <div class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg>
-          </div>
-          <div class="body">
-            <div class="label">Coinflip</div>
-            <div class="code"><span class="bang">!</span>casinoflip <span class="arg">heads 10</span></div>
-          </div>
-        </div>
-
-        <div class="cmd">
-          <div class="icon">&#9824;</div>
-          <div class="body">
-            <div class="label">Casino balance</div>
-            <div class="code"><span class="bang">!</span>casino</div>
-          </div>
-        </div>
-
-        <div class="cmd">
-          <div class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>
-          </div>
-          <div class="body">
-            <div class="label">Roulette</div>
-            <div class="code"><span class="bang">!</span>roulette <span class="arg">red 10</span></div>
-          </div>
-        </div>
-
-        <div class="cmd">
-          <div class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M4 17c5 0 9-3 15-12"/><path d="M15 5h4v4"/></svg>
-          </div>
-          <div class="body">
-            <div class="label">Crash</div>
-            <div class="code"><span class="bang">!</span>crash <span class="arg">10 2.5</span></div>
-          </div>
-        </div>
-
-        <div class="cmd">
-          <div class="icon">&#9827;</div>
-          <div class="body">
-            <div class="label">Blackjack</div>
-            <div class="code"><span class="bang">!</span>blackjack <span class="arg">10</span></div>
-          </div>
-        </div>
-
-        <div class="cmd">
-          <div class="icon">&#9829;</div>
-          <div class="body">
-            <div class="label">Blackjack moves</div>
-            <div class="code"><span class="bang">!</span>hit<span class="sep">or</span><span class="bang">!</span>stand</div>
-          </div>
-        </div>
-
-        <div class="cmd">
-          <div class="icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>
-          </div>
-          <div class="body">
-            <div class="label">Dice &middot; Slots</div>
-            <div class="code"><span class="bang">!</span>dice <span class="arg">high 10</span><span class="sep">&middot;</span><span class="bang">!</span>slots <span class="arg">10</span></div>
-          </div>
-        </div>
-
-        <div class="cmd help-cmd">
-          <div class="icon">?</div>
-          <div class="body">
-            <div class="label">All FoxBot commands</div>
-            <div class="code"><span class="bang">!</span>foxhelp</div>
-          </div>
-        </div>
-      </section>
-
+  <div class="ticker" id="ticker">
+    <div class="track" id="track">
+      <div class="segment" id="segment">
+        <span class="label">FOXBOT CASINO:</span>
+        <span>!casinoflip heads 10</span>
+        <span class="sep">|</span>
+        <span>!casino</span>
+        <span class="sep">|</span>
+        <span>!roulette red 10</span>
+        <span class="sep">|</span>
+        <span>!crash 10 2.5</span>
+        <span class="sep">|</span>
+        <span>!blackjack 10 • !hit • !stand</span>
+        <span class="sep">|</span>
+        <span>!dice high 10</span>
+        <span class="sep">|</span>
+        <span>!slots 10</span>
+        <span class="sep">||</span>
+        <span class="label">FOXBOT:</span>
+        <span>!foxhelp</span>
+      </div>
     </div>
   </div>
 
 <script>
-(function () {
-  var params = new URLSearchParams(location.search);
-  var root = document.documentElement;
+  const ticker = document.getElementById('ticker');
+  const track = document.getElementById('track');
+  const segment = document.getElementById('segment');
+  const params = new URLSearchParams(location.search);
 
-  var scale = parseFloat(params.get("scale"));
-  if (!isNaN(scale) && scale > 0.3 && scale < 2) root.style.setProperty("--scale", scale);
+  const speed = parseFloat(params.get('speed'));
+  const pixelsPerSecond = (speed > 10 && speed < 1000) ? speed : 115;
 
-  var bottom = parseInt(params.get("bottom"), 10);
-  if (!isNaN(bottom) && bottom >= 0 && bottom < 600) root.style.setProperty("--bottom", bottom + "px");
+  const bottom = parseInt(params.get('bottom'), 10);
+  if (bottom >= 0 && bottom < 1000) ticker.style.setProperty('--bottom', bottom + 'px');
 
-  if (params.get("preview") === "1") document.body.classList.add("preview");
-
-  // Shrink any line that doesn't fit its tile (guards against fallback
-  // fonts if Google Fonts can't load inside OBS).
-  function fit() {
-    var els = document.querySelectorAll(".code, .title, .help");
-    for (var k = 0; k < els.length; k++) {
-      var el = els[k];
-      el.style.fontSize = "";
-      var size = parseFloat(getComputedStyle(el).fontSize);
-      var min = size * 0.6;
-      while (el.scrollWidth > el.clientWidth + 1 && size > min) {
-        size -= 0.5;
-        el.style.fontSize = size + "px";
-      }
+  function build() {
+    // The casino list is shorter than the screen, so add copies until the
+    // strip is always full, then scroll exactly one segment width so the
+    // loop is seamless at a constant speed.
+    while (track.children.length > 1) track.removeChild(track.lastChild);
+    const distance = segment.getBoundingClientRect().width;
+    const copies = Math.ceil(window.innerWidth / distance) + 1;
+    for (let i = 0; i < copies; i++) {
+      const clone = segment.cloneNode(true);
+      clone.removeAttribute('id');
+      track.appendChild(clone);
     }
+    track.style.setProperty('--distance', distance + 'px');
+    track.style.setProperty('--duration', (distance / pixelsPerSecond) + 's');
   }
-  fit();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
-  window.addEventListener("load", fit);
-
-  // Rotating spotlight across the command tiles.
-  if (params.get("spotlight") === "0") return;
-  var cmds = Array.prototype.slice.call(document.querySelectorAll("#grid .cmd"));
-  var i = -1;
-  function step() {
-    if (i >= 0) cmds[i].classList.remove("lit");
-    i = (i + 1) % cmds.length;
-    cmds[i].classList.add("lit");
-  }
-  setTimeout(function () { step(); setInterval(step, 3200); }, 1100);
-})();
+  window.addEventListener('load', build);
+  window.addEventListener('resize', build);
 </script>
 </body>
 </html>
