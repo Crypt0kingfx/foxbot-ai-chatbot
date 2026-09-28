@@ -10826,7 +10826,8 @@ tts_overlay_html = """
 # spin resolves, then animates to the server-drawn result (it never
 # picks anything itself). Raw string: the JS uses \u escapes for emoji.
 # Query params: handle, wheel=exercise|sub, pos=center|left|right,
-# size=300..1000, sound=0, idle=show, demo=1 (local preview, no data).
+# size=300..1000 (default 720), hold=3..60 seconds the result stays up
+# (default 15), sound=0, idle=show, demo=1 (local preview, no data).
 wheel_overlay_html = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -10844,7 +10845,7 @@ wheel_overlay_html = r"""
     --pulse: #2DE2FF;
     --amber: #FFB300;
     --ink: #F2EBFA;
-    --wheel-size: 600px;
+    --wheel-size: 720px;
   }
   html, body {
     margin: 0;
@@ -11009,13 +11010,16 @@ wheel_overlay_html = r"""
   var soundOn = params.get("sound") !== "0";
   var idleShow = params.get("idle") === "show";
   var pos = (params.get("pos") || "center").toLowerCase();
-  var size = parseInt(params.get("size") || "600", 10);
+  var size = parseInt(params.get("size") || "720", 10);
+  var holdSeconds = parseInt(params.get("hold") || "15", 10);
   if (size >= 300 && size <= 1000) document.documentElement.style.setProperty("--wheel-size", size + "px");
 
   var dataUrl = "/overlay/wheel-data" + (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
 
   var SPIN_MS = 7200;
-  var HOLD_MS = 8000;
+  // How long the result stays on screen after the wheel lands.
+  // ?hold=N (3-60 seconds) overrides it per OBS source.
+  var HOLD_MS = (holdSeconds >= 3 && holdSeconds <= 60 ? holdSeconds : 15) * 1000;
   var FIRST_LOAD_REPLAY_SECONDS = 12;
 
   var stage = document.getElementById("stage");
@@ -11043,6 +11047,7 @@ wheel_overlay_html = r"""
   var currentSegments = [];
   var idleSegments = { exercise: [], sub: [] };
   var lightsPhase = 0;
+  var winnerIndex = -1;       // set once the wheel lands -> highlight that slice
 
   /* ── audio: short synthesized ticks + a win chord (no files needed) ── */
   var audioCtx = null;
@@ -11083,15 +11088,15 @@ wheel_overlay_html = r"""
 
   function fitLabel(text, maxWidth, maxFont) {
     var font = maxFont;
-    while (font > 16) {
+    while (font > 22) {
       ctx.font = "800 " + font + "px Syne, 'Arial Black', sans-serif";
       if (ctx.measureText(text).width <= maxWidth) return { text: text, font: font };
       font -= 2;
     }
-    ctx.font = "800 16px Syne, 'Arial Black', sans-serif";
+    ctx.font = "800 22px Syne, 'Arial Black', sans-serif";
     var t = text;
     while (t.length > 3 && ctx.measureText(t + "…").width > maxWidth) t = t.slice(0, -1);
-    return { text: t === text ? t : t + "…", font: 16 };
+    return { text: t === text ? t : t + "…", font: 22 };
   }
 
   function drawWheel() {
@@ -11128,7 +11133,7 @@ wheel_overlay_html = r"""
       ctx.closePath();
       var color = segColor(seg, i, n);
       var g = ctx.createRadialGradient(0, 0, hubR, 0, 0, rFace);
-      g.addColorStop(0, shade(color, -35));
+      g.addColorStop(0, shade(color, -15));
       g.addColorStop(1, color);
       ctx.fillStyle = g;
       ctx.fill();
@@ -11136,17 +11141,41 @@ wheel_overlay_html = r"""
       ctx.strokeStyle = "rgba(255,255,255,.55)";
       ctx.stroke();
 
+      if (winnerIndex >= 0 && i !== winnerIndex) {
+        // Landed: dim every slice except the winner so the result pops.
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, rFace, a0, a1);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(6, 2, 14, .62)";
+        ctx.fill();
+      }
+
       ctx.save();
-      ctx.rotate(a0 + arc / 2);
-      var maxW = rFace - hubR - 44;
-      var fitted = fitLabel(String(seg.label || ""), maxW, Math.min(44, Math.max(22, Math.floor(arc * rFace * 0.42))));
+      var mid = a0 + arc / 2;
+      ctx.rotate(mid);
+      // Keep labels upright: a slice pointing into the left half of the
+      // screen would otherwise read upside-down, so flip it 180°.
+      var screenAngle = Math.atan2(Math.sin(mid + rotation), Math.cos(mid + rotation));
+      var flip = Math.cos(screenAngle) < 0;
+      var maxW = rFace - hubR - 40;
+      var fitted = fitLabel(String(seg.label || ""), maxW, Math.min(56, Math.max(28, Math.floor(arc * rFace * 0.5))));
       ctx.font = "800 " + fitted.font + "px Syne, 'Arial Black', sans-serif";
-      ctx.textAlign = "right";
       ctx.textBaseline = "middle";
-      ctx.fillStyle = color === "#FFB300" ? "#1A0B2E" : "#FFFFFF";
-      ctx.shadowColor = "rgba(0,0,0,.55)";
-      ctx.shadowBlur = 6;
-      ctx.fillText(fitted.text, rFace - 26, 0);
+      if (flip) {
+        ctx.rotate(Math.PI);
+        ctx.textAlign = "left";
+      } else {
+        ctx.textAlign = "right";
+      }
+      var tx = flip ? -(rFace - 24) : (rFace - 24);
+      var gold = color === "#FFB300";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(6, Math.round(fitted.font * 0.22));
+      ctx.strokeStyle = gold ? "rgba(255,255,255,.85)" : "rgba(8,2,20,.95)";
+      ctx.strokeText(fitted.text, tx, 0);
+      ctx.fillStyle = gold ? "#1A0B2E" : "#FFFFFF";
+      ctx.fillText(fitted.text, tx, 0);
       ctx.restore();
     }
     ctx.restore();
@@ -11298,6 +11327,7 @@ wheel_overlay_html = r"""
     titleEl.textContent = spin.wheel_title || "Prize Wheel";
     subtitleEl.textContent = subtitleFor(spin);
     resultEl.classList.remove("show");
+    winnerIndex = -1;
     rotation = rotation % (Math.PI * 2);
     drawWheel();
     stage.classList.add("show");
@@ -11314,6 +11344,8 @@ wheel_overlay_html = r"""
     var target = base + Math.PI * 2 * 7 + ((landing % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
     if (target - rotation < Math.PI * 2 * 6) target += Math.PI * 2;
     await animateTo(target, SPIN_MS);
+    winnerIndex = idx;
+    drawWheel();
 
     var prize = spin.prize || {};
     resultLabel.textContent = prize.label || "?";
@@ -11327,6 +11359,7 @@ wheel_overlay_html = r"""
     if (!idleShow) stage.classList.remove("show");
     resultEl.classList.remove("show");
     await wait(600);
+    winnerIndex = -1;
     busy = false;
     next();
   }
