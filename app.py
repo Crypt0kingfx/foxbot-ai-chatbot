@@ -3201,6 +3201,7 @@ from games import slots as _foxbot_casino_slots_v1
 # keyed by creator_handle, not creator_id, unlike casino_config above.
 from services import tts_config as _foxbot_tts_config_v1
 from services import tts_filter as _foxbot_tts_filter_v1
+from services import prize_wheels as _foxbot_wheels_v1
 
 # Casino Studio Tab v1: the allowlist a POST to /api/studio/casino/
 # game-config/{game_id} is checked against -- built from each game
@@ -3655,6 +3656,279 @@ def _foxbot_tts_emit_chat_message_v1(creator_handle: str, username: str, message
         _foxbot_events_v1.emit_event(creator_handle, "tts_chat_message", actor=username, detail={"text": line})
     except Exception:
         pass
+
+
+# === Prize Wheels v1: Pushup (exercise) Wheel + Sub Prize Wheel ===
+# Storage, segment defaults, the spin queue and the weighted CSPRNG draw
+# all live in services/prize_wheels.py -- see its module docstring. This
+# block is only the glue into things that live in app.py: the polling
+# loop's auto-event hook (what queues a spin), FoxCoin payouts (the
+# economy is app.py state), and chat announcements.
+#
+# Every entry point here is wrapped the same way as the TTS hooks above:
+# a wheel bug or a Postgres blip must never be able to break the polling
+# loop's recognition reply, command dispatch, or anything else a chat
+# row drives.
+
+# Seconds between a spin resolving and its result being posted to chat --
+# long enough for /overlay/wheel's spin animation to land first, so chat
+# doesn't spoil the result the stream is still watching spin.
+FOXBOT_WHEEL_REVEAL_DELAY_SECONDS_V1 = 9.0
+# Gap before an auto-spun follow-up (respin / "spin the pushup wheel")
+# resolves, so its animation queues behind the parent's instead of the
+# two results arriving in chat back-to-back.
+FOXBOT_WHEEL_CHAIN_DELAY_SECONDS_V1 = 13.0
+
+
+def _foxbot_wheel_channel_for_handle_v1(creator_handle: str):
+    """channel_id to announce into for spins that didn't come from the
+    polling loop (Studio 'add spin', chained respins). None means the
+    owner channel (send_blaze_chat_message falls back to BLAZE_CHANNEL_ID)."""
+    handle = _foxbot_creator_access_v1.clean_handle(creator_handle)
+    if not handle or handle == _foxbot_events_v1.resolve_owner_handle():
+        return None
+    try:
+        return _foxbot_creator_access_v1.get_access(handle).get("channel_id") or None
+    except Exception:
+        return None
+
+
+def _foxbot_wheel_say_v1(creator_handle: str, spin: dict, text: str) -> None:
+    try:
+        channel_id = (spin or {}).get("channel_id") or _foxbot_wheel_channel_for_handle_v1(creator_handle)
+        owner = creator_handle == _foxbot_events_v1.resolve_owner_handle()
+        if not channel_id and not owner:
+            return  # never let a scoped creator's announcement fall back into the owner's channel
+        creator_id = (spin or {}).get("creator_id") or _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+        send_blaze_chat_message(text, channel_id=channel_id, creator_id=creator_id)
+    except Exception as error:
+        print(f"FoxBot wheel chat announce failed: {error}")
+
+
+def _foxbot_wheel_queued_line_v1(creator_handle: str, spin: dict, auto_spin: bool) -> str:
+    viewer = spin.get("viewer") or "someone"
+    title = spin.get("wheel_title") or "the wheel"
+    kind = spin.get("trigger_kind")
+    amount = int(spin.get("trigger_amount") or 0)
+    then = "Spinning now... 🎡" if auto_spin else f"@{creator_handle} will spin it shortly! 🎡"
+    if kind == "vote":
+        return f"🔥 @{viewer} sent {amount} votes -- that's a spin on the {title}! {then}"
+    if kind == "giftsub":
+        return f"🎁 @{viewer} gifted a sub -- that's a spin on the {title}! {then}"
+    if kind == "sub":
+        return f"💜 @{viewer} subscribed -- that's a spin on the {title}! {then}"
+    return f"🎡 @{viewer} earned a spin on the {title}! {then}"
+
+
+def _foxbot_wheel_result_line_v1(creator_handle: str, spin: dict, outcome: dict) -> str:
+    """Pure: the chat line for a resolved spin. `outcome` is what
+    _foxbot_wheel_fulfill_v1 actually did (credited / chained / capped),
+    so the line never claims a payout that didn't happen."""
+    prize = spin.get("prize") or {}
+    label = str(prize.get("label") or "a mystery prize")
+    prize_type = prize.get("type")
+    viewer = spin.get("viewer") or "someone"
+    streamer = f"@{creator_handle}"
+
+    if spin.get("wheel") == _foxbot_wheels_v1.WHEEL_EXERCISE:
+        if prize_type == "respin":
+            return f"🎡 Pushup Wheel landed on {label}! {streamer} -- another spin is coming 😈"
+        if prize_type == "nothing":
+            return f"🎡 Pushup Wheel landed on {label} -- {streamer} got lucky this time 😅 (thanks @{viewer}!)"
+        return f"💪 Pushup Wheel for @{viewer} landed on: {label}! {streamer}, drop and give 'em!"
+
+    if prize_type == "foxcoins":
+        if outcome.get("credited"):
+            return f"🎡 @{viewer} spun the Sub Prize Wheel and won {label}! 🦊 Balance: {outcome.get('balance'):,}"
+        return f"🎡 @{viewer} spun the Sub Prize Wheel and won {label}! 🦊 {streamer} will sort out the payout."
+    if prize_type == "task":
+        return f"🎡 @{viewer} won: {label}! {streamer} owes you one 😤"
+    if prize_type == "reward":
+        return f"🎁 @{viewer} won: {label}! {streamer} will deliver it by hand -- hang tight."
+    if prize_type == "respin":
+        if outcome.get("chain_capped"):
+            return f"🎡 @{viewer} landed on {label} -- but that's the respin limit for this one!"
+        return f"🎡 @{viewer} landed on {label}! Another spin is coming up..."
+    if prize_type == "exercise_spin":
+        if outcome.get("chain_capped"):
+            return f"💪 @{viewer} landed on {label} -- {streamer} is saved by the respin limit!"
+        return f"💪 @{viewer} is sending {streamer} to the Pushup Wheel!"
+    return f"🎡 @{viewer} spun the {spin.get('wheel_title') or 'wheel'}: {label}!"
+
+
+def _foxbot_wheel_fulfill_v1(creator_handle: str, spin: dict) -> dict:
+    """Does the automatic part of a freshly-resolved spin. Only ever
+    called with replayed=False spins -- resolve_spin()'s row lock is what
+    guarantees that happens once per spin -- and the FoxCoin credit is
+    idempotent on the spin id on top of that, belt-and-suspenders."""
+    outcome = {"credited": False, "balance": None, "child_spin_id": None, "chain_capped": False}
+    prize = spin.get("prize") or {}
+    prize_type = prize.get("type")
+    viewer = str(spin.get("viewer") or "").strip()
+
+    if prize_type == "foxcoins":
+        amount = int(prize.get("amount") or 0)
+        # An unattributed event (viewer fell back to "viewer") has nobody
+        # real to pay -- leave it for the creator to sort out rather than
+        # minting coins into a shared placeholder account.
+        if amount > 0 and viewer and viewer.lower() != "viewer":
+            try:
+                creator_id = spin.get("creator_id") or _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+                result = credit_foxcoins_idempotent(
+                    viewer, amount, idempotency_key=f"wheel:{creator_handle}:{spin['id']}",
+                    reason="prize_wheel", creator_id=creator_id,
+                )
+                save_persistent_data()
+                outcome.update(credited=True, balance=int(result.get("balance") or 0))
+            except Exception as error:
+                print(f"FoxBot wheel FoxCoin credit failed (spin={spin['id']}): {error}")
+        if not outcome["credited"]:
+            # Nobody real to pay, or the credit failed: surface it in the
+            # Studio "owed" list instead of silently dropping the prize.
+            _foxbot_wheels_v1.mark_owed(creator_handle, spin["id"])
+            spin["fulfillment"] = _foxbot_wheels_v1.FULFILL_OWED
+
+    if prize_type in ("respin", "exercise_spin"):
+        depth = int(spin.get("chain_depth") or 0) + 1
+        if depth > _foxbot_wheels_v1.MAX_CHAIN_DEPTH:
+            outcome["chain_capped"] = True
+        else:
+            child_wheel = spin["wheel"] if prize_type == "respin" else _foxbot_wheels_v1.WHEEL_EXERCISE
+            child = _foxbot_wheels_v1.queue_spin(
+                creator_handle, child_wheel, viewer or "viewer",
+                trigger_kind=prize_type, dedupe_key=f"chain:{spin['id']}",
+                channel_id=spin.get("channel_id"), creator_id=spin.get("creator_id"),
+                parent_spin_id=spin["id"], chain_depth=depth,
+            )
+            if child:
+                outcome["child_spin_id"] = child["id"]
+
+    return outcome
+
+
+def _foxbot_wheel_run_spin_v1(creator_handle: str, spin_id: int, *, announce: bool | None = None,
+                              reveal_delay: float | None = None) -> dict | None:
+    """Resolve -> fulfill -> (delayed) announce, for one queued spin.
+    Returns {"spin": ..., "outcome": ..., "replayed": bool} or None if
+    the spin doesn't exist / was cancelled. Used by the Studio Spin
+    button and by auto-spin; safe to call twice for the same spin (the
+    second call gets replayed=True and does nothing)."""
+    spin = _foxbot_wheels_v1.resolve_spin(creator_handle, spin_id)
+    if spin is None:
+        return None
+    if spin.get("replayed"):
+        return {"spin": spin, "outcome": {}, "replayed": True}
+
+    outcome = {"credited": False, "balance": None, "child_spin_id": None, "chain_capped": False}
+    try:
+        outcome = _foxbot_wheel_fulfill_v1(creator_handle, spin)
+    except Exception as error:
+        print(f"FoxBot wheel fulfill failed (spin={spin_id}): {error}")
+
+    _foxbot_events_v1.emit_event(
+        creator_handle, "wheel_spin", actor=spin.get("viewer"),
+        detail={"wheel": spin.get("wheel"), "prize": (spin.get("prize") or {}).get("label"), "spin_id": spin["id"]},
+    )
+
+    try:
+        config = _foxbot_wheels_v1.get_config(creator_handle)
+    except Exception:
+        config = None
+    should_announce = (config.announce_in_chat if config else True) if announce is None else announce
+    delay = FOXBOT_WHEEL_REVEAL_DELAY_SECONDS_V1 if reveal_delay is None else reveal_delay
+
+    if should_announce:
+        line = _foxbot_wheel_result_line_v1(creator_handle, spin, outcome)
+        if delay > 0:
+            timer = threading.Timer(delay, _foxbot_wheel_say_v1, args=(creator_handle, spin, line))
+            timer.daemon = True
+            timer.start()
+        else:
+            _foxbot_wheel_say_v1(creator_handle, spin, line)
+
+    child_id = outcome.get("child_spin_id")
+    if child_id and config and config.auto_spin:
+        _foxbot_wheel_schedule_auto_spin_v1(creator_handle, child_id, FOXBOT_WHEEL_CHAIN_DELAY_SECONDS_V1)
+
+    return {"spin": spin, "outcome": outcome, "replayed": False}
+
+
+def _foxbot_wheel_schedule_auto_spin_v1(creator_handle: str, spin_id: int, delay: float) -> None:
+    def _run():
+        try:
+            _foxbot_wheel_run_spin_v1(creator_handle, spin_id)
+        except Exception as error:
+            print(f"FoxBot wheel auto-spin failed (spin={spin_id}): {error}")
+
+    timer = threading.Timer(max(0.0, float(delay)), _run)
+    timer.daemon = True
+    timer.start()
+
+
+def _foxbot_wheel_on_auto_event_v1(creator_handle: str, auto_event: dict, message_key: str,
+                                   channel_id=None, creator_id=None):
+    """Polling-loop hook: a genuine (non-duplicate) vote / sub / giftsub
+    auto-event may earn a spin. Returns the queued spin or None. Never
+    raises -- same contract as the TTS hooks.
+
+    Triggers (per the creator's wheel_config, both wheels opt-in):
+      - vote    with amount >= vote_threshold  -> Pushup (exercise) Wheel
+      - sub / giftsub (1 spin per event)       -> Sub Prize Wheel
+    message_key (already channel-scoped by the polling loop) is the
+    durable dedupe key, so a restart re-reading recent chat can't
+    queue the same event twice."""
+    try:
+        event_type = str((auto_event or {}).get("event_type") or "")
+        if event_type not in ("vote", "sub", "giftsub"):
+            return None
+        if not message_key or not _foxbot_wheels_v1.is_available():
+            return None
+
+        config = _foxbot_wheels_v1.get_config(creator_handle)
+        amount = int((auto_event or {}).get("amount") or 0)
+
+        if event_type == "vote":
+            if not config.exercise_enabled or amount < config.vote_threshold:
+                return None
+            wheel = _foxbot_wheels_v1.WHEEL_EXERCISE
+        else:
+            if not config.sub_enabled:
+                return None
+            wheel = _foxbot_wheels_v1.WHEEL_SUB
+
+        spin = _foxbot_wheels_v1.queue_spin(
+            creator_handle, wheel, (auto_event or {}).get("username") or "viewer",
+            trigger_kind=event_type, trigger_amount=amount, dedupe_key=f"event:{message_key}",
+            channel_id=channel_id, creator_id=creator_id,
+        )
+        if spin is None:
+            return None  # already queued for this exact chat row
+
+        if config.announce_in_chat:
+            _foxbot_wheel_say_v1(creator_handle, spin, _foxbot_wheel_queued_line_v1(creator_handle, spin, config.auto_spin))
+        if config.auto_spin:
+            # Short delay so the "that's a spin!" line lands before the
+            # overlay starts moving.
+            _foxbot_wheel_schedule_auto_spin_v1(creator_handle, spin["id"], 2.0)
+        return spin
+    except Exception as error:
+        print(f"FoxBot wheel trigger failed: {error}")
+        return None
+
+
+def _foxbot_wheel_help_line_v1(creator_handle: str) -> str:
+    try:
+        config = _foxbot_wheels_v1.get_config(creator_handle)
+    except Exception:
+        return ""
+    parts = []
+    if config.exercise_enabled:
+        parts.append(f"send {config.vote_threshold}+ votes to spin the 💪 Pushup Wheel")
+    if config.sub_enabled:
+        parts.append("sub or gift a sub to spin the 🎁 Sub Prize Wheel (FoxCoins, challenges & prizes!)")
+    if not parts:
+        return ""
+    return "🎡 Prize Wheels: " + "; ".join(parts) + "."
 
 
 # === Casino Studio Tab v1, Feature 5: dashboard plays also post to chat ===
@@ -5118,6 +5392,10 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
         }
 
 
+
+    if lower_message in ("!wheel", "!wheels"):
+        wheel_help = _foxbot_wheel_help_line_v1(creator_handle)
+        return {"response": wheel_help or f"@{username}, the prize wheels aren't turned on in this channel yet."}
 
     if lower_message == "!foxhelp":
 
@@ -10538,6 +10816,587 @@ tts_overlay_html = """
   refreshStatus();
   poll();
   setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>
+"""
+
+# Prize Wheels v1: the /overlay/wheel OBS browser source. Hidden until a
+# spin resolves, then animates to the server-drawn result (it never
+# picks anything itself). Raw string: the JS uses \u escapes for emoji.
+# Query params: handle, wheel=exercise|sub, pos=center|left|right,
+# size=300..1000, sound=0, idle=show, demo=1 (local preview, no data).
+wheel_overlay_html = r"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FoxBot Prize Wheel Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --violet: #B026FF;
+    --magenta: #FF007F;
+    --pulse: #2DE2FF;
+    --amber: #FFB300;
+    --ink: #F2EBFA;
+    --wheel-size: 600px;
+  }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Instrument Sans", Arial, Helvetica, sans-serif;
+  }
+  #stage {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--wheel-size) + 80px);
+    transform: translate(-50%, -50%) scale(.6);
+    opacity: 0;
+    transition: opacity .45s ease, transform .55s cubic-bezier(.2, 1.4, .4, 1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+  }
+  #stage.pos-left { left: calc(var(--wheel-size) / 2 + 80px); }
+  #stage.pos-right { left: auto; right: calc(var(--wheel-size) / 2 + 80px); transform: translate(50%, -50%) scale(.6); }
+  #stage.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #stage.pos-right.show { transform: translate(50%, -50%) scale(1); }
+
+  .plaque {
+    text-align: center;
+    margin-bottom: 34px;
+    padding: 10px 30px 12px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(20, 8, 38, .92), rgba(10, 6, 18, .92));
+    border: 2px solid rgba(176, 38, 255, .7);
+    box-shadow: 0 0 22px rgba(176, 38, 255, .55), inset 0 0 18px rgba(255, 0, 127, .18);
+  }
+  .plaque h1 {
+    margin: 0;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 40px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 0 10px var(--violet), 0 0 24px var(--magenta);
+  }
+  .plaque p {
+    margin: 2px 0 0;
+    font-size: 21px;
+    font-weight: 600;
+    color: var(--pulse);
+    text-shadow: 0 0 8px rgba(45, 226, 255, .7);
+  }
+
+  .wheel-wrap {
+    position: relative;
+    width: var(--wheel-size);
+    height: var(--wheel-size);
+  }
+  .wheel-wrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  #wheel { filter: drop-shadow(0 0 26px rgba(176, 38, 255, .65)); }
+  .pointer {
+    position: absolute;
+    top: -26px;
+    left: 50%;
+    width: 0;
+    height: 0;
+    margin-left: -24px;
+    border-left: 24px solid transparent;
+    border-right: 24px solid transparent;
+    border-top: 54px solid var(--magenta);
+    filter: drop-shadow(0 0 10px var(--magenta)) drop-shadow(0 0 4px #fff);
+    transform-origin: 50% 10%;
+    z-index: 3;
+  }
+  .pointer.tick { animation: tick .12s ease-out; }
+  @keyframes tick {
+    0% { transform: rotate(0deg); }
+    40% { transform: rotate(-14deg); }
+    100% { transform: rotate(0deg); }
+  }
+
+  .result {
+    margin-top: 22px;
+    min-height: 92px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(18px) scale(.9);
+    transition: opacity .35s ease, transform .45s cubic-bezier(.2, 1.6, .4, 1);
+  }
+  .result.show { opacity: 1; transform: none; }
+  .result .label {
+    display: inline-block;
+    padding: 12px 34px;
+    border-radius: 999px;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 42px;
+    color: #fff;
+    background: linear-gradient(90deg, var(--violet), var(--magenta));
+    box-shadow: 0 0 28px rgba(255, 0, 127, .75), 0 0 60px rgba(176, 38, 255, .5);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .45);
+    animation: glow 1.1s ease-in-out infinite alternate;
+  }
+  .result .sub {
+    margin-top: 8px;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink);
+    text-shadow: 0 0 8px rgba(0, 0, 0, .9), 0 0 14px rgba(176, 38, 255, .8);
+  }
+  @keyframes glow {
+    from { box-shadow: 0 0 20px rgba(255, 0, 127, .6), 0 0 40px rgba(176, 38, 255, .35); }
+    to { box-shadow: 0 0 36px rgba(255, 0, 127, .95), 0 0 80px rgba(176, 38, 255, .7); }
+  }
+  #confetti {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  #status {
+    position: fixed;
+    bottom: 6px;
+    left: 6px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, .3);
+    text-shadow: 0 0 4px rgba(0, 0, 0, .8);
+  }
+</style>
+</head>
+<body>
+  <canvas id="confetti"></canvas>
+  <div id="stage">
+    <div class="plaque">
+      <h1 id="title">Prize Wheel</h1>
+      <p id="subtitle">&nbsp;</p>
+    </div>
+    <div class="wheel-wrap">
+      <div class="pointer" id="pointer"></div>
+      <canvas id="wheel" width="1200" height="1200"></canvas>
+    </div>
+    <div class="result" id="result">
+      <div class="label" id="resultLabel">&nbsp;</div>
+      <div class="sub" id="resultSub">&nbsp;</div>
+    </div>
+  </div>
+  <div id="status">FoxBot wheel overlay loading...</div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var handle = params.get("handle") || "";
+  var onlyWheel = (params.get("wheel") || "").toLowerCase();
+  var demo = params.get("demo") === "1";
+  var soundOn = params.get("sound") !== "0";
+  var idleShow = params.get("idle") === "show";
+  var pos = (params.get("pos") || "center").toLowerCase();
+  var size = parseInt(params.get("size") || "600", 10);
+  if (size >= 300 && size <= 1000) document.documentElement.style.setProperty("--wheel-size", size + "px");
+
+  var dataUrl = "/overlay/wheel-data" + (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
+
+  var SPIN_MS = 7200;
+  var HOLD_MS = 8000;
+  var FIRST_LOAD_REPLAY_SECONDS = 12;
+
+  var stage = document.getElementById("stage");
+  if (pos === "left" || pos === "right") stage.classList.add("pos-" + pos);
+  var titleEl = document.getElementById("title");
+  var subtitleEl = document.getElementById("subtitle");
+  var resultEl = document.getElementById("result");
+  var resultLabel = document.getElementById("resultLabel");
+  var resultSub = document.getElementById("resultSub");
+  var pointer = document.getElementById("pointer");
+  var statusEl = document.getElementById("status");
+  var canvas = document.getElementById("wheel");
+  var ctx = canvas.getContext("2d");
+  var confettiCanvas = document.getElementById("confetti");
+  var cctx = confettiCanvas.getContext("2d");
+
+  var PALETTE = ["#B026FF", "#FF007F", "#6A16C9", "#2A1250"];
+  var TYPE_COLORS = { foxcoins: null, jackpot: "#FFB300" };
+
+  var seen = new Set();
+  var queue = [];
+  var busy = false;
+  var firstPoll = true;
+  var rotation = 0;           // radians, current wheel rotation
+  var currentSegments = [];
+  var idleSegments = { exercise: [], sub: [] };
+  var lightsPhase = 0;
+
+  /* ── audio: short synthesized ticks + a win chord (no files needed) ── */
+  var audioCtx = null;
+  function audio() {
+    if (!soundOn) return null;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      return audioCtx;
+    } catch (e) { return null; }
+  }
+  function beep(freq, dur, vol, type) {
+    var ac = audio();
+    if (!ac) return;
+    var osc = ac.createOscillator();
+    var gain = ac.createGain();
+    osc.type = type || "square";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + dur);
+  }
+  function tickSound() { beep(1400, 0.03, 0.05, "square"); }
+  function winSound() {
+    [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) {
+      setTimeout(function () { beep(f, 0.35, 0.08, "triangle"); }, i * 90);
+    });
+  }
+
+  function segColor(seg, i, n) {
+    var label = String(seg.label || "").toLowerCase();
+    if (label.indexOf("jackpot") !== -1 || label.indexOf("50 pushups") !== -1) return "#FFB300";
+    var c = PALETTE[i % PALETTE.length];
+    if (i === n - 1 && c === PALETTE[0]) c = PALETTE[2];
+    return c;
+  }
+
+  function fitLabel(text, maxWidth, maxFont) {
+    var font = maxFont;
+    while (font > 16) {
+      ctx.font = "800 " + font + "px Syne, 'Arial Black', sans-serif";
+      if (ctx.measureText(text).width <= maxWidth) return { text: text, font: font };
+      font -= 2;
+    }
+    ctx.font = "800 16px Syne, 'Arial Black', sans-serif";
+    var t = text;
+    while (t.length > 3 && ctx.measureText(t + "…").width > maxWidth) t = t.slice(0, -1);
+    return { text: t === text ? t : t + "…", font: 16 };
+  }
+
+  function drawWheel() {
+    var W = canvas.width, R = W / 2, cx = R, cy = R;
+    var rimW = 46, rOuter = R - 8, rFace = rOuter - rimW, hubR = 92;
+    ctx.clearRect(0, 0, W, W);
+    var segs = currentSegments;
+    var n = segs.length || 1;
+    var arc = (Math.PI * 2) / n;
+
+    // rim
+    ctx.beginPath();
+    ctx.arc(cx, cy, rOuter, 0, Math.PI * 2);
+    var rimGrad = ctx.createLinearGradient(0, 0, W, W);
+    rimGrad.addColorStop(0, "#2A1250");
+    rimGrad.addColorStop(.5, "#12081F");
+    rimGrad.addColorStop(1, "#2A1250");
+    ctx.fillStyle = rimGrad;
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "#B026FF";
+    ctx.stroke();
+
+    // segments (rotated with the wheel)
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+    for (var i = 0; i < n; i++) {
+      var seg = segs[i] || { label: "" };
+      var a0 = -Math.PI / 2 + i * arc, a1 = a0 + arc;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, rFace, a0, a1);
+      ctx.closePath();
+      var color = segColor(seg, i, n);
+      var g = ctx.createRadialGradient(0, 0, hubR, 0, 0, rFace);
+      g.addColorStop(0, shade(color, -35));
+      g.addColorStop(1, color);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.stroke();
+
+      ctx.save();
+      ctx.rotate(a0 + arc / 2);
+      var maxW = rFace - hubR - 44;
+      var fitted = fitLabel(String(seg.label || ""), maxW, Math.min(44, Math.max(22, Math.floor(arc * rFace * 0.42))));
+      ctx.font = "800 " + fitted.font + "px Syne, 'Arial Black', sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = color === "#FFB300" ? "#1A0B2E" : "#FFFFFF";
+      ctx.shadowColor = "rgba(0,0,0,.55)";
+      ctx.shadowBlur = 6;
+      ctx.fillText(fitted.text, rFace - 26, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // chase lights on the rim (static frame, lights animate)
+    var bulbs = 28;
+    for (var b = 0; b < bulbs; b++) {
+      var ang = (b / bulbs) * Math.PI * 2;
+      var bx = cx + Math.cos(ang) * (rOuter - rimW / 2);
+      var by = cy + Math.sin(ang) * (rOuter - rimW / 2);
+      var on = (b + lightsPhase) % 3 === 0;
+      ctx.beginPath();
+      ctx.arc(bx, by, on ? 9 : 7, 0, Math.PI * 2);
+      ctx.fillStyle = on ? "#FFFFFF" : (b % 2 ? "#FF007F" : "#2DE2FF");
+      ctx.shadowColor = on ? "#FFFFFF" : (b % 2 ? "#FF007F" : "#2DE2FF");
+      ctx.shadowBlur = on ? 22 : 10;
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // hub
+    ctx.beginPath();
+    ctx.arc(cx, cy, hubR, 0, Math.PI * 2);
+    var hub = ctx.createRadialGradient(cx - 20, cy - 20, 10, cx, cy, hubR);
+    hub.addColorStop(0, "#3A1A66");
+    hub.addColorStop(1, "#0A0612");
+    ctx.fillStyle = hub;
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#FF007F";
+    ctx.shadowColor = "#FF007F";
+    ctx.shadowBlur = 24;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.font = "96px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🦊", cx, cy + 6);
+  }
+
+  function shade(hex, pct) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.max(0, Math.min(255, (n >> 16) + pct));
+    var g = Math.max(0, Math.min(255, ((n >> 8) & 255) + pct));
+    var b = Math.max(0, Math.min(255, (n & 255) + pct));
+    return "rgb(" + r + "," + g + "," + b + ")";
+  }
+
+  setInterval(function () {
+    lightsPhase = (lightsPhase + 1) % 3;
+    if (stage.classList.contains("show") && !spinning) drawWheel();
+  }, 220);
+
+  /* ── confetti ── */
+  var particles = [];
+  function burst() {
+    confettiCanvas.width = window.innerWidth;
+    confettiCanvas.height = window.innerHeight;
+    var rect = document.querySelector(".wheel-wrap").getBoundingClientRect();
+    var ox = rect.left + rect.width / 2, oy = rect.top + rect.height / 2;
+    var colors = ["#B026FF", "#FF007F", "#2DE2FF", "#FFB300", "#FFFFFF"];
+    for (var i = 0; i < 180; i++) {
+      var ang = Math.random() * Math.PI * 2, sp = 6 + Math.random() * 14;
+      particles.push({
+        x: ox, y: oy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 6,
+        s: 6 + Math.random() * 8, c: colors[i % colors.length],
+        r: Math.random() * 6, vr: (Math.random() - .5) * .4, life: 140 + Math.random() * 60,
+      });
+    }
+    if (particles.length === 180) requestAnimationFrame(stepConfetti);
+  }
+  function stepConfetti() {
+    cctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    particles = particles.filter(function (p) { return p.life > 0; });
+    particles.forEach(function (p) {
+      p.vy += 0.35; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life -= 1;
+      cctx.save();
+      cctx.globalAlpha = Math.min(1, p.life / 40);
+      cctx.translate(p.x, p.y); cctx.rotate(p.r);
+      cctx.fillStyle = p.c;
+      cctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2);
+      cctx.restore();
+    });
+    if (particles.length) requestAnimationFrame(stepConfetti);
+    else cctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+  }
+
+  /* ── spin ── */
+  var spinning = false;
+
+  function subtitleFor(spin) {
+    var v = "@" + (spin.viewer || "someone");
+    var k = spin.trigger_kind;
+    if (k === "vote") return v + " sent " + spin.trigger_amount + " votes!";
+    if (k === "giftsub") return v + " gifted a sub!";
+    if (k === "sub") return v + " subscribed!";
+    if (k === "respin") return "Bonus spin for " + v + "!";
+    if (k === "exercise_spin") return v + " sent the streamer here!";
+    if (k === "test") return "Test spin";
+    return "Spin for " + v;
+  }
+
+  function resultSubFor(spin) {
+    var p = spin.prize || {};
+    if (spin.wheel === "exercise") {
+      if (p.type === "nothing") return "Lucky escape!";
+      if (p.type === "respin") return "Here we go again...";
+      return "Drop and give 'em! 💪";
+    }
+    if (p.type === "foxcoins") return "@" + spin.viewer + " wins! 🦊";
+    if (p.type === "respin") return "Bonus spin incoming!";
+    if (p.type === "exercise_spin") return "Off to the Pushup Wheel! 💪";
+    return "@" + spin.viewer + " wins!";
+  }
+
+  function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
+
+  function animateTo(targetRotation, durationMs) {
+    return new Promise(function (resolve) {
+      var start = performance.now(), from = rotation, delta = targetRotation - from;
+      var n = currentSegments.length || 1, arc = (Math.PI * 2) / n;
+      var lastIdx = Math.floor(from / arc);
+      spinning = true;
+      function frame(now) {
+        var t = Math.min(1, (now - start) / durationMs);
+        rotation = from + delta * easeOutQuart(t);
+        var idx = Math.floor(rotation / arc);
+        if (idx !== lastIdx) {
+          lastIdx = idx;
+          pointer.classList.remove("tick"); void pointer.offsetWidth; pointer.classList.add("tick");
+          tickSound();
+        }
+        lightsPhase = Math.floor(now / 90) % 3;
+        drawWheel();
+        if (t < 1) requestAnimationFrame(frame);
+        else { spinning = false; resolve(); }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  async function play(spin) {
+    busy = true;
+    currentSegments = spin.segments || [];
+    var n = currentSegments.length || 1;
+    var arc = (Math.PI * 2) / n;
+    titleEl.textContent = spin.wheel_title || "Prize Wheel";
+    subtitleEl.textContent = subtitleFor(spin);
+    resultEl.classList.remove("show");
+    rotation = rotation % (Math.PI * 2);
+    drawWheel();
+    stage.classList.add("show");
+    await wait(700);
+
+    // Segment i spans [i*arc, (i+1)*arc) clockwise from the top pointer at
+    // rotation 0. To bring a point at angle p (within that span) under the
+    // pointer, the wheel must rotate by -p (mod 2π). Land somewhere inside
+    // the middle 70% of the segment so it never looks like a boundary call.
+    var idx = Math.max(0, Math.min(n - 1, spin.segment_index || 0));
+    var jitter = (Math.random() - 0.5) * arc * 0.7;
+    var landing = -(idx * arc + arc / 2 + jitter);
+    var base = rotation - (rotation % (Math.PI * 2));
+    var target = base + Math.PI * 2 * 7 + ((landing % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    if (target - rotation < Math.PI * 2 * 6) target += Math.PI * 2;
+    await animateTo(target, SPIN_MS);
+
+    var prize = spin.prize || {};
+    resultLabel.textContent = prize.label || "?";
+    resultSub.textContent = resultSubFor(spin);
+    resultEl.classList.add("show");
+    winSound();
+    burst();
+    statusEl.textContent = "FoxBot wheel | last: " + (prize.label || "") + " for @" + spin.viewer;
+
+    await wait(HOLD_MS);
+    if (!idleShow) stage.classList.remove("show");
+    resultEl.classList.remove("show");
+    await wait(600);
+    busy = false;
+    next();
+  }
+
+  function next() {
+    if (busy || !queue.length) {
+      if (!busy && idleShow) showIdle();
+      return;
+    }
+    play(queue.shift());
+  }
+
+  function showIdle() {
+    var key = onlyWheel === "sub" ? "sub" : "exercise";
+    var segs = idleSegments[key] || [];
+    if (!segs.length || stage.classList.contains("show")) return;
+    currentSegments = segs;
+    titleEl.textContent = key === "sub" ? "Sub Prize Wheel" : "Pushup Wheel";
+    subtitleEl.textContent = key === "sub" ? "Sub or gift a sub to spin!" : "Send 50+ votes to spin!";
+    drawWheel();
+    stage.classList.add("show");
+  }
+
+  async function poll() {
+    try {
+      var res = await fetch(dataUrl, { cache: "no-store" });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.ok) return;
+      idleSegments = data.wheels || idleSegments;
+      (data.spins || []).forEach(function (spin) {
+        if (seen.has(spin.id)) return;
+        seen.add(spin.id);
+        if (onlyWheel && spin.wheel !== onlyWheel) return;
+        // A freshly (re)loaded overlay only replays spins from the last
+        // few seconds -- enough to survive OBS refreshing the source on a
+        // scene switch, never enough to replay a spin chat already saw.
+        if (firstPoll && (spin.age_seconds || 0) > FIRST_LOAD_REPLAY_SECONDS) return;
+        queue.push(spin);
+      });
+      firstPoll = false;
+      statusEl.textContent = statusEl.textContent.indexOf("last:") === -1 ? "FoxBot wheel overlay ready" : statusEl.textContent;
+      next();
+    } catch (err) {
+      /* transient network blip -- skip this poll quietly */
+    }
+  }
+
+  if (demo) {
+    var demoId = 1;
+    var demoSegs = [
+      { label: "10 Pushups", type: "task" }, { label: "25 Squats", type: "task" }, { label: "30s Plank", type: "task" },
+      { label: "30 Jumping Jacks", type: "task" }, { label: "20 Pushups", type: "task" }, { label: "20 Sit-ups", type: "task" },
+      { label: "20 Lunges", type: "task" }, { label: "45s Wall Sit", type: "task" }, { label: "15 Burpees", type: "task" },
+      { label: "60s Plank", type: "task" }, { label: "Chat Picks the Workout", type: "task" }, { label: "Free Pass!", type: "nothing" },
+      { label: "Spin Twice", type: "respin" }, { label: "50 PUSHUPS", type: "task" }
+    ];
+    var fire = function () {
+      var i = Math.floor(Math.random() * demoSegs.length);
+      queue.push({ id: "demo-" + (demoId++), wheel: "exercise", wheel_title: "Pushup Wheel", viewer: "DemoViewer",
+        trigger_kind: "vote", trigger_amount: 75, segments: demoSegs, segment_index: i, prize: demoSegs[i] });
+      next();
+    };
+    fire();
+    setInterval(fire, 20000);
+    statusEl.textContent = "FoxBot wheel overlay -- DEMO mode";
+  } else {
+    poll();
+    setInterval(poll, 2000);
+  }
 })();
 </script>
 </body>
@@ -18412,6 +19271,274 @@ async def foxbot_overlay_tts_ack_v1(payload: dict):
 @app.get("/overlay/tts", response_class=HTMLResponse)
 async def foxbot_overlay_tts_page_v1():
     return tts_overlay_html
+
+
+# === Prize Wheels v1: Studio routes + the public /overlay/wheel OBS page ===
+# /api/studio/wheels/* sits under the already Layer-1-gated /api/studio/
+# prefix and is self-service, scoped by the session's own handle via
+# _foxbot_resolve_event_handle_v1 -- same shape as the TTS config routes
+# above (and "" still means "no channel for this session", never a
+# fallback to tenant-zero's wheels). /overlay/wheel + /overlay/wheel-data
+# are anonymous OBS browser sources scoped by ?handle=, same trust model
+# as /overlay/casino-data: display-only fields, nothing that moves money.
+
+
+def _foxbot_wheels_session_handle_v1(request: Request) -> str:
+    return _foxbot_resolve_event_handle_v1(getattr(request.state, "blaze_id", None)) or ""
+
+
+def _foxbot_wheels_error_v1(message: str, status_code: int = 400):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse({"ok": False, "error": message}, status_code=status_code)
+
+
+def _foxbot_wheels_config_payload_v1(config) -> dict:
+    return {
+        "creator_handle": config.creator_handle,
+        "exercise_enabled": config.exercise_enabled,
+        "sub_enabled": config.sub_enabled,
+        "vote_threshold": config.vote_threshold,
+        "auto_spin": config.auto_spin,
+        "announce_in_chat": config.announce_in_chat,
+        "segments": config.segments,
+        "prize_types": list(_foxbot_wheels_v1.PRIZE_TYPES),
+        "max_segments": _foxbot_wheels_v1.MAX_SEGMENTS,
+    }
+
+
+@app.get("/api/studio/wheels")
+async def foxbot_studio_wheels_get_v1(request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        config = _foxbot_wheels_v1.get_config(handle)
+        queued = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=50)
+        owed = _foxbot_wheels_v1.list_spins(
+            handle, status=_foxbot_wheels_v1.STATUS_SPUN, fulfillment=_foxbot_wheels_v1.FULFILL_OWED,
+            oldest_first=True, limit=100,
+        )
+        recent = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_SPUN, limit=15)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+
+    def slim(spin):
+        return {key: spin.get(key) for key in (
+            "id", "wheel", "wheel_title", "viewer", "trigger_kind", "trigger_amount", "status",
+            "prize", "fulfillment", "created_at", "spun_at", "fulfilled_at", "chain_depth",
+        )}
+
+    return {
+        "ok": True,
+        "config": _foxbot_wheels_config_payload_v1(config),
+        "queued": [slim(s) for s in queued],
+        "owed": [slim(s) for s in owed],
+        "recent": [slim(s) for s in recent],
+        "overlay_path": f"/overlay/wheel?handle={handle}",
+    }
+
+
+@app.post("/api/studio/wheels/config")
+async def foxbot_studio_wheels_config_post_v1(payload: dict, request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+
+    kwargs = {}
+    for flag in ("exercise_enabled", "sub_enabled", "auto_spin", "announce_in_chat"):
+        if flag in payload:
+            kwargs[flag] = bool(payload[flag])
+    if "vote_threshold" in payload:
+        try:
+            kwargs["vote_threshold"] = int(payload["vote_threshold"])
+        except (TypeError, ValueError):
+            return _foxbot_wheels_error_v1("vote_threshold must be a whole number.")
+    if "exercise_segments" in payload:
+        kwargs["exercise_segments"] = payload["exercise_segments"]
+    if "sub_segments" in payload:
+        kwargs["sub_segments"] = payload["sub_segments"]
+    if payload.get("reset_segments"):
+        kwargs["reset_segments"] = str(payload["reset_segments"])
+
+    try:
+        config = _foxbot_wheels_v1.set_config(handle, **kwargs)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    except ValueError as exc:
+        return _foxbot_wheels_error_v1(str(exc))
+
+    return {"ok": True, "config": _foxbot_wheels_config_payload_v1(config)}
+
+
+def _foxbot_wheels_spin_response_v1(result):
+    spin = result["spin"]
+    return {
+        "ok": True,
+        "replayed": result["replayed"],
+        "spin": {
+            "id": spin["id"], "wheel": spin["wheel"], "viewer": spin["viewer"],
+            "prize": spin.get("prize"), "fulfillment": spin.get("fulfillment"),
+        },
+        "outcome": result.get("outcome") or {},
+    }
+
+
+@app.post("/api/studio/wheels/spin/{spin_id}")
+async def foxbot_studio_wheels_spin_v1(spin_id: int, request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        result = _foxbot_wheel_run_spin_v1(handle, spin_id)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    except ValueError as exc:
+        return _foxbot_wheels_error_v1(str(exc))
+    if result is None:
+        return _foxbot_wheels_error_v1("that spin doesn't exist or was cancelled.", 404)
+    return _foxbot_wheels_spin_response_v1(result)
+
+
+@app.post("/api/studio/wheels/spin-next")
+async def foxbot_studio_wheels_spin_next_v1(request: Request):
+    """Spins the oldest queued spin -- one button (or a Stream Deck
+    hotkey) that always does the right next thing."""
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        queued = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=1)
+        if not queued:
+            return _foxbot_wheels_error_v1("nothing in the spin queue.", 404)
+        result = _foxbot_wheel_run_spin_v1(handle, queued[0]["id"])
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    if result is None:
+        return _foxbot_wheels_error_v1("that spin was just cancelled -- try again.", 409)
+    return _foxbot_wheels_spin_response_v1(result)
+
+
+@app.post("/api/studio/wheels/add")
+async def foxbot_studio_wheels_add_v1(payload: dict, request: Request):
+    """Manually queue a spin -- for an event the bot missed, a raid, or
+    just because. Goes through the same queue/spin/fulfill path as a
+    real trigger."""
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    wheel = str(payload.get("wheel") or "").strip().lower()
+    if wheel not in _foxbot_wheels_v1.WHEELS:
+        return _foxbot_wheels_error_v1("wheel must be 'exercise' or 'sub'.")
+    viewer = str(payload.get("viewer") or "").strip().lstrip("@")
+    if not viewer or not re.fullmatch(r"[A-Za-z0-9_.\-]{1,40}", viewer):
+        return _foxbot_wheels_error_v1("enter the viewer's Blaze username (letters, numbers, _ . -).")
+    try:
+        spin = _foxbot_wheels_v1.queue_spin(
+            handle, wheel, viewer, trigger_kind="manual", dedupe_key=f"manual:{uuid.uuid4().hex}",
+            creator_id=_foxbot_resolve_creator_id_v1(creator_handle=handle),
+        )
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    return {"ok": True, "spin_id": spin["id"] if spin else None}
+
+
+@app.post("/api/studio/wheels/test")
+async def foxbot_studio_wheels_test_v1(payload: dict, request: Request):
+    """Overlay preview: a real draw so the OBS source animates, but no
+    payout, no chat message, nothing owed."""
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    wheel = str(payload.get("wheel") or "").strip().lower()
+    if wheel not in _foxbot_wheels_v1.WHEELS:
+        return _foxbot_wheels_error_v1("wheel must be 'exercise' or 'sub'.")
+    try:
+        spin = _foxbot_wheels_v1.queue_spin(
+            handle, wheel, "TestViewer", trigger_kind="test", dedupe_key=f"test:{uuid.uuid4().hex}",
+        )
+        resolved = _foxbot_wheels_v1.resolve_spin(handle, spin["id"])
+        _foxbot_wheels_v1.close_test_spin(handle, spin["id"])
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    return {"ok": True, "spin_id": spin["id"], "prize": (resolved or {}).get("prize")}
+
+
+@app.post("/api/studio/wheels/fulfill/{spin_id}")
+async def foxbot_studio_wheels_fulfill_v1(spin_id: int, payload: dict, request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        spin = _foxbot_wheels_v1.set_fulfilled(handle, spin_id, done=bool(payload.get("done", True)))
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    if spin is None:
+        return _foxbot_wheels_error_v1("nothing to update for that spin.", 404)
+    return {"ok": True, "fulfillment": spin["fulfillment"]}
+
+
+@app.post("/api/studio/wheels/cancel/{spin_id}")
+async def foxbot_studio_wheels_cancel_v1(spin_id: int, request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        spin = _foxbot_wheels_v1.cancel_spin(handle, spin_id)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
+    if spin is None:
+        return _foxbot_wheels_error_v1("only a queued spin can be cancelled.", 404)
+    return {"ok": True}
+
+
+@app.get("/overlay/wheel-data")
+async def foxbot_overlay_wheel_data_v1(handle: str = ""):
+    from datetime import datetime as _dt, timezone as _tz
+
+    creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
+    try:
+        config = _foxbot_wheels_v1.get_config(creator_handle)
+        spins = _foxbot_wheels_v1.latest_spun(creator_handle, max_age_seconds=120)
+    except Exception:
+        return {"ok": False, "creator_handle": creator_handle, "spins": [], "wheels": {}}
+
+    now = _dt.now(_tz.utc)
+
+    def display_segments(segments):
+        return [{"label": seg.get("label", ""), "type": seg.get("type", "")} for seg in segments or []]
+
+    out = []
+    for spin in spins:
+        spun_at = _dt.fromisoformat(spin["spun_at"]) if spin.get("spun_at") else None
+        prize = spin.get("prize") or {}
+        out.append({
+            "id": spin["id"],
+            "wheel": spin["wheel"],
+            "wheel_title": spin["wheel_title"],
+            "viewer": spin["viewer"],
+            "trigger_kind": spin["trigger_kind"],
+            "trigger_amount": spin["trigger_amount"],
+            "segments": display_segments(spin.get("segments")),
+            "segment_index": spin.get("segment_index"),
+            "prize": {"label": prize.get("label", ""), "type": prize.get("type", "")},
+            "age_seconds": int((now - spun_at).total_seconds()) if spun_at else None,
+        })
+
+    return {
+        "ok": True,
+        "creator_handle": creator_handle,
+        "spins": out,
+        "wheels": {
+            wheel: display_segments(_foxbot_wheels_v1.active_segments(config, wheel))
+            for wheel in _foxbot_wheels_v1.WHEELS
+        },
+    }
+
+
+@app.get("/overlay/wheel", response_class=HTMLResponse)
+async def foxbot_overlay_wheel_page_v1():
+    return wheel_overlay_html
 
 
 @app.post("/api/studio/action/live/{action}")
@@ -28543,6 +29670,28 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
             )
         except Exception as auto_event_error:
             polling_status["last_auto_event_error"] = str(auto_event_error)
+
+        # Prize Wheels v1: a 50+ vote / sub / gift-sub row may earn a spin.
+        # Deliberately runs BEFORE the recognition-reply branch below and
+        # ignores that branch's per-viewer reply cooldown: a cooldown only
+        # suppresses a repeated thank-you message, it must not eat a
+        # second 50-vote drop's spin. A true dedupe hit (duplicate without
+        # cooldown) is the same chat row seen twice and is skipped; the
+        # wheel's own UNIQUE dedupe key backs that up across restarts.
+        # Whole call wrapped -- the hook never raises, and nothing here may
+        # affect the reply/dispatch below.
+        if (
+            auto_event_result
+            and auto_event_result.get("event")
+            and not (auto_event_result.get("duplicate") and not auto_event_result.get("cooldown"))
+        ):
+            try:
+                _foxbot_wheel_on_auto_event_v1(
+                    creator_handle, auto_event_result.get("event"), message_key,
+                    channel_id=channel_id or None, creator_id=resolved_creator_id,
+                )
+            except Exception:
+                pass
 
         if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
             foxbot_reply = auto_event_result.get("message")
