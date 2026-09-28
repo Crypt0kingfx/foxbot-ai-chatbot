@@ -708,6 +708,48 @@ body::before {
 
 .subhead-spaced { margin-top: 20px; }
 
+/* ═══ PRIZE WHEELS ═══════════════════════════════════════════ */
+.wheel-row { align-items: center; }
+#page-wheels > .card + .card { margin-top: 16px; }
+#page-wheels .action-row .step-go, #page-wheels .field-row > .step-go { margin-left: 0; }
+.wheel-row .feed-body { flex: 1; }
+.wheel-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.wheel-row-actions .step-go { margin-left: 0; }
+.wheel-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-right: 6px;
+  border: 1px solid var(--line-hot);
+  color: var(--ink-dim);
+}
+.wheel-badge.exercise { border-color: rgba(45,226,255,.45); color: var(--pulse); }
+.wheel-badge.sub { border-color: rgba(176,38,255,.5); color: #D9A6FF; }
+.wheel-prize { color: var(--ink); font-weight: 600; }
+.wheel-seg-table-wrap { overflow-x: auto; }
+.wheel-seg-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wheel-seg-table th {
+  text-align: left;
+  font-size: 10.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  font-weight: 500;
+  padding: 6px 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.wheel-seg-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.wheel-seg-table .field-input { width: 100%; padding: 6px 8px; }
+.wheel-seg-table td.odds { font-family: var(--font-data); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+.wheel-seg-table input[type="checkbox"] { accent-color: var(--violet); width: 16px; height: 16px; }
+.wheel-seg-table .seg-label { min-width: 190px; }
+.wheel-seg-table .seg-num { width: 90px; }
+.wheel-seg-remove { background: none; border: 0; color: var(--ink-mute); cursor: pointer; font-size: 16px; }
+.wheel-seg-remove:hover { color: var(--magenta); }
+
 /* ═══ RESPONSIVE + A11Y ═════════════════════════════════════ */
 
 @media (max-width: 980px) {
@@ -758,6 +800,7 @@ body::before {
           <button class="item" data-target="page-economy">Economy</button>
           <button class="item" data-target="page-recognition">Recognition</button>
           <button class="item" data-target="page-casino">Casino</button>
+          <button class="item" data-target="page-wheels">Prize Wheels</button>
         </div>
       </div>
 
@@ -1172,6 +1215,134 @@ body::before {
         <h2 class="card-title">Active event</h2>
       </div>
       <div id="eventStatus"></div>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-wheels" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Prize Wheels</h1>
+      <p class="page-sub">The 💪 Pushup Wheel spins on big vote drops, the 🎁 Sub Prize Wheel spins on every sub and gift sub. Results are drawn server-side; your /overlay/wheel OBS source animates them.</p>
+    </div>
+
+    <section class="card" aria-label="Spin queue">
+      <div class="card-head">
+        <h2 class="card-title">Spin queue</h2>
+        <span class="card-count" id="wheelQueueCount">—</span>
+        <button type="button" id="wheelSpinNextBtn" class="step-go" style="margin-left:12px;">🎡 Spin next</button>
+      </div>
+      <p class="card-sub">Earned spins wait here until you hit Spin (unless auto-spin is on). The overlay plays them one at a time, and chat gets the result once the wheel lands.</p>
+      <div id="wheelQueue"></div>
+      <p class="dismiss-error" id="wheelQueueError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">Add a spin by hand</h3>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Wheel</span>
+          <select id="wheelAddWheel" class="field-input">
+            <option value="exercise">💪 Pushup Wheel</option>
+            <option value="sub">🎁 Sub Prize Wheel</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">Viewer (Blaze username)</span>
+          <input type="text" id="wheelAddViewer" class="field-input" placeholder="username">
+        </label>
+        <button type="button" id="wheelAddBtn" class="step-go" style="align-self:flex-end;">Add to queue</button>
+      </div>
+      <p class="dismiss-error" id="wheelAddError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Owed">
+      <div class="card-head">
+        <h2 class="card-title">Owed</h2>
+        <span class="card-count" id="wheelOwedCount">—</span>
+      </div>
+      <p class="card-sub">Workouts you landed on and prizes that need a human (votes, gifted subs, shoutouts, Discord roles). FoxCoin prizes pay out automatically and never show up here unless the payout couldn't happen.</p>
+      <div id="wheelOwed"></div>
+      <p class="dismiss-error" id="wheelOwedError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Recent spins">
+      <div class="card-head">
+        <h2 class="card-title">Recent spins</h2>
+      </div>
+      <div id="wheelRecent"></div>
+    </section>
+
+    <section class="card" aria-label="Wheel settings">
+      <div class="card-head">
+        <h2 class="card-title">Settings</h2>
+      </div>
+      <p class="card-sub">Both wheels start off. Changes apply to the next event — no restart needed.</p>
+
+      <div class="field-row">
+        <div class="field">
+          <span class="field-label">💪 Pushup Wheel</span>
+          <div class="action-row"><button type="button" class="step-go" data-wheel-flag="exercise_enabled" disabled>—</button></div>
+        </div>
+        <div class="field">
+          <span class="field-label">🎁 Sub Prize Wheel</span>
+          <div class="action-row"><button type="button" class="step-go" data-wheel-flag="sub_enabled" disabled>—</button></div>
+        </div>
+        <div class="field">
+          <span class="field-label">Auto-spin</span>
+          <div class="action-row"><button type="button" class="step-go" data-wheel-flag="auto_spin" disabled>—</button></div>
+        </div>
+        <div class="field">
+          <span class="field-label">Announce in chat</span>
+          <div class="action-row"><button type="button" class="step-go" data-wheel-flag="announce_in_chat" disabled>—</button></div>
+        </div>
+      </div>
+      <p class="dismiss-error" id="wheelFlagError" hidden></p>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Votes needed for a Pushup Wheel spin (one drop)</span>
+          <input type="text" id="wheelVoteThreshold" class="field-input" placeholder="50">
+        </label>
+        <button type="button" id="wheelThresholdSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="wheelThresholdError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">OBS overlay</h3>
+      <p class="card-sub">Add a Browser Source (1920×1080) pointing at this URL. Optional: <code>&amp;wheel=exercise</code> or <code>&amp;wheel=sub</code> for one wheel per source, <code>&amp;pos=left|right</code>, <code>&amp;size=500</code>, <code>&amp;sound=0</code>. Tick "Control audio via OBS" to hear the ticks.</p>
+      <div class="field-row">
+        <input type="text" id="wheelOverlayUrl" class="field-input field-wide" readonly>
+        <button type="button" id="wheelOverlayCopyBtn" class="step-go" style="align-self:flex-end;">Copy</button>
+      </div>
+      <div class="action-row">
+        <button type="button" class="step-go" data-wheel-test="exercise">Test spin: Pushup Wheel</button>
+        <button type="button" class="step-go" data-wheel-test="sub">Test spin: Sub Wheel</button>
+      </div>
+      <p class="card-sub" style="margin-top:8px;">Test spins animate on the overlay only — no payout, no chat message, nothing owed.</p>
+      <p class="dismiss-error" id="wheelTestError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Wheel segments">
+      <div class="card-head">
+        <h2 class="card-title">Segments</h2>
+      </div>
+      <p class="card-sub">What's on each wheel and how likely it is. Weight is relative — a weight-10 slice is twice as likely as a weight-5 one. Weight 0 keeps a slice visible but it can never hit.</p>
+      <div class="subtab-row" id="wheelSegTabs">
+        <button type="button" class="subtab active" data-seg-wheel="exercise">💪 Pushup Wheel</button>
+        <button type="button" class="subtab" data-seg-wheel="sub">🎁 Sub Prize Wheel</button>
+      </div>
+      <div class="wheel-seg-table-wrap">
+        <table class="wheel-seg-table">
+          <thead>
+            <tr><th>On</th><th>Label</th><th>Type</th><th>FoxCoins</th><th>Weight</th><th>Odds</th><th></th></tr>
+          </thead>
+          <tbody id="wheelSegBody"></tbody>
+        </table>
+      </div>
+      <div class="action-row">
+        <button type="button" id="wheelSegAddBtn" class="step-go">+ Add segment</button>
+        <button type="button" id="wheelSegSaveBtn" class="step-go">Save segments</button>
+        <button type="button" id="wheelSegResetBtn" class="dismiss-link" style="margin-top:0;">Reset this wheel to defaults</button>
+      </div>
+      <p class="dismiss-error" id="wheelSegError" hidden></p>
     </section>
 
     </section>
@@ -4406,6 +4577,366 @@ document.querySelectorAll('.item').forEach(function (item) {
   });
 
   loadTtsConfig();
+})();
+
+/* ═══ PRIZE WHEELS ═══
+   Queue / owed / recent are polled (they change on their own as chat
+   events arrive). Settings + segments load once and only reload after a
+   successful save -- same "never clobber an in-progress edit" convention
+   as Casino and TTS above. */
+(function () {
+  var POLL_MS = 3000;
+  var TYPE_LABELS = {
+    foxcoins: 'FoxCoins (auto-paid)', task: 'Streamer task', reward: 'Hand-delivered reward',
+    respin: 'Spin again', exercise_spin: 'Spin the Pushup Wheel', nothing: 'Nothing / free pass'
+  };
+  var FLAG_TEXT = {
+    exercise_enabled: ['Turn Pushup Wheel on', 'Turn Pushup Wheel off'],
+    sub_enabled: ['Turn Sub Wheel on', 'Turn Sub Wheel off'],
+    auto_spin: ['Turn auto-spin on', 'Turn auto-spin off'],
+    announce_in_chat: ['Turn chat announcements on', 'Turn chat announcements off']
+  };
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function ago(iso) {
+    if (!iso) return '';
+    var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    if (s < 86400) return Math.round(s / 3600) + 'h';
+    return Math.round(s / 86400) + 'd';
+  }
+
+  async function api(path, payload) {
+    var opts = payload === undefined ? { cache: 'no-store' } : {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload || {})
+    };
+    var res = await fetch(path, opts);
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* handled below */ }
+    if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+    return data;
+  }
+
+  function showError(id, err) {
+    var el = document.getElementById(id);
+    if (!err) { el.hidden = true; return; }
+    el.textContent = err.message || String(err);
+    el.hidden = false;
+  }
+
+  function badge(wheel) {
+    return '<span class="wheel-badge ' + (wheel === 'sub' ? 'sub' : 'exercise') + '">' +
+      (wheel === 'sub' ? 'Sub wheel' : 'Pushup wheel') + '</span>';
+  }
+
+  function triggerText(s) {
+    if (s.trigger_kind === 'vote') return s.trigger_amount + ' votes';
+    if (s.trigger_kind === 'giftsub') return 'gift sub';
+    if (s.trigger_kind === 'sub') return 'sub';
+    if (s.trigger_kind === 'respin') return 'bonus respin';
+    if (s.trigger_kind === 'exercise_spin') return 'sent from the Sub wheel';
+    if (s.trigger_kind === 'test') return 'test';
+    return 'added by hand';
+  }
+
+  function emptyRow(text) {
+    return '<div class="feed-item"><span class="feed-body">' + escapeHtml(text) + '</span></div>';
+  }
+
+  /* ── queue / owed / recent ── */
+  var config = null;
+  var segWheel = 'exercise';
+  var segDraft = { exercise: null, sub: null };
+
+  function render(data) {
+    document.getElementById('wheelQueueCount').textContent = data.queued.length + ' waiting';
+    document.getElementById('wheelOwedCount').textContent = data.owed.length + ' owed';
+
+    document.getElementById('wheelQueue').innerHTML = data.queued.length ? data.queued.map(function (s) {
+      return '<div class="feed-item wheel-row"><span class="feed-time">' + ago(s.created_at) + '</span>' +
+        '<span class="feed-body">' + badge(s.wheel) + '<b>@' + escapeHtml(s.viewer) + '</b> — ' + escapeHtml(triggerText(s)) + '</span>' +
+        '<span class="wheel-row-actions"><button type="button" class="step-go" data-spin="' + s.id + '">Spin</button>' +
+        '<button type="button" class="dismiss-link" style="margin-top:0" data-cancel="' + s.id + '">Cancel</button></span></div>';
+    }).join('') : emptyRow('Nothing queued. Spins show up here when someone subs, gifts a sub, or drops a big vote.');
+
+    document.getElementById('wheelOwed').innerHTML = data.owed.length ? data.owed.map(function (s) {
+      var prize = (s.prize || {}).label || '?';
+      return '<div class="feed-item wheel-row"><span class="feed-time">' + ago(s.spun_at) + '</span>' +
+        '<span class="feed-body">' + badge(s.wheel) + '<span class="wheel-prize">' + escapeHtml(prize) + '</span> — for <b>@' +
+        escapeHtml(s.viewer) + '</b></span>' +
+        '<span class="wheel-row-actions"><button type="button" class="step-go" data-done="' + s.id + '">Done ✓</button></span></div>';
+    }).join('') : emptyRow('All caught up. 💪');
+
+    document.getElementById('wheelRecent').innerHTML = data.recent.length ? data.recent.map(function (s) {
+      var prize = (s.prize || {}).label || '?';
+      var state = s.fulfillment === 'owed' ? ' · owed' : (s.fulfillment === 'done' ? ' · done' : '');
+      return '<div class="feed-item"><span class="feed-time">' + ago(s.spun_at) + '</span>' +
+        '<span class="feed-body">' + badge(s.wheel) + '<b>@' + escapeHtml(s.viewer) + '</b> → <span class="wheel-prize">' +
+        escapeHtml(prize) + '</span> <span style="color:var(--ink-mute)">(' + escapeHtml(triggerText(s)) + state + ')</span></span></div>';
+    }).join('') : emptyRow('No spins yet.');
+  }
+
+  async function poll() {
+    try {
+      var data = await api('/api/studio/wheels');
+      showError('wheelQueueError', null);
+      render(data);
+      if (!config) {
+        config = data.config;
+        renderSettings();
+        document.getElementById('wheelOverlayUrl').value = window.location.origin + data.overlay_path;
+      }
+    } catch (err) {
+      showError('wheelQueueError', err);
+    }
+  }
+
+  document.getElementById('page-wheels').addEventListener('click', async function (event) {
+    var btn = event.target.closest('button');
+    if (!btn) return;
+    var id;
+    try {
+      if ((id = btn.getAttribute('data-spin'))) {
+        btn.disabled = true;
+        await api('/api/studio/wheels/spin/' + id, {});
+      } else if ((id = btn.getAttribute('data-cancel'))) {
+        btn.disabled = true;
+        await api('/api/studio/wheels/cancel/' + id, {});
+      } else if ((id = btn.getAttribute('data-done'))) {
+        btn.disabled = true;
+        await api('/api/studio/wheels/fulfill/' + id, { done: true });
+      } else {
+        return;
+      }
+      showError('wheelQueueError', null);
+      poll();
+    } catch (err) {
+      btn.disabled = false;
+      showError('wheelQueueError', err);
+    }
+  });
+
+  document.getElementById('wheelSpinNextBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      await api('/api/studio/wheels/spin-next', {});
+      showError('wheelQueueError', null);
+    } catch (err) {
+      showError('wheelQueueError', err);
+    } finally {
+      btn.disabled = false;
+      poll();
+    }
+  });
+
+  document.getElementById('wheelAddBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      await api('/api/studio/wheels/add', {
+        wheel: document.getElementById('wheelAddWheel').value,
+        viewer: document.getElementById('wheelAddViewer').value.trim()
+      });
+      document.getElementById('wheelAddViewer').value = '';
+      showError('wheelAddError', null);
+      poll();
+    } catch (err) {
+      showError('wheelAddError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* ── settings ── */
+  function renderSettings() {
+    document.querySelectorAll('[data-wheel-flag]').forEach(function (btn) {
+      var flag = btn.getAttribute('data-wheel-flag');
+      btn.disabled = false;
+      btn.textContent = FLAG_TEXT[flag][config[flag] ? 1 : 0];
+    });
+    document.getElementById('wheelVoteThreshold').value = config.vote_threshold;
+    segDraft.exercise = JSON.parse(JSON.stringify(config.segments.exercise));
+    segDraft.sub = JSON.parse(JSON.stringify(config.segments.sub));
+    renderSegments();
+  }
+
+  document.querySelectorAll('[data-wheel-flag]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var flag = btn.getAttribute('data-wheel-flag');
+      var payload = {};
+      payload[flag] = !config[flag];
+      btn.disabled = true;
+      try {
+        var data = await api('/api/studio/wheels/config', payload);
+        config[flag] = data.config[flag];
+        showError('wheelFlagError', null);
+      } catch (err) {
+        showError('wheelFlagError', err);
+      }
+      btn.disabled = false;
+      btn.textContent = FLAG_TEXT[flag][config[flag] ? 1 : 0];
+    });
+  });
+
+  document.getElementById('wheelThresholdSaveBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var data = await api('/api/studio/wheels/config', { vote_threshold: document.getElementById('wheelVoteThreshold').value.trim() });
+      config.vote_threshold = data.config.vote_threshold;
+      document.getElementById('wheelVoteThreshold').value = config.vote_threshold;
+      showError('wheelThresholdError', null);
+    } catch (err) {
+      showError('wheelThresholdError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('wheelOverlayCopyBtn').addEventListener('click', function () {
+    var input = document.getElementById('wheelOverlayUrl');
+    input.select();
+    try { navigator.clipboard.writeText(input.value); } catch (e) { document.execCommand('copy'); }
+    this.textContent = 'Copied';
+    var btn = this;
+    setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+  });
+
+  document.querySelectorAll('[data-wheel-test]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      try {
+        var data = await api('/api/studio/wheels/test', { wheel: btn.getAttribute('data-wheel-test') });
+        showError('wheelTestError', null);
+        var el = document.getElementById('wheelTestError');
+        el.textContent = 'Test spin sent — it will land on: ' + ((data.prize || {}).label || '?');
+        el.style.color = 'var(--pulse)';
+        el.hidden = false;
+        setTimeout(function () { el.hidden = true; el.style.color = ''; }, 9000);
+      } catch (err) {
+        showError('wheelTestError', err);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  /* ── segment editor ── */
+  function typeOptions(selected, wheel) {
+    return Object.keys(TYPE_LABELS).filter(function (t) {
+      return !(wheel === 'exercise' && t === 'exercise_spin');
+    }).map(function (t) {
+      return '<option value="' + t + '"' + (t === selected ? ' selected' : '') + '>' + TYPE_LABELS[t] + '</option>';
+    }).join('');
+  }
+
+  function renderSegments() {
+    var segs = segDraft[segWheel] || [];
+    var total = segs.reduce(function (sum, s) {
+      return sum + (s.enabled !== false ? Math.max(0, parseInt(s.weight, 10) || 0) : 0);
+    }, 0);
+    document.getElementById('wheelSegBody').innerHTML = segs.map(function (s, i) {
+      var w = Math.max(0, parseInt(s.weight, 10) || 0);
+      var odds = s.enabled !== false && total > 0 ? ((w / total) * 100).toFixed(1) + '%' : '—';
+      return '<tr data-i="' + i + '">' +
+        '<td><input type="checkbox" data-k="enabled"' + (s.enabled !== false ? ' checked' : '') + '></td>' +
+        '<td><input type="text" class="field-input seg-label" data-k="label" maxlength="40" value="' + escapeHtml(s.label) + '"></td>' +
+        '<td><select class="field-input" data-k="type">' + typeOptions(s.type, segWheel) + '</select></td>' +
+        '<td><input type="text" class="field-input seg-num" data-k="amount" value="' + (s.type === 'foxcoins' ? escapeHtml(s.amount) : '') + '"' +
+          (s.type === 'foxcoins' ? '' : ' disabled placeholder="—"') + '></td>' +
+        '<td><input type="text" class="field-input seg-num" data-k="weight" value="' + escapeHtml(s.weight) + '"></td>' +
+        '<td class="odds">' + odds + '</td>' +
+        '<td><button type="button" class="wheel-seg-remove" data-remove="' + i + '" title="Remove">✕</button></td></tr>';
+    }).join('');
+  }
+
+  var segBody = document.getElementById('wheelSegBody');
+  function onSegEdit(event) {
+    var row = event.target.closest('tr[data-i]');
+    var key = event.target.getAttribute('data-k');
+    if (!row || !key) return;
+    var seg = segDraft[segWheel][parseInt(row.getAttribute('data-i'), 10)];
+    seg[key] = key === 'enabled' ? event.target.checked : event.target.value;
+    if (key === 'type' || key === 'weight' || key === 'enabled') {
+      if (key === 'type' && seg.type === 'foxcoins' && !parseInt(seg.amount, 10)) seg.amount = 500;
+      renderSegments();
+    }
+  }
+  segBody.addEventListener('change', onSegEdit);
+  segBody.addEventListener('input', function (event) {
+    if (event.target.getAttribute('data-k') === 'label' || event.target.getAttribute('data-k') === 'amount') onSegEdit(event);
+  });
+  segBody.addEventListener('click', function (event) {
+    var idx = event.target.getAttribute('data-remove');
+    if (idx === null) return;
+    segDraft[segWheel].splice(parseInt(idx, 10), 1);
+    renderSegments();
+  });
+
+  document.querySelectorAll('[data-seg-wheel]').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('[data-seg-wheel]').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      segWheel = tab.getAttribute('data-seg-wheel');
+      showError('wheelSegError', null);
+      renderSegments();
+    });
+  });
+
+  document.getElementById('wheelSegAddBtn').addEventListener('click', function () {
+    segDraft[segWheel].push({ label: '', type: 'task', amount: 0, weight: 5, enabled: true });
+    renderSegments();
+    var inputs = segBody.querySelectorAll('input[data-k="label"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+
+  document.getElementById('wheelSegSaveBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    var payload = {};
+    payload[segWheel + '_segments'] = segDraft[segWheel];
+    try {
+      var data = await api('/api/studio/wheels/config', payload);
+      config = data.config;
+      segDraft[segWheel] = JSON.parse(JSON.stringify(config.segments[segWheel]));
+      renderSegments();
+      var el = document.getElementById('wheelSegError');
+      el.textContent = 'Saved.';
+      el.style.color = 'var(--pulse)';
+      el.hidden = false;
+      setTimeout(function () { el.hidden = true; el.style.color = ''; }, 2500);
+    } catch (err) {
+      document.getElementById('wheelSegError').style.color = '';
+      showError('wheelSegError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('wheelSegResetBtn').addEventListener('click', async function () {
+    if (!window.confirm('Reset the ' + (segWheel === 'sub' ? 'Sub Prize Wheel' : 'Pushup Wheel') + ' to the default segments?')) return;
+    try {
+      var data = await api('/api/studio/wheels/config', { reset_segments: segWheel });
+      config = data.config;
+      segDraft[segWheel] = JSON.parse(JSON.stringify(config.segments[segWheel]));
+      renderSegments();
+      showError('wheelSegError', null);
+    } catch (err) {
+      showError('wheelSegError', err);
+    }
+  });
+
+  poll();
+  setInterval(function () {
+    if (!document.getElementById('page-wheels').hidden) poll();
+  }, POLL_MS);
 })();
 </script>
 
