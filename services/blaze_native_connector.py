@@ -5,7 +5,12 @@ import time
 import urllib.error
 import urllib.request
 
-from services.blaze_tokens import resolve_blaze_access_token, resolve_blaze_refresh_token, sync_tenant_zero_slot
+from services.blaze_tokens import (
+    TENANT_ZERO_REFRESH_LOCK,
+    resolve_blaze_access_token,
+    resolve_blaze_refresh_token,
+    sync_tenant_zero_slot,
+)
 from services.storage_paths import storage_path
 from services import foxbot_events as _foxbot_events_v1
 
@@ -699,6 +704,14 @@ def _fb_save_tokens_diag(tokens):
 
 
 def _fb_refresh_token_diag():
+    # Shared with app.py's tenant-zero refresh: see TENANT_ZERO_REFRESH_LOCK.
+    # The refresh token is read INSIDE the lock so a refresh that just
+    # finished elsewhere hands us its new token, not the one it consumed.
+    with TENANT_ZERO_REFRESH_LOCK:
+        return _fb_refresh_token_diag_locked()
+
+
+def _fb_refresh_token_diag_locked():
     payload = {
         "clientId": env("BLAZE_CLIENT_ID", ""),
         "clientSecret": env("BLAZE_CLIENT_SECRET", ""),

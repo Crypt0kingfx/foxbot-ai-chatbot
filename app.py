@@ -25358,7 +25358,6 @@ def foxbot_blaze_oauth_status_v1(request: Request):
 
 
 @app.post("/api/blaze/oauth/refresh")
-
 def foxbot_blaze_oauth_refresh_v1(request: Request):
     guard = _foxbot_require_admin_v1(request)
     if guard:
@@ -29213,6 +29212,10 @@ def blaze_polling_worker():
     from datetime import datetime, timezone
     import time
 
+    # Marks this thread as the polling listener so send_blaze_chat_message
+    # can refuse polling-originated sends into a native-owned channel.
+    _FOXBOT_POLLING_THREAD_CTX_V1.active = True
+
     polling_status["running"] = True
     polling_status["started_at"] = time.time()
     polling_status["last_error"] = None
@@ -29434,12 +29437,61 @@ def foxbot_my_bot_status_v1(request: Request):
 # === End FoxBot Blaze Multi-Channel Listener v1 ===
 
 # === FoxBot OAuth Token Priority Fix v1 ===
+_FOXBOT_POLLING_THREAD_CTX_V1 = threading.local()
+
+
+def _foxbot_native_owned_channel_ids_v1():
+    """Channel ids the native socket listener owns for replies, or an empty
+    set when native is not enabled. Native is single-channel: it subscribes
+    to BLAZE_CHANNEL_ID, or (if unset) the profile's first channel, which
+    it records in each subscription result's channelId. Both are included."""
+    if (os.getenv("FOXBOT_BLAZE_NATIVE_ENABLED", "false") or "").strip().lower() != "true":
+        return set()
+
+    owned = set()
+    env_channel = str(os.getenv("BLAZE_CHANNEL_ID") or "").strip()
+    if env_channel:
+        owned.add(env_channel)
+    try:
+        from services import blaze_native_connector as native
+        for sub in native.STATE.get("subscriptions") or []:
+            if isinstance(sub, dict) and sub.get("channelId"):
+                owned.add(str(sub["channelId"]).strip())
+    except Exception:
+        pass
+    return owned
+
+
+def _foxbot_polling_send_suppressed_v1(target_channel_id):
+    """True when THIS call comes from the polling listener thread and the
+    target is a native-owned channel. Lives in send_blaze_chat_message, the
+    polling thread's only send path, so no polling branch (command reply,
+    chat reply, auto-event thank-you, wheel announcement) can reach chat
+    on that channel while native is enabled."""
+    if not getattr(_FOXBOT_POLLING_THREAD_CTX_V1, "active", False):
+        return False
+    return bool(target_channel_id) and target_channel_id in _foxbot_native_owned_channel_ids_v1()
+
+
 def send_blaze_chat_message(text: str, channel_id=None, creator_id=None):
     """Send with the newest OAuth callback token."""
     import requests
 
     client_id = str(os.getenv("BLAZE_CLIENT_ID") or "").strip()
     target_channel_id = str(channel_id or os.getenv("BLAZE_CHANNEL_ID") or "").strip()
+
+    if _foxbot_polling_send_suppressed_v1(target_channel_id):
+        polling_status["last_suppressed_send"] = {
+            "channel_id": target_channel_id,
+            "at": time.time(),
+            "reason": "native_listener_owns_channel",
+        }
+        return {
+            "success": False,
+            "suppressed": True,
+            "message": "Suppressed: native listener owns replies on this channel (FOXBOT_BLAZE_NATIVE_ENABLED=true).",
+            "channel_id": target_channel_id,
+        }
 
     # Bot Connection Sub-phase F, stage 3: same additive, two-gate contract
     # as get_recent_blaze_messages (stage 2) -- every existing caller
@@ -29981,6 +30033,8 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
                     "last_error": send_message,
                     "checked_at": time.time(),
                 }
+            elif isinstance(send_result, dict) and send_result.get("suppressed"):
+                pass  # native owns this channel; not a send failure, leave health as-is
             elif send_success:
                 polling_status["multichannel_connection_health"] = {
                     "chat_ready": True,
