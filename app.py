@@ -3203,6 +3203,7 @@ from games import slots as _foxbot_casino_slots_v1
 from services import tts_config as _foxbot_tts_config_v1
 from services import tts_filter as _foxbot_tts_filter_v1
 from services import prize_wheels as _foxbot_wheels_v1
+from services import plinko as _foxbot_plinko_v1
 
 # Casino Studio Tab v1: the allowlist a POST to /api/studio/casino/
 # game-config/{game_id} is checked against -- built from each game
@@ -5027,6 +5028,14 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
     # deduplicated key each time -- acceptable there since none of those
     # paths are real chat needing replay protection.
     dedupe_key = str(dedupe_key or "").strip() or f"nodedupe-{uuid.uuid4().hex}"
+
+    # FoxBot Plinko v1: Plinko moves FoxCoins, so it only runs from the
+    # polling loop's dispatch (_foxbot_plinko_handle_command_v1), which has
+    # the raw chat row and reads the VERIFIED sender object. chat() only
+    # gets a username string, so it never plays Plinko; it stays silent
+    # instead of replying "unknown command".
+    if lower_message.split()[:1] and lower_message.split()[0] in _FOXBOT_PLINKO_COMMANDS_V1:
+        return {"response": ""}
 
     # === FoxBot Studio Giveaway Viewer Entry v3 ===
     # Real stream entry command for the Admin Hub Giveaway Center.
@@ -19623,6 +19632,371 @@ async def foxbot_overlay_wheel_page_v1():
     return wheel_overlay_html
 
 
+# === FoxBot Plinko v1 ===
+# Free-play FoxCoin Plinko: chat commands, coin legs, reconciler, the OBS
+# overlay (/overlay/plinko) and the Studio V2 panel routes. Game rules,
+# odds, sessions, drops and the audit log live in services/plinko.py; this
+# block only connects them to chat, the FoxCoin economy and HTTP.
+#
+# FREE-PLAY ONLY. Nothing here touches the casino PROMO ledger, tips,
+# votes or any real-money path. See services/plinko.py's paid-entry stub.
+
+_FOXBOT_PLINKO_COMMANDS_V1 = frozenset({"!plinko", "!drop", "!plinkobal", "!plinkorules"})
+# A 'claimed' session or an uncredited drop younger than this is still in
+# its normal request flow; older ones are crash leftovers the reconciler
+# finishes with the same idempotent call.
+_FOXBOT_PLINKO_RECONCILE_MIN_AGE_SECONDS_V1 = 30
+
+
+def _foxbot_plinko_platform_disabled_v1() -> bool:
+    """Operator-wide off switch (FOXBOT_PLINKO_DISABLED=true), on top of
+    each creator's own enabled flag and kill switch."""
+    return (os.getenv("FOXBOT_PLINKO_DISABLED", "false") or "").strip().lower() == "true"
+
+
+def _foxbot_plinko_verified_sender_v1(item):
+    """WHO SENT this chat row, from Blaze's own `sender` object only --
+    never the message text, never _foxbot_resolve_auto_event_username_v1's
+    rewrite. The display name matches what find_chat_username() resolves
+    for an ordinary chat row (sender.displayName), so the FoxCoin balance
+    key is the same one !balance uses. Returns None for a row with no
+    usable sender (structural vote/sub/gift rows), so those can't play."""
+    if not isinstance(item, dict):
+        return None
+    sender = item.get("sender")
+    if not isinstance(sender, dict):
+        return None
+    display = sender.get("displayName") if isinstance(sender.get("displayName"), str) else ""
+    slug = sender.get("slug") if isinstance(sender.get("slug"), str) else ""
+    name = display.strip().lstrip("@") or slug.strip().lstrip("@")
+    if not name:
+        return None
+    return {
+        "display_name": name[:64],
+        "slug": (slug.strip().lstrip("@") or name).lower(),
+        "user_key": viewer_key(name),
+    }
+
+
+def _foxbot_plinko_sender_is_bot_v1(item, sender) -> bool:
+    return bool(
+        _foxbot_is_known_bot_handle_v1(sender["slug"])
+        or _foxbot_is_known_bot_handle_v1(sender["display_name"])
+        or _foxbot_sender_has_bot_role_v1(item)
+    )
+
+
+def _foxbot_plinko_credit_drop_v1(creator_handle, creator_id, drop) -> bool:
+    """Pays one recorded drop into the FoxCoin economy. Idempotent on the
+    drop's id, so the reconciler (or a retry) can call it again safely."""
+    payout = int(drop.get("payout") or 0)
+    if payout <= 0:
+        return True
+    target_creator_id = drop.get("creator_id") or creator_id or _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+    credit_foxcoins_idempotent(
+        drop["display_name"], payout,
+        idempotency_key=f"plinko:credit:{creator_handle}:{drop['id']}",
+        reason="plinko_payout", creator_id=target_creator_id,
+    )
+    save_persistent_data()
+    _foxbot_plinko_v1.mark_drop_credited(creator_handle, drop["id"])
+    return True
+
+
+def _foxbot_plinko_debit_session_v1(creator_handle, session) -> dict:
+    """Takes a session's cost from the FoxCoin economy. Idempotent on the
+    session id. Raises InsufficientFoxCoins with the balance untouched."""
+    target_creator_id = session.get("creator_id") or _foxbot_resolve_creator_id_v1(creator_handle=creator_handle)
+    result = debit_foxcoins_idempotent(
+        session["display_name"], session["cost"],
+        idempotency_key=f"plinko:debit:{creator_handle}:{session['session_id']}",
+        reason="plinko_session", creator_id=target_creator_id,
+    )
+    save_persistent_data()
+    return result
+
+
+def _foxbot_plinko_reconcile_v1(creator_handle, creator_id=None) -> dict:
+    """Closes every gap a crash could leave between Postgres and the FoxCoin
+    blob, by re-issuing the same idempotent calls:
+      - 'claimed' sessions: retry the debit, then activate (or cancel if the
+        viewer can't cover it any more);
+      - idle sessions past their timeout: auto-play the remaining drops;
+      - drops with credited_at NULL: retry the credit.
+    Never raises; failures are logged with an alertable prefix."""
+    summary = {"activated": 0, "cancelled": 0, "autoplayed": 0, "credited": 0, "errors": 0}
+    min_age = _FOXBOT_PLINKO_RECONCILE_MIN_AGE_SECONDS_V1
+
+    def fail(stage, error):
+        summary["errors"] += 1
+        print(f"FOXBOT_ALERT plinko_reconcile stage={stage} creator={creator_handle} "
+              f"error_type={type(error).__name__} error=\"{str(error)[:200]}\"", flush=True)
+
+    try:
+        for session in _foxbot_plinko_v1.stale_claimed_sessions(creator_handle, min_age_seconds=min_age):
+            try:
+                _foxbot_plinko_debit_session_v1(creator_handle, session)
+                _foxbot_plinko_v1.activate_session(creator_handle, session["session_id"])
+                summary["activated"] += 1
+            except InsufficientFoxCoins:
+                _foxbot_plinko_v1.cancel_session(creator_handle, session["session_id"], "insufficient_foxcoins")
+                summary["cancelled"] += 1
+            except Exception as error:
+                fail("claimed", error)
+
+        for drop in _foxbot_plinko_v1.finish_expired(creator_handle):
+            summary["autoplayed"] += 1
+            try:
+                _foxbot_plinko_credit_drop_v1(creator_handle, creator_id, drop)
+                summary["credited"] += 1
+            except Exception as error:
+                fail("autoplay_credit", error)
+
+        for drop in _foxbot_plinko_v1.uncredited_drops(creator_handle, min_age_seconds=min_age):
+            try:
+                _foxbot_plinko_credit_drop_v1(creator_handle, creator_id, drop)
+                summary["credited"] += 1
+            except Exception as error:
+                fail("credit", error)
+    except Exception as error:
+        fail("scan", error)
+    return summary
+
+
+def _foxbot_plinko_handle_command_v1(command, item, message_text, creator_handle, creator_id, request_key) -> dict:
+    """One Plinko chat command. `item` is the raw chat row: the player is
+    whoever Blaze says SENT it. Text after the command is never used to
+    pick who plays or who gets paid. request_key is the polling loop's
+    channel-scoped message key -- the idempotency key for a play or a drop,
+    so a re-processed message can't charge or pay twice."""
+    sender = _foxbot_plinko_verified_sender_v1(item)
+    if sender is None or _foxbot_plinko_sender_is_bot_v1(item, sender):
+        return {"response": ""}
+
+    name = sender["display_name"]
+    user_key = sender["user_key"]
+    currency = get_currency_name()
+    plinko = _foxbot_plinko_v1
+
+    if _foxbot_plinko_platform_disabled_v1():
+        return {"response": f"@{name}, Plinko is unavailable right now."}
+
+    parts = str(message_text or "").split()
+    if command == "!plinko" and len(parts) > 1 and parts[1].lower() == "paid":
+        try:
+            plinko.start_paid_session()
+        except plinko.PaidEntryUnavailable as exc:
+            return {"response": f"@{name}, {exc}"}
+
+    try:
+        _foxbot_plinko_reconcile_v1(creator_handle, creator_id)
+        config = plinko.get_config(creator_handle)
+
+        if command == "!plinkorules":
+            return {"response": plinko.rules_text(config, currency)}
+
+        if command == "!plinkobal":
+            economy = _creator_economy_v1(creator_id or _foxbot_resolve_creator_id_v1(creator_handle=creator_handle))
+            balance = int(economy["balances"].get(user_key, 0))
+            session = plinko.get_open_session(creator_handle, user_key)
+            line = f"@{name}, you have {balance:,} {currency}."
+            if session and session["status"] == plinko.STATUS_ACTIVE:
+                line += (f" Plinko: {session['drops_left']}/{session['drops_total']} drops left, "
+                         f"+{session['payout_total']:,} won this session.")
+            return {"response": line}
+
+        if command == "!plinko":
+            try:
+                session = plinko.claim_session(
+                    creator_handle, user_key=user_key, display_name=name,
+                    request_key=f"play:{request_key}", creator_id=creator_id,
+                )
+            except plinko.SessionActive as exc:
+                left = exc.session["drops_left"]
+                return {"response": f"@{name}, you already have a Plinko session with {left} drops left -- type !drop."}
+            except plinko.CooldownActive as exc:
+                return {"response": f"@{name}, Plinko cooldown: try again in {exc.seconds_left}s."}
+
+            if session.get("replayed") and session["status"] != plinko.STATUS_CLAIMED:
+                return {"response": ""}  # this exact message was already handled
+
+            try:
+                debit = _foxbot_plinko_debit_session_v1(creator_handle, session)
+            except InsufficientFoxCoins:
+                plinko.cancel_session(creator_handle, session["session_id"], "insufficient_foxcoins")
+                economy = _creator_economy_v1(session.get("creator_id") or creator_id or _tenant_zero_id())
+                balance = int(economy["balances"].get(user_key, 0))
+                return {"response": f"@{name}, Plinko costs {session['cost']:,} {currency} (you have {balance:,})."}
+            plinko.activate_session(creator_handle, session["session_id"])
+            return {"response": (
+                f"🦊 @{name} started Plinko: {session['drops_total']} drops for {session['cost']:,} {currency} "
+                f"(balance {int(debit.get('balance') or 0):,}). Type !drop to drop a ball!"
+            )}
+
+        if command == "!drop":
+            try:
+                result = plinko.drop(creator_handle, user_key=user_key, drop_key=f"drop:{request_key}")
+            except plinko.NoActiveSession:
+                return {"response": f"@{name}, no Plinko session yet -- type !plinko ({config.session_cost:,} {currency} for {config.drops_per_session} drops)."}
+            if result["replayed"]:
+                return {"response": ""}
+            drop = result["drop"]
+            session = result["session"]
+            _foxbot_plinko_credit_drop_v1(creator_handle, creator_id, drop)
+            line = f"🎯 @{name} dropped: slot {drop['slot'] + 1} -> {drop['multiplier']} (+{drop['payout']:,})"
+            if drop["capped"]:
+                line += " [session max reached]"
+            if session["status"] == plinko.STATUS_CLOSED:
+                line += f". Session over: won {session['payout_total']:,} for {session['cost']:,} {currency}. GG!"
+            else:
+                line += f". {session['drops_left']} drops left, +{session['payout_total']:,} so far."
+            return {"response": line}
+    except plinko.PlinkoDisabled:
+        return {"response": f"@{name}, Plinko isn't on in this channel."}
+    except plinko.PlinkoKilled:
+        return {"response": f"@{name}, Plinko is paused right now."}
+    except plinko.PlinkoUnavailable:
+        return {"response": f"@{name}, Plinko is temporarily unavailable."}
+    except Exception as error:
+        print(f"FOXBOT_ALERT plinko_command command={command} creator={creator_handle} "
+              f"error_type={type(error).__name__} error=\"{str(error)[:200]}\"", flush=True)
+        return {"response": f"@{name}, something went wrong with Plinko. Try again shortly."}
+
+    return {"response": ""}
+
+
+# ---- OBS overlay (public, display-only, like /overlay/wheel) -------------
+
+_FOXBOT_PLINKO_OVERLAY_PATH_V1 = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "static", "foxbot-plinko-overlay.html"
+)
+
+
+@app.get("/overlay/plinko-data")
+async def foxbot_overlay_plinko_data_v1(handle: str = "", since: int = -1):
+    """Drops after `since` for the overlay to animate. since < 0 (first
+    poll) returns only latest_id, so a freshly loaded OBS source starts at
+    "now" instead of replaying history. Display fields only: no session id,
+    user key, balance or creator id."""
+    creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
+    payload = {
+        "ok": True, "creator_handle": creator_handle, "rows": _foxbot_plinko_v1.ROWS,
+        "multipliers": [_foxbot_plinko_v1.format_multiplier(m) for m in _foxbot_plinko_v1.MULTIPLIERS_PCT],
+        "drops": [], "latest_id": 0,
+    }
+    try:
+        if since < 0:
+            payload["latest_id"] = _foxbot_plinko_v1.latest_drop_id(creator_handle)
+            return payload
+        drops = _foxbot_plinko_v1.drops_since(creator_handle, since, limit=30)
+    except Exception:
+        payload["ok"] = False
+        payload["latest_id"] = max(since, 0)
+        return payload
+    payload["drops"] = [{
+        "id": d["id"], "viewer": d["display_name"], "slot": d["slot"], "path": d["path"],
+        "multiplier": d["multiplier"], "payout": d["payout"], "drop_index": d["drop_index"],
+        "auto": d["auto"],
+    } for d in drops]
+    payload["latest_id"] = drops[-1]["id"] if drops else since
+    return payload
+
+
+@app.get("/overlay/plinko", response_class=HTMLResponse)
+async def foxbot_overlay_plinko_page_v1():
+    with open(_FOXBOT_PLINKO_OVERLAY_PATH_V1, encoding="utf-8") as overlay_file:
+        return HTMLResponse(overlay_file.read())
+
+
+# ---- Studio V2 panel ------------------------------------------------------
+
+def _foxbot_plinko_config_payload_v1(config) -> dict:
+    return {
+        "enabled": config.enabled, "kill_switch": config.kill_switch,
+        "session_cost": config.session_cost, "drops_per_session": config.drops_per_session,
+        "stake": config.stake, "cooldown_seconds": config.cooldown_seconds,
+        "max_session_payout": config.max_session_payout, "session_ttl_seconds": config.session_ttl_seconds,
+    }
+
+
+def _foxbot_plinko_odds_payload_v1() -> list:
+    total = _foxbot_plinko_v1.TOTAL_WEIGHT
+    return [{
+        "slot": i + 1, "multiplier": _foxbot_plinko_v1.format_multiplier(m),
+        "weight": w, "of": total, "percent": round(100 * w / total, 3),
+    } for i, (m, w) in enumerate(zip(_foxbot_plinko_v1.MULTIPLIERS_PCT, _foxbot_plinko_v1.BINOMIAL_WEIGHTS))]
+
+
+@app.get("/api/studio/plinko")
+async def foxbot_studio_plinko_get_v1(request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        # Same idempotent reconciler the chat commands run, so idle sessions
+        # finish and any uncredited payout lands even in a quiet chat.
+        if _foxbot_plinko_v1.is_available():
+            _foxbot_plinko_reconcile_v1(handle)
+        config = _foxbot_plinko_v1.get_config(handle)
+        drops = _foxbot_plinko_v1.recent_drops(handle, limit=25)
+        sessions = _foxbot_plinko_v1.list_sessions(handle, limit=25)
+    except _foxbot_plinko_v1.PlinkoUnavailable:
+        return _foxbot_wheels_error_v1("Plinko requires DATABASE_URL -- not configured.", 503)
+
+    return {
+        "ok": True,
+        "config": _foxbot_plinko_config_payload_v1(config),
+        "platform_disabled": _foxbot_plinko_platform_disabled_v1(),
+        "paid_entry": {"flag": _foxbot_plinko_v1.paid_entry_enabled(), "implemented": False},
+        "rtp_percent": round(float(_foxbot_plinko_v1.rtp()) * 100, 3),
+        "odds": _foxbot_plinko_odds_payload_v1(),
+        "recent_drops": [{key: d.get(key) for key in (
+            "id", "display_name", "slot", "multiplier", "payout", "raw_payout", "capped", "auto",
+            "drop_index", "session_id", "credited_at", "created_at",
+        )} for d in drops],
+        "sessions": [{key: s.get(key) for key in (
+            "session_id", "display_name", "status", "cost", "drops_used", "drops_total", "payout_total",
+            "max_payout", "close_reason", "created_at", "closed_at",
+        )} for s in sessions],
+        "overlay_path": f"/overlay/plinko?handle={handle}",
+    }
+
+
+@app.post("/api/studio/plinko/config")
+async def foxbot_studio_plinko_config_post_v1(payload: dict, request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    fields = ("enabled", "kill_switch", "session_cost", "drops_per_session", "cooldown_seconds",
+              "max_session_payout", "session_ttl_seconds")
+    changes = {key: payload[key] for key in fields if key in payload}
+    for flag in ("enabled", "kill_switch"):
+        if flag in changes:
+            changes[flag] = bool(changes[flag])
+    try:
+        config = _foxbot_plinko_v1.set_config(handle, actor=f"studio:{handle}", **changes)
+    except _foxbot_plinko_v1.PlinkoUnavailable:
+        return _foxbot_wheels_error_v1("Plinko requires DATABASE_URL -- not configured.", 503)
+    except ValueError as exc:
+        return _foxbot_wheels_error_v1(str(exc))
+    return {"ok": True, "config": _foxbot_plinko_config_payload_v1(config)}
+
+
+@app.get("/api/studio/plinko/sessions/{session_id}")
+async def foxbot_studio_plinko_session_v1(session_id: str, request: Request):
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    try:
+        audit = _foxbot_plinko_v1.session_audit(handle, session_id)
+    except _foxbot_plinko_v1.PlinkoUnavailable:
+        return _foxbot_wheels_error_v1("Plinko requires DATABASE_URL -- not configured.", 503)
+    if audit is None:
+        return _foxbot_wheels_error_v1("session not found.", 404)
+    return {"ok": True, **audit}
+# === End FoxBot Plinko v1 ===
+
+
 @app.post("/api/studio/action/live/{action}")
 
 async def foxbot_studio_action_live(action: str):
@@ -29874,12 +30248,19 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
         _foxbot_events_v1.emit_event(
             creator_handle, "command", actor=clean_username, detail={"command": command}
         )
-        foxbot_result = chat(
-            message=message_text,
-            username=clean_username,
-            creator_handle=creator_handle,
-            dedupe_key=message_key,
-        )
+        if command in _FOXBOT_PLINKO_COMMANDS_V1:
+            # Identity comes from the row's own sender object inside the
+            # handler -- never clean_username, never the message text.
+            foxbot_result = _foxbot_plinko_handle_command_v1(
+                command, item, message_text, creator_handle, resolved_creator_id, message_key,
+            )
+        else:
+            foxbot_result = chat(
+                message=message_text,
+                username=clean_username,
+                creator_handle=creator_handle,
+                dedupe_key=message_key,
+            )
         foxbot_reply = foxbot_result.get("response", "FoxBot had no response.")
 
         if foxbot_reply:
