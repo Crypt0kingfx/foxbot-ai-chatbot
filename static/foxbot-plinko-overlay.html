@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FoxBot Plinko Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Instrument+Sans:wght@500;600&display=swap" rel="stylesheet">
+<!--
+  FoxBot Plinko OBS browser source.
+
+  DISPLAY ONLY. Every result is decided on the server (services/plinko.py,
+  OS CSPRNG). This page polls /overlay/plinko-data and replays each drop's
+  server-chosen 8-step path (1 = bounce right) into the server-chosen slot.
+  It contains no randomness and never computes an outcome.
+
+  OBS notes: transparent background; no Web Speech API; no user gesture
+  needed. Animation is time-based, so a throttled or hidden source catches
+  up instead of drifting, and a backlog plays faster. Sound is opt-in
+  (&sound=1) and needs "Control audio via OBS" ticked on the source.
+
+  URL params: handle=<creator> (required for non-owner channels),
+  size=<board width px, default 640>, pos=center|left|right|bottom-left|bottom-right,
+  hold=<seconds the result banner stays up, default 4>, sound=1.
+-->
+<style>
+  :root {
+    --violet: #B026FF;
+    --magenta: #FF007F;
+    --ink: #F7EEFF;
+    --board-size: 640px;
+  }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Instrument Sans", Arial, Helvetica, sans-serif;
+  }
+  #stage {
+    position: absolute;
+    width: var(--board-size);
+    transform: translate(-50%, -50%);
+    top: 50%;
+    left: 50%;
+  }
+  #stage.pos-left { left: 4%; transform: translate(0, -50%); }
+  #stage.pos-right { left: auto; right: 4%; transform: translate(0, -50%); }
+  #stage.pos-bottom-left { top: auto; bottom: 3%; left: 3%; transform: none; }
+  #stage.pos-bottom-right { top: auto; bottom: 3%; left: auto; right: 3%; transform: none; }
+  #title {
+    font-family: "Syne", Arial, sans-serif;
+    font-weight: 800;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    text-align: center;
+    color: var(--ink);
+    font-size: calc(var(--board-size) * .055);
+    text-shadow: 0 0 10px var(--violet), 0 0 24px var(--magenta);
+    margin-bottom: 4px;
+  }
+  #title span { color: var(--magenta); }
+  canvas { display: block; width: 100%; }
+  #banner {
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    transform: translate(-50%, -50%) scale(.85);
+    opacity: 0;
+    transition: opacity .25s ease, transform .25s ease;
+    padding: 14px 26px;
+    border-radius: 16px;
+    background: rgba(20, 4, 34, .88);
+    border: 2px solid var(--violet);
+    box-shadow: 0 0 18px rgba(176, 38, 255, .65), inset 0 0 14px rgba(255, 0, 127, .25);
+    text-align: center;
+    color: var(--ink);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  #banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #banner.big { border-color: var(--magenta); box-shadow: 0 0 26px rgba(255, 0, 127, .85), inset 0 0 18px rgba(176, 38, 255, .35); }
+  #bannerName { font-weight: 600; font-size: calc(var(--board-size) * .04); opacity: .9; }
+  #bannerMult {
+    font-family: "Syne", Arial, sans-serif;
+    font-weight: 800;
+    font-size: calc(var(--board-size) * .11);
+    line-height: 1.05;
+    color: #fff;
+    text-shadow: 0 0 12px var(--magenta), 0 0 26px var(--violet);
+  }
+  #bannerPay { font-weight: 600; font-size: calc(var(--board-size) * .038); color: #FFD6F0; }
+  #ticker {
+    margin-top: 6px;
+    text-align: center;
+    color: var(--ink);
+    font-size: calc(var(--board-size) * .03);
+    opacity: .85;
+    min-height: 1.3em;
+    text-shadow: 0 0 8px rgba(176, 38, 255, .9);
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="title">Fox<span>Bot</span> Plinko</div>
+  <canvas id="board" aria-label="Plinko board"></canvas>
+  <div id="banner"><div id="bannerName"></div><div id="bannerMult"></div><div id="bannerPay"></div></div>
+  <div id="ticker"></div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(window.location.search);
+  var HANDLE = params.get('handle') || '';
+  var SIZE = Math.max(320, Math.min(1400, parseInt(params.get('size') || '640', 10) || 640));
+  var HOLD_MS = Math.max(1, Math.min(30, parseFloat(params.get('hold') || '4') || 4)) * 1000;
+  var SOUND = params.get('sound') === '1';
+  var POS = params.get('pos') || 'center';
+  var POLL_MS = 1000;
+  var MAX_QUEUE = 30;
+
+  var stage = document.getElementById('stage');
+  document.documentElement.style.setProperty('--board-size', SIZE + 'px');
+  if (POS !== 'center') stage.classList.add('pos-' + POS);
+
+  var canvas = document.getElementById('board');
+  var ctx = canvas.getContext('2d');
+  var banner = document.getElementById('banner');
+  var ticker = document.getElementById('ticker');
+
+  // Board geometry. These describe how to DRAW; outcomes come from the server.
+  var ROWS = 8;
+  var multipliers = ['10x', '3x', '1.4x', '0.6x', '0.4x', '0.6x', '1.4x', '3x', '10x'];
+  var W = SIZE, H = Math.round(SIZE * 0.92);
+  var spacing = W / 10.5;
+  var cx = W / 2;
+  var top = H * 0.08;
+  var rowH = (H * 0.74) / ROWS;
+  var pegR = Math.max(3, spacing * 0.09);
+  var ballR = Math.max(5, spacing * 0.17);
+  var slotY = top + ROWS * rowH + rowH * 0.15;
+  var slotH = rowH * 0.95;
+
+  function setupCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function pegX(row, j) { return cx + (j - row / 2) * spacing; }
+  function pegY(row) { return top + row * rowH; }
+  function slotX(k) { return cx + (k - ROWS / 2) * spacing; }
+
+  var litSlot = -1, litUntil = 0, litBig = false;
+  var ball = null; // {x, y}
+
+  function drawBoard(now) {
+    ctx.clearRect(0, 0, W, H);
+
+    // pegs (two decorative extras per row keep the triangle edge tidy)
+    for (var r = 0; r < ROWS; r++) {
+      for (var j = -1; j <= r + 1; j++) {
+        var x = pegX(r, j), y = pegY(r);
+        if (x < pegR * 2 || x > W - pegR * 2) continue;
+        var grad = ctx.createRadialGradient(x, y, 0, x, y, pegR * 3);
+        grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+        grad.addColorStop(0.35, 'rgba(176,38,255,0.9)');
+        grad.addColorStop(1, 'rgba(176,38,255,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(x, y, pegR * 3, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // slots
+    for (var k = 0; k <= ROWS; k++) {
+      var sx = slotX(k) - spacing * 0.46, sw = spacing * 0.92;
+      var lit = k === litSlot && now < litUntil;
+      var edge = Math.abs(k - ROWS / 2) / (ROWS / 2); // 0 center .. 1 edges
+      var base = edge > 0.7 ? '255,0,127' : '176,38,255';
+      ctx.fillStyle = lit ? 'rgba(' + (litBig ? '255,0,127' : '176,38,255') + ',0.92)' : 'rgba(' + base + ',' + (0.22 + edge * 0.28) + ')';
+      ctx.strokeStyle = lit ? '#fff' : 'rgba(' + base + ',0.9)';
+      ctx.lineWidth = lit ? 3 : 1.5;
+      roundRect(sx, slotY, sw, slotH, 8);
+      ctx.fill(); ctx.stroke();
+      if (lit) { ctx.shadowColor = litBig ? '#FF007F' : '#B026FF'; ctx.shadowBlur = 24; ctx.stroke(); ctx.shadowBlur = 0; }
+      ctx.fillStyle = '#fff';
+      ctx.font = '700 ' + Math.round(spacing * 0.28) + 'px Syne, Arial, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(multipliers[k] || '', slotX(k), slotY + slotH / 2);
+    }
+
+    if (ball) {
+      var g = ctx.createRadialGradient(ball.x - ballR * .3, ball.y - ballR * .3, ballR * .1, ball.x, ball.y, ballR * 1.6);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.45, '#FF5CB0');
+      g.addColorStop(1, 'rgba(255,0,127,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(ball.x, ball.y, ballR * 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // ---- sound (opt-in, WebAudio only; never speech) ----
+  var audioCtx = null;
+  function tick(freq) {
+    if (!SOUND) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'triangle'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.09);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.1);
+    } catch (e) { /* audio is optional */ }
+  }
+
+  // ---- animation: replay the server's path, row by row ----
+  var queue = [];
+  var current = null; // {drop, start, rowMs, lastRow}
+
+  function waypoints(path) {
+    // Ball sits on top of the peg it hits in each row, then hops half a
+    // spacing left/right per the server's bit for that row.
+    var pts = [{ x: cx, y: Math.max(ballR * 1.8, top - rowH * 0.6) }]; // start fully on-canvas
+    var rights = 0;
+    for (var r = 0; r < ROWS; r++) {
+      pts.push({ x: pegX(r, rights), y: pegY(r) - pegR - ballR });
+      rights += path[r] ? 1 : 0;
+    }
+    pts.push({ x: slotX(rights), y: slotY + slotH * 0.35 });
+    return { pts: pts, slot: rights };
+  }
+
+  function startNext(now) {
+    if (!queue.length) return;
+    var drop = queue.shift();
+    var wp = waypoints(drop.path || []);
+    // Trust the server's slot; the path is only how we get there. If they
+    // ever disagree, land on the server's slot.
+    var slot = typeof drop.slot === 'number' ? drop.slot : wp.slot;
+    if (slot !== wp.slot) wp.pts[wp.pts.length - 1].x = slotX(slot);
+    var backlog = queue.length;
+    var rowMs = backlog > 6 ? 60 : backlog > 2 ? 110 : 170;
+    current = { drop: drop, wp: wp, slot: slot, start: now, rowMs: rowMs, lastSeg: -1 };
+    ticker.textContent = '@' + drop.viewer + ' dropped ' + (drop.auto ? '(auto) ' : '') + '#' + drop.drop_index;
+  }
+
+  function step(now) {
+    if (!current) {
+      startNext(now);
+    }
+    if (current) {
+      var pts = current.wp.pts;
+      var segs = pts.length - 1;
+      var t = (now - current.start) / current.rowMs;
+      var seg = Math.min(segs - 1, Math.floor(t));
+      var f = Math.min(1, t - seg);
+      var a = pts[seg], b = pts[seg + 1];
+      // horizontal: ease; vertical: small hop then fall (gravity feel)
+      var ex = f < .5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+      var hop = seg === 0 ? 0 : Math.sin(f * Math.PI) * rowH * 0.28;
+      ball = { x: a.x + (b.x - a.x) * ex, y: a.y + (b.y - a.y) * f * f - hop };
+      if (seg !== current.lastSeg) { current.lastSeg = seg; if (seg > 0 && seg <= ROWS) tick(520 + seg * 40); }
+      if (t >= segs) land(now);
+    }
+    drawBoard(now);
+    window.requestAnimationFrame(step);
+  }
+
+  var bannerTimer = null;
+  function land(now) {
+    var drop = current.drop;
+    litSlot = current.slot;
+    var big = /^(10|3)x$/.test(drop.multiplier || '');
+    litBig = big;
+    litUntil = now + Math.min(HOLD_MS, 2500);
+    document.getElementById('bannerName').textContent = '@' + drop.viewer;
+    document.getElementById('bannerMult').textContent = drop.multiplier;
+    document.getElementById('bannerPay').textContent = '+' + Number(drop.payout || 0).toLocaleString() + ' FoxCoins';
+    banner.classList.toggle('big', big);
+    banner.classList.add('show');
+    tick(big ? 1180 : 880);
+    clearTimeout(bannerTimer);
+    // shorter hold while drops are waiting
+    bannerTimer = setTimeout(function () { banner.classList.remove('show'); }, queue.length ? 900 : HOLD_MS);
+    ball = null;
+    current = null;
+  }
+
+  // A hidden/suspended OBS source can't animate; skip straight to results
+  // so the queue doesn't build up behind an invisible board.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && queue.length > 1) queue = queue.slice(-1);
+  });
+
+  // ---- polling (server is the only source of results) ----
+  var lastId = -1;
+  var failures = 0;
+
+  function url() {
+    var q = new URLSearchParams();
+    if (HANDLE) q.set('handle', HANDLE);
+    q.set('since', String(lastId));
+    return '/overlay/plinko-data?' + q.toString();
+  }
+
+  async function poll() {
+    var delay = POLL_MS;
+    try {
+      var res = await fetch(url(), { cache: 'no-store' });
+      var data = await res.json();
+      if (data && Array.isArray(data.multipliers) && data.multipliers.length === ROWS + 1) multipliers = data.multipliers;
+      if (data && data.ok) {
+        failures = 0;
+        if (lastId < 0) {
+          lastId = data.latest_id || 0; // start at "now": don't replay history
+        } else {
+          (data.drops || []).forEach(function (d) { queue.push(d); });
+          if (queue.length > MAX_QUEUE) queue = queue.slice(-MAX_QUEUE);
+          if (typeof data.latest_id === 'number' && data.latest_id > lastId) lastId = data.latest_id;
+        }
+      } else {
+        failures++;
+      }
+    } catch (e) {
+      failures++;
+    }
+    if (failures) delay = Math.min(10000, POLL_MS * Math.pow(2, Math.min(failures, 4)));
+    setTimeout(poll, delay);
+  }
+
+  setupCanvas();
+  window.requestAnimationFrame(step);
+  poll();
+})();
+</script>
+</body>
+</html>

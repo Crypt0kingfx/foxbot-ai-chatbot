@@ -750,6 +750,24 @@ body::before {
 .wheel-seg-remove { background: none; border: 0; color: var(--ink-mute); cursor: pointer; font-size: 16px; }
 .wheel-seg-remove:hover { color: var(--magenta); }
 
+/* ═══ PLINKO ═════════════════════════════════════════════════ */
+#page-plinko > .card + .card { margin-top: 16px; }
+#page-plinko .action-row .step-go, #page-plinko .field-row > .step-go { margin-left: 0; }
+.plinko-state { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--line-hot); color: var(--ink-dim); }
+.plinko-state.on { border-color: rgba(176,38,255,.6); color: #D9A6FF; }
+.plinko-state.killed { border-color: rgba(255,0,127,.7); color: var(--magenta); }
+.plinko-kill-btn { border-color: rgba(255,0,127,.55) !important; }
+.plinko-kill-btn.engaged { background: rgba(255,0,127,.16) !important; color: var(--magenta) !important; }
+.plinko-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.plinko-table th { text-align: left; font-weight: 600; color: var(--ink-mute); padding: 6px; border-bottom: 1px solid var(--line); }
+.plinko-table td { padding: 6px; border-bottom: 1px solid var(--line); font-family: var(--font-data); font-size: 12px; }
+.plinko-mult { color: var(--ink); font-weight: 600; }
+.plinko-session-row { cursor: pointer; }
+.plinko-session-row:hover { background: var(--panel-2); }
+.plinko-audit { margin-top: 10px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px; }
+.plinko-audit .feed-item { align-items: flex-start; }
+.plinko-audit code { font-family: var(--font-data); font-size: 11px; color: var(--ink-dim); white-space: pre-wrap; word-break: break-word; }
+
 /* ═══ RESPONSIVE + A11Y ═════════════════════════════════════ */
 
 @media (max-width: 980px) {
@@ -801,6 +819,7 @@ body::before {
           <button class="item" data-target="page-recognition">Recognition</button>
           <button class="item" data-target="page-casino">Casino</button>
           <button class="item" data-target="page-wheels">Prize Wheels</button>
+          <button class="item" data-target="page-plinko">Plinko</button>
         </div>
       </div>
 
@@ -1343,6 +1362,90 @@ body::before {
         <button type="button" id="wheelSegResetBtn" class="dismiss-link" style="margin-top:0;">Reset this wheel to defaults</button>
       </div>
       <p class="dismiss-error" id="wheelSegError" hidden></p>
+    </section>
+
+    </section>
+
+    <section class="page" id="page-plinko" hidden>
+
+    <div class="page-head">
+      <h1 class="page-title">Plinko</h1>
+      <p class="page-sub">Free-play FoxCoin Plinko. Viewers type <code>!plinko</code> to buy a session of drops and <code>!drop</code> to drop a ball. Every result is drawn server-side; your /overlay/plinko OBS source only animates it. No real money, tips or votes are involved.</p>
+    </div>
+
+    <section class="card" aria-label="Plinko status">
+      <div class="card-head">
+        <h2 class="card-title">Status</h2>
+        <span class="plinko-state" id="plinkoState">—</span>
+      </div>
+      <p class="card-sub"><b>On/off</b> stops new sessions; viewers mid-session can still finish their drops. <b>Kill switch</b> stops everything immediately: no new sessions, no drops, no auto-play, until you release it. Nothing is lost while it's on.</p>
+      <div class="action-row">
+        <button type="button" class="step-go" id="plinkoEnabledBtn" disabled>—</button>
+        <button type="button" class="step-go plinko-kill-btn" id="plinkoKillBtn" disabled>—</button>
+      </div>
+      <p class="card-sub" id="plinkoPlatformNote" hidden style="margin-top:8px;">Plinko is switched off platform-wide right now (FOXBOT_PLINKO_DISABLED).</p>
+      <p class="dismiss-error" id="plinkoStatusError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Recent drops">
+      <div class="card-head">
+        <h2 class="card-title">Recent drops</h2>
+        <span class="card-count" id="plinkoDropCount">—</span>
+      </div>
+      <div id="plinkoDrops"></div>
+    </section>
+
+    <section class="card" aria-label="Sessions and audit log">
+      <div class="card-head">
+        <h2 class="card-title">Sessions &amp; audit log</h2>
+      </div>
+      <p class="card-sub">Click a session to see every step: claimed, FoxCoins taken, each drop (slot, multiplier, payout, cap), each payout credited, closed.</p>
+      <div class="wheel-seg-table-wrap">
+        <table class="plinko-table">
+          <thead><tr><th>Started</th><th>Viewer</th><th>Status</th><th>Drops</th><th>Cost</th><th>Won</th></tr></thead>
+          <tbody id="plinkoSessions"></tbody>
+        </table>
+      </div>
+      <div id="plinkoAuditWrap" hidden>
+        <h3 class="subhead subhead-spaced" id="plinkoAuditTitle">Audit log</h3>
+        <div class="plinko-audit" id="plinkoAudit"></div>
+      </div>
+      <p class="dismiss-error" id="plinkoAuditError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Plinko settings">
+      <div class="card-head">
+        <h2 class="card-title">Settings</h2>
+      </div>
+      <p class="card-sub">Applies to the next session. The cost must divide evenly by the number of drops, so every payout is exact.</p>
+      <div class="field-row">
+        <label class="field"><span class="field-label">Cost per session (FoxCoins)</span><input type="text" id="plinkoCost" class="field-input"></label>
+        <label class="field"><span class="field-label">Drops per session</span><input type="text" id="plinkoDropsPer" class="field-input"></label>
+        <label class="field"><span class="field-label">Max payout per session</span><input type="text" id="plinkoCap" class="field-input"></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span class="field-label">Cooldown between sessions (seconds)</span><input type="text" id="plinkoCooldown" class="field-input"></label>
+        <label class="field"><span class="field-label">Auto-finish idle session after (seconds)</span><input type="text" id="plinkoTtl" class="field-input"></label>
+        <button type="button" id="plinkoSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="plinkoSettingsError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">Odds (per drop)</h3>
+      <p class="card-sub" id="plinkoRtp">—</p>
+      <div class="wheel-seg-table-wrap">
+        <table class="plinko-table">
+          <thead><tr><th>Slot</th><th>Multiplier</th><th>Odds</th><th>Chance</th></tr></thead>
+          <tbody id="plinkoOdds"></tbody>
+        </table>
+      </div>
+      <p class="card-sub" style="margin-top:8px;">Paid entry: <b>not available</b>. Plinko is free-play FoxCoins only.</p>
+
+      <h3 class="subhead subhead-spaced">OBS overlay</h3>
+      <p class="card-sub">Add a Browser Source pointing at this URL (transparent background). Optional: <code>&amp;size=640</code>, <code>&amp;pos=left|right|bottom-left|bottom-right</code>, <code>&amp;hold=4</code> (seconds the result stays up), <code>&amp;sound=1</code> (tick "Control audio via OBS").</p>
+      <div class="field-row">
+        <input type="text" id="plinkoOverlayUrl" class="field-input field-wide" readonly>
+        <button type="button" id="plinkoOverlayCopyBtn" class="step-go" style="align-self:flex-end;">Copy</button>
+      </div>
     </section>
 
     </section>
@@ -4936,6 +5039,185 @@ document.querySelectorAll('.item').forEach(function (item) {
   poll();
   setInterval(function () {
     if (!document.getElementById('page-wheels').hidden) poll();
+  }, POLL_MS);
+})();
+</script>
+
+<script>
+/* ═══ PLINKO PANEL ═══ Free-play FoxCoin Plinko: on/off, kill switch,
+   recent drops, sessions + per-session audit log, settings. Display and
+   config only -- outcomes are decided server-side. */
+(function () {
+  var POLL_MS = 3000;
+  var config = null;
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function ago(iso) {
+    if (!iso) return '';
+    var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    if (s < 86400) return Math.round(s / 3600) + 'h';
+    return Math.round(s / 86400) + 'd';
+  }
+  async function api(path, payload) {
+    var opts = payload === undefined ? { cache: 'no-store' } : {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload || {})
+    };
+    var res = await fetch(path, opts);
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* handled below */ }
+    if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+    return data;
+  }
+  function showError(id, err) {
+    var el = document.getElementById(id);
+    if (!err) { el.hidden = true; return; }
+    el.textContent = err.message || String(err);
+    el.hidden = false;
+  }
+  function emptyRow(text) {
+    return '<div class="feed-item"><span class="feed-body">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function renderStatus() {
+    var state = document.getElementById('plinkoState');
+    state.className = 'plinko-state' + (config.kill_switch ? ' killed' : (config.enabled ? ' on' : ''));
+    state.textContent = config.kill_switch ? 'Killed' : (config.enabled ? 'On' : 'Off');
+    var en = document.getElementById('plinkoEnabledBtn');
+    en.disabled = false;
+    en.textContent = config.enabled ? 'Turn Plinko off' : 'Turn Plinko on';
+    var kill = document.getElementById('plinkoKillBtn');
+    kill.disabled = false;
+    kill.classList.toggle('engaged', !!config.kill_switch);
+    kill.textContent = config.kill_switch ? 'Release kill switch' : '⛔ Kill switch';
+  }
+
+  function renderSettings() {
+    document.getElementById('plinkoCost').value = config.session_cost;
+    document.getElementById('plinkoDropsPer').value = config.drops_per_session;
+    document.getElementById('plinkoCap').value = config.max_session_payout;
+    document.getElementById('plinkoCooldown').value = config.cooldown_seconds;
+    document.getElementById('plinkoTtl').value = config.session_ttl_seconds;
+  }
+
+  function render(data) {
+    document.getElementById('plinkoPlatformNote').hidden = !data.platform_disabled;
+    document.getElementById('plinkoDropCount').textContent = data.recent_drops.length + ' shown';
+    document.getElementById('plinkoDrops').innerHTML = data.recent_drops.length ? data.recent_drops.map(function (d) {
+      var flags = (d.capped ? ' · capped (raw ' + d.raw_payout + ')' : '') + (d.auto ? ' · auto' : '') +
+        (d.credited_at || !d.payout ? '' : ' · paying…');
+      return '<div class="feed-item"><span class="feed-time">' + ago(d.created_at) + '</span>' +
+        '<span class="feed-body"><b>@' + escapeHtml(d.display_name) + '</b> drop ' + d.drop_index +
+        ' → slot ' + (d.slot + 1) + ' <span class="plinko-mult">' + escapeHtml(d.multiplier) + '</span> +' + d.payout +
+        '<span style="color:var(--ink-mute)">' + escapeHtml(flags) + '</span></span></div>';
+    }).join('') : emptyRow('No drops yet.');
+
+    document.getElementById('plinkoSessions').innerHTML = data.sessions.length ? data.sessions.map(function (s) {
+      return '<tr class="plinko-session-row" data-session="' + escapeHtml(s.session_id) + '">' +
+        '<td>' + ago(s.created_at) + '</td><td>@' + escapeHtml(s.display_name) + '</td>' +
+        '<td>' + escapeHtml(s.status) + (s.close_reason ? ' (' + escapeHtml(s.close_reason) + ')' : '') + '</td>' +
+        '<td>' + s.drops_used + '/' + s.drops_total + '</td><td>' + s.cost + '</td><td>' + s.payout_total + '</td></tr>';
+    }).join('') : '<tr><td colspan="6">No sessions yet.</td></tr>';
+
+    document.getElementById('plinkoRtp').textContent = 'Return to player: ' + data.rtp_percent + '% (the house keeps ' +
+      (100 - data.rtp_percent).toFixed(3) + '% over the long run). Session payouts are also capped.';
+    document.getElementById('plinkoOdds').innerHTML = data.odds.map(function (o) {
+      return '<tr><td>' + o.slot + '</td><td class="plinko-mult">' + escapeHtml(o.multiplier) + '</td><td>' +
+        o.weight + ' / ' + o.of + '</td><td>' + o.percent + '%</td></tr>';
+    }).join('');
+  }
+
+  async function poll() {
+    try {
+      var data = await api('/api/studio/plinko');
+      showError('plinkoStatusError', null);
+      var first = !config;
+      config = data.config;
+      renderStatus();
+      if (first) {
+        renderSettings();
+        document.getElementById('plinkoOverlayUrl').value = window.location.origin + data.overlay_path;
+      }
+      render(data);
+    } catch (err) {
+      showError('plinkoStatusError', err);
+    }
+  }
+
+  async function saveFlag(flag, value) {
+    var payload = {}; payload[flag] = value;
+    try {
+      var data = await api('/api/studio/plinko/config', payload);
+      config = data.config;
+      showError('plinkoStatusError', null);
+    } catch (err) {
+      showError('plinkoStatusError', err);
+    }
+    renderStatus();
+  }
+
+  document.getElementById('plinkoEnabledBtn').addEventListener('click', function () {
+    if (!config) return;
+    this.disabled = true; saveFlag('enabled', !config.enabled);
+  });
+  document.getElementById('plinkoKillBtn').addEventListener('click', function () {
+    if (!config) return;
+    this.disabled = true; saveFlag('kill_switch', !config.kill_switch);
+  });
+
+  document.getElementById('plinkoSaveBtn').addEventListener('click', async function () {
+    var btn = this; btn.disabled = true;
+    try {
+      var data = await api('/api/studio/plinko/config', {
+        session_cost: document.getElementById('plinkoCost').value.trim(),
+        drops_per_session: document.getElementById('plinkoDropsPer').value.trim(),
+        max_session_payout: document.getElementById('plinkoCap').value.trim(),
+        cooldown_seconds: document.getElementById('plinkoCooldown').value.trim(),
+        session_ttl_seconds: document.getElementById('plinkoTtl').value.trim()
+      });
+      config = data.config;
+      renderSettings();
+      showError('plinkoSettingsError', null);
+    } catch (err) {
+      showError('plinkoSettingsError', err);
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById('plinkoSessions').addEventListener('click', async function (event) {
+    var row = event.target.closest('[data-session]');
+    if (!row) return;
+    var sessionId = row.getAttribute('data-session');
+    try {
+      var data = await api('/api/studio/plinko/sessions/' + encodeURIComponent(sessionId));
+      var s = data.session;
+      document.getElementById('plinkoAuditTitle').textContent = 'Audit log — @' + s.display_name + ' (' + s.status + ', ' +
+        s.drops_used + '/' + s.drops_total + ' drops, won ' + s.payout_total + ' for ' + s.cost + ')';
+      document.getElementById('plinkoAudit').innerHTML = data.events.map(function (e) {
+        return '<div class="feed-item"><span class="feed-time">' + escapeHtml(new Date(e.at).toLocaleTimeString()) + '</span>' +
+          '<span class="feed-body"><b>' + escapeHtml(e.event) + '</b> <code>' + escapeHtml(JSON.stringify(e.detail)) + '</code></span></div>';
+      }).join('');
+      document.getElementById('plinkoAuditWrap').hidden = false;
+      showError('plinkoAuditError', null);
+    } catch (err) {
+      showError('plinkoAuditError', err);
+    }
+  });
+
+  document.getElementById('plinkoOverlayCopyBtn').addEventListener('click', function () {
+    var input = document.getElementById('plinkoOverlayUrl');
+    input.select();
+    try { navigator.clipboard.writeText(input.value); } catch (e) { document.execCommand('copy'); }
+  });
+
+  poll();
+  setInterval(function () {
+    if (!document.getElementById('page-plinko').hidden) poll();
   }, POLL_MS);
 })();
 </script>

@@ -28,8 +28,24 @@ class RNGProvider(ABC):
     def choice(self, seq):
         """Uniformly random element of seq."""
 
+    def bits(self, k: int) -> int:
+        """k uniformly random bits as an int in [0, 2**k). Not abstract, so
+        existing providers (including test doubles) keep working: the
+        default builds the value from k fair roll(0, 1) draws."""
+        if k <= 0:
+            raise ValueError("k must be positive.")
+        value = 0
+        for i in range(k):
+            value |= self.roll(0, 1) << i
+        return value
+
 
 class SecureRandomProvider(RNGProvider):
+    def bits(self, k: int) -> int:
+        if k <= 0:
+            raise ValueError("k must be positive.")
+        return secrets.randbits(k)
+
     def roll(self, minimum: int, maximum: int) -> int:
         if maximum < minimum:
             raise ValueError("maximum must be >= minimum.")
@@ -51,6 +67,10 @@ def roll(minimum: int, maximum: int) -> int:
 
 def choice(seq):
     return _provider.choice(seq)
+
+
+def bits(k: int) -> int:
+    return _provider.bits(k)
 
 
 def set_provider(provider: RNGProvider) -> None:
