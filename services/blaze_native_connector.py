@@ -358,12 +358,30 @@ def subscribe_default_events():
 
     return results
 
+_start_lock = threading.Lock()
+
+
+def _listener_thread_alive():
+    return bool(_thread is not None and _thread.is_alive())
+
+
 def start_listener(event_handler=None):
+    """Start the native socket listener. Idempotent and thread-safe: the
+    check-and-start runs under _start_lock, and a listener counts as running
+    if STATE says so OR its thread is still alive. Before this, STATE["running"]
+    was only set inside the new thread's run(), so two near-simultaneous
+    calls (boot auto-start racing a manual /api/blaze/native/start) could
+    both pass the check and open two sockets."""
+    with _start_lock:
+        return _start_listener_locked(event_handler)
+
+
+def _start_listener_locked(event_handler=None):
     global _socket, _thread, _event_handler
 
     _event_handler = event_handler
 
-    if STATE["running"]:
+    if STATE["running"] or _listener_thread_alive():
         return {"ok": True, "already_running": True, "state": STATE}
 
     status = config_status()
@@ -555,8 +573,16 @@ def start_listener(event_handler=None):
                 detail={"state": "disconnected", "reason": STATE.get("last_error")},
             )
 
+    # Mark running before the thread exists so a concurrent caller that gets
+    # the lock next sees it immediately (run() sets it again; its finally
+    # clears it when the socket loop ends).
+    STATE["running"] = True
     _thread = threading.Thread(target=run, daemon=True)
-    _thread.start()
+    try:
+        _thread.start()
+    except Exception:
+        STATE["running"] = False
+        raise
 
     return {"ok": True, "started": True, "state": STATE}
 
