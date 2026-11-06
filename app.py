@@ -237,6 +237,20 @@ foxcoin_economy = {
 
 }
 
+# One process-wide lock for the FoxCoin economy. Every balance change
+# (add_points, spend_points, debit/credit_foxcoins_idempotent) and the
+# snapshot copy in save_persistent_data/load_persistent_data hold it, so a
+# read-modify-write on a balance can't interleave with another thread's
+# (polling, native listener, threadpool routes, event loop). Reentrant
+# because spend_points calls add_points and the save path can reload.
+#
+# Rules for anything that takes it:
+#   * no network or Postgres I/O inside it -- it guards microsecond dict
+#     updates, and every caller (including chat) waits on it;
+#   * never take it while holding TENANT_ZERO_REFRESH_LOCK, and never take
+#     that lock inside this one (tests/test_foxcoin_concurrency.py checks).
+FOXCOIN_LOCK = threading.RLock()
+
 
 
 support_rewards = {
@@ -853,6 +867,8 @@ def apply_persistent_snapshot(data):
 
 
 
+# Compact JSON (no indent) of the last snapshot written, used only to skip
+# saves when nothing changed. The file itself is still written indented.
 _foxbot_last_saved_snapshot_json_v1 = None
 
 
@@ -899,7 +915,7 @@ def _foxbot_describe_discarded_state_v1(before, after, path=""):
 
 def save_persistent_data():
 
-    global _foxbot_last_saved_snapshot_json_v1
+    global _foxbot_last_saved_snapshot_json_v1, _foxbot_save_seq_v1, _foxbot_saved_seq_v1
 
     try:
 
@@ -934,37 +950,69 @@ def save_persistent_data():
             # comparison once load_persistent_data() runs. Deep-copy via a
             # JSON round-trip (this data is already known JSON-safe) so
             # "before" actually stays before.
-            before_reload = json.loads(json.dumps(get_persistent_snapshot()))
+            #
+            # The file is read before taking FOXCOIN_LOCK (no I/O under it);
+            # snapshot-before, apply and snapshot-after happen together
+            # under it so the discard report matches what was replaced.
+            reload_data = _foxbot_read_persistent_file_v1(path)
 
-            load_persistent_data()
+            if reload_data is not None:
 
-            discarded = _foxbot_describe_discarded_state_v1(before_reload, get_persistent_snapshot())
+                with FOXCOIN_LOCK:
 
-            if discarded:
+                    before_reload = json.loads(json.dumps(get_persistent_snapshot()))
 
-                print(
-                    "FoxBot data recovery reload discarded in-memory-only state "
-                    "made during the Postgres outage (values omitted): "
-                    + "; ".join(discarded)
-                )
+                    _foxbot_apply_loaded_data_v1(reload_data, path)
 
-        data = get_persistent_snapshot()
+                    discarded = _foxbot_describe_discarded_state_v1(before_reload, get_persistent_snapshot())
 
-        serialized = json.dumps(data, indent=2)
+                if discarded:
+
+                    print(
+                        "FoxBot data recovery reload discarded in-memory-only state "
+                        "made during the Postgres outage (values omitted): "
+                        + "; ".join(discarded)
+                    )
+
+        # Copy the state under FOXCOIN_LOCK (so no balance changes mid-copy)
+        # and stamp it with a sequence number; write it after releasing the
+        # lock. The write lock plus the sequence check mean an older copy
+        # can never land on disk/Postgres after a newer one.
+        #
+        # The copy is compact JSON: that always uses the C encoder, while
+        # indent=2 on Python 3.12 (production) uses the pure-Python one,
+        # ~7x slower (measured ~10 ms vs ~72 ms on a 2.7 MB data file).
+        # Indenting happens outside the lock, and only when it changed.
+        with FOXCOIN_LOCK:
+
+            serialized = _foxbot_serialize_snapshot_v1()
+
+            _foxbot_save_seq_v1 += 1
+
+            seq = _foxbot_save_seq_v1
 
         if serialized == _foxbot_last_saved_snapshot_json_v1:
 
             return True
 
-        if _foxbot_hydration_failed_v1("foxbot_data.json"):
+        with _FOXBOT_SAVE_WRITE_LOCK_V1:
 
-            print("FoxBot data save skipped: last Postgres hydration for foxbot_data failed; refusing to write until a hydration succeeds, to avoid overwriting a good row with incomplete local state.")
+            if seq <= _foxbot_saved_seq_v1 or serialized == _foxbot_last_saved_snapshot_json_v1:
 
-            return False
+                # A newer (or identical) copy is already written.
+                return True
 
-        path.write_text(serialized, encoding="utf-8")
+            if _foxbot_hydration_failed_v1("foxbot_data.json"):
 
-        _foxbot_last_saved_snapshot_json_v1 = serialized
+                print("FoxBot data save skipped: last Postgres hydration for foxbot_data failed; refusing to write until a hydration succeeds, to avoid overwriting a good row with incomplete local state.")
+
+                return False
+
+            path.write_text(json.dumps(json.loads(serialized), indent=2), encoding="utf-8")
+
+            _foxbot_last_saved_snapshot_json_v1 = serialized
+
+            _foxbot_saved_seq_v1 = seq
 
         return True
 
@@ -978,39 +1026,105 @@ def save_persistent_data():
 
 
 
-def load_persistent_data():
+# Save ordering (see save_persistent_data): every snapshot copy gets the
+# next number; the write lock serializes the file/Postgres write, and a
+# copy whose number is not newer than the last one written is dropped.
+_foxbot_save_seq_v1 = 0
 
-    global _foxbot_last_saved_snapshot_json_v1
+_foxbot_saved_seq_v1 = 0
 
-    path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
+_FOXBOT_SAVE_WRITE_LOCK_V1 = threading.Lock()
 
+_FOXBOT_SNAPSHOT_SERIALIZE_ATTEMPTS_V1 = 5
+
+
+
+
+
+def _foxbot_serialize_snapshot_v1():
+
+    # Call with FOXCOIN_LOCK held. Compact JSON on purpose (C encoder, fast,
+    # not interruptible by other threads). The retry is a backstop: the
+    # snapshot also holds stores that other code changes without the lock
+    # (cooldown trackers, logs, quests...), and if the pure-Python encoder
+    # is ever used, json.dumps can raise "dictionary changed size during
+    # iteration". Retry instead of skipping the save; raise after that.
+    for attempt in range(_FOXBOT_SNAPSHOT_SERIALIZE_ATTEMPTS_V1):
+
+        try:
+
+            return json.dumps(get_persistent_snapshot())
+
+        except RuntimeError:
+
+            if attempt == _FOXBOT_SNAPSHOT_SERIALIZE_ATTEMPTS_V1 - 1:
+
+                raise
+
+
+
+
+
+def _foxbot_read_persistent_file_v1(path):
+
+    # File read + parse, done outside FOXCOIN_LOCK. None = nothing to load.
     if not path.exists():
 
-        print("FoxBot data file not found. Starting fresh.")
+        return None
 
-        return False
-
-
-
-    try:
-
-        data = json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
+
+
+
+def _foxbot_apply_loaded_data_v1(data, path):
+
+    # Apply a loaded snapshot under FOXCOIN_LOCK and mark it as the copy
+    # already on disk, so a save that copied the state before this reload
+    # can't write that older copy over the freshly loaded one afterwards.
+    # Waiting for the write lock here (rare: startup and outage recovery)
+    # can hold FOXCOIN_LOCK for at most one in-flight save write. Lock
+    # order is always FOXCOIN_LOCK -> write lock, never the reverse.
+    global _foxbot_last_saved_snapshot_json_v1, _foxbot_save_seq_v1, _foxbot_saved_seq_v1
+
+    with FOXCOIN_LOCK:
 
         loaded = apply_persistent_snapshot(data)
 
-
-
         if loaded:
 
-            _foxbot_last_saved_snapshot_json_v1 = json.dumps(get_persistent_snapshot(), indent=2)
+            _foxbot_save_seq_v1 += 1
+
+            with _FOXBOT_SAVE_WRITE_LOCK_V1:
+
+                _foxbot_last_saved_snapshot_json_v1 = _foxbot_serialize_snapshot_v1()
+
+                _foxbot_saved_seq_v1 = _foxbot_save_seq_v1
 
             print(f"FoxBot data loaded from {path}")
 
+    return loaded
 
 
-        return loaded
+
+
+
+def load_persistent_data():
+
+    path = _foxbot_storage_path_v1("foxbot_data.json", "FOXBOT_DATA_FILE")
+
+    try:
+
+        data = _foxbot_read_persistent_file_v1(path)
+
+        if data is None:
+
+            print("FoxBot data file not found. Starting fresh.")
+
+            return False
+
+        return _foxbot_apply_loaded_data_v1(data, path)
 
     except Exception as exc:
 
@@ -3003,6 +3117,43 @@ def get_balance(name: str, creator_id: str = None):
 
 def add_points(name: str, amount: int, reason: str = "activity", creator_id: str = None):
 
+    # Clamps at zero, never rejects. For a purchase use spend_points(),
+    # which checks the balance and debits in one step under the lock.
+    with FOXCOIN_LOCK:
+
+        return _add_points_locked_v1(name, amount, reason, creator_id)
+
+
+
+
+
+def spend_points(name: str, cost: int, reason: str, creator_id: str = None):
+    """Check-and-debit in one step under FOXCOIN_LOCK: returns the new
+    balance, or None (balance untouched) when the viewer has less than
+    `cost`. Replaces the old `if get_balance() < cost: refuse` followed by
+    `add_points(-cost)`, where two concurrent purchases could both pass
+    the check and the second debit was silently clamped to zero."""
+    cost = int(cost)
+
+    if cost < 0:
+
+        raise ValueError("cost must not be negative.")
+
+    with FOXCOIN_LOCK:
+
+        if get_balance(name, creator_id=creator_id) < cost:
+
+            return None
+
+        return _add_points_locked_v1(name, -cost, reason, creator_id)
+
+
+
+
+
+def _add_points_locked_v1(name: str, amount: int, reason: str = "activity", creator_id: str = None):
+
+    # Caller holds FOXCOIN_LOCK.
     clean_name = normalize_viewer_name(name)
 
     key = viewer_key(clean_name)
@@ -3067,7 +3218,17 @@ def debit_foxcoins_idempotent(name: str, amount: int, idempotency_key: str, reas
     after a crash: whether idempotency_key is present in
     processed_deductions durably answers "did this debit actually happen",
     which add_points() alone has no way to answer.
+
+    Holds FOXCOIN_LOCK for the whole check-and-write, so two concurrent
+    debits can't both pass the funds check (or the replay check).
     """
+    with FOXCOIN_LOCK:
+
+        return _debit_foxcoins_idempotent_locked_v1(name, amount, idempotency_key, reason, creator_id)
+
+
+def _debit_foxcoins_idempotent_locked_v1(name, amount, idempotency_key, reason, creator_id):
+    # Caller holds FOXCOIN_LOCK.
     if not idempotency_key:
         raise ValueError("idempotency_key is required -- this function exists specifically to make FoxCoin debits safe to retry.")
 
@@ -3134,7 +3295,17 @@ def credit_foxcoins_idempotent(name: str, amount: int, idempotency_key: str, rea
     live in the SAME per-creator economy blob, so a single
     save_persistent_data() flush still captures the balance mutation and
     the idempotency marker together, never one without the other.
+
+    Holds FOXCOIN_LOCK for the whole check-and-write, so the same key
+    can't be credited twice by two threads at once.
     """
+    with FOXCOIN_LOCK:
+
+        return _credit_foxcoins_idempotent_locked_v1(name, amount, idempotency_key, reason, creator_id)
+
+
+def _credit_foxcoins_idempotent_locked_v1(name, amount, idempotency_key, reason, creator_id):
+    # Caller holds FOXCOIN_LOCK.
     if not idempotency_key:
         raise ValueError("idempotency_key is required -- this function exists specifically to make FoxCoin credits safe to retry.")
 
@@ -4742,7 +4913,11 @@ def format_coin_leaderboard(limit: int = 5, creator_id: str = None):
 
     currency = get_currency_name()
 
-    balances = _creator_economy_v1(creator_id or _tenant_zero_id())["balances"]
+    # Copy under the lock: sorting the live dict while another thread adds
+    # a viewer raises "dictionary changed size during iteration".
+    with FOXCOIN_LOCK:
+
+        balances = dict(_creator_economy_v1(creator_id or _tenant_zero_id())["balances"])
 
 
 
@@ -5698,21 +5873,17 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         power_cost = 25
 
-        balance = get_balance(username, creator_id=resolved_creator_id)
+        # Check and debit in one locked step (spend_points), so two
+        # concurrent !powerattack messages can't both pass the check.
+        if spend_points(username, power_cost, "power attack cost", creator_id=resolved_creator_id) is None:
 
-
-
-        if balance < power_cost:
+            balance = get_balance(username, creator_id=resolved_creator_id)
 
             return {
 
                 "response": f"@{username}, power attack costs {power_cost} {currency}. Your balance: {balance} {currency}."
 
             }
-
-
-
-        add_points(username, -power_cost, "power attack cost", creator_id=resolved_creator_id)
 
 
 
@@ -7146,21 +7317,19 @@ def chat(message: str = "", username: str = "viewer", creator_handle: str = None
 
         currency = get_currency_name()
 
-        balance = get_balance(username, creator_id=resolved_creator_id)
+        # Check and debit in one locked step (spend_points), so two
+        # concurrent redeems can't both pass the check.
+        new_balance = spend_points(username, cost, f"redeemed {reward_name}", creator_id=resolved_creator_id)
 
+        if new_balance is None:
 
-
-        if balance < cost:
+            balance = get_balance(username, creator_id=resolved_creator_id)
 
             return {
 
                 "response": f"@{username}, you need {cost} {currency} to redeem {reward_name}. Your balance: {balance} {currency}."
 
             }
-
-
-
-        new_balance = add_points(username, -cost, f"redeemed {reward_name}", creator_id=resolved_creator_id)
 
         response_template = reward.get("response", "@{username} redeemed a reward!")
 
@@ -12758,15 +12927,25 @@ def foxcoins_endpoint(request: Request):
 
     economy = _creator_economy_v1(resolved_creator_id)
 
+    # Copies taken under the lock: the response is serialized after this
+    # returns, and the live dicts can change size mid-serialization.
+    with FOXCOIN_LOCK:
+
+        balances = dict(economy["balances"])
+
+        daily_claims = dict(economy["daily_claims"])
+
+        recent_transactions = list(economy["transactions"][-10:])
+
     return {
 
         "currency_name": get_currency_name(),
 
-        "balances": economy["balances"],
+        "balances": balances,
 
-        "daily_claims": economy["daily_claims"],
+        "daily_claims": daily_claims,
 
-        "recent_transactions": economy["transactions"][-10:],
+        "recent_transactions": recent_transactions,
 
         "reward_shop": reward_shop,
 
@@ -17881,7 +18060,9 @@ async def foxbot_studio_stats_live(request: Request):
         blaze_id=getattr(request.state, "blaze_id", None)
     )
 
-    foxcoins_total = sum(int(v) for v in _creator_economy_v1(resolved_creator_id)["balances"].values())
+    with FOXCOIN_LOCK:
+
+        foxcoins_total = sum(int(v) for v in _creator_economy_v1(resolved_creator_id)["balances"].values())
 
     tenant_stats = _creator_viewer_stats_v1(resolved_creator_id)
 
