@@ -5,7 +5,12 @@ import time
 import urllib.error
 import urllib.request
 
-from services.blaze_tokens import resolve_blaze_access_token, resolve_blaze_refresh_token, sync_tenant_zero_slot
+from services.blaze_tokens import (
+    TENANT_ZERO_REFRESH_LOCK,
+    resolve_blaze_access_token,
+    resolve_blaze_refresh_token,
+    sync_tenant_zero_slot,
+)
 from services.storage_paths import storage_path
 from services import foxbot_events as _foxbot_events_v1
 
@@ -358,12 +363,30 @@ def subscribe_default_events():
 
     return results
 
+_start_lock = threading.Lock()
+
+
+def _listener_thread_alive():
+    return bool(_thread is not None and _thread.is_alive())
+
+
 def start_listener(event_handler=None):
+    """Start the native socket listener. Idempotent and thread-safe: the
+    check-and-start runs under _start_lock, and a listener counts as running
+    if STATE says so OR its thread is still alive. Before this, STATE["running"]
+    was only set inside the new thread's run(), so two near-simultaneous
+    calls (boot auto-start racing a manual /api/blaze/native/start) could
+    both pass the check and open two sockets."""
+    with _start_lock:
+        return _start_listener_locked(event_handler)
+
+
+def _start_listener_locked(event_handler=None):
     global _socket, _thread, _event_handler
 
     _event_handler = event_handler
 
-    if STATE["running"]:
+    if STATE["running"] or _listener_thread_alive():
         return {"ok": True, "already_running": True, "state": STATE}
 
     status = config_status()
@@ -555,8 +578,16 @@ def start_listener(event_handler=None):
                 detail={"state": "disconnected", "reason": STATE.get("last_error")},
             )
 
+    # Mark running before the thread exists so a concurrent caller that gets
+    # the lock next sees it immediately (run() sets it again; its finally
+    # clears it when the socket loop ends).
+    STATE["running"] = True
     _thread = threading.Thread(target=run, daemon=True)
-    _thread.start()
+    try:
+        _thread.start()
+    except Exception:
+        STATE["running"] = False
+        raise
 
     return {"ok": True, "started": True, "state": STATE}
 
@@ -673,6 +704,14 @@ def _fb_save_tokens_diag(tokens):
 
 
 def _fb_refresh_token_diag():
+    # Shared with app.py's tenant-zero refresh: see TENANT_ZERO_REFRESH_LOCK.
+    # The refresh token is read INSIDE the lock so a refresh that just
+    # finished elsewhere hands us its new token, not the one it consumed.
+    with TENANT_ZERO_REFRESH_LOCK:
+        return _fb_refresh_token_diag_locked()
+
+
+def _fb_refresh_token_diag_locked():
     payload = {
         "clientId": env("BLAZE_CLIENT_ID", ""),
         "clientSecret": env("BLAZE_CLIENT_SECRET", ""),
