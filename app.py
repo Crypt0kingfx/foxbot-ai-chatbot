@@ -79,6 +79,7 @@ from services import foxbot_events as _foxbot_events_v1
 from services.blaze_tokens import resolve_blaze_access_token
 from services.blaze_tokens import sync_tenant_zero_slot as _foxbot_blaze_oauth_sync_tenant_zero_slot_v1
 from services.blaze_tokens import by_creator_ids as _foxbot_blaze_by_creator_ids_v1
+from services.blaze_tokens import TENANT_ZERO_REFRESH_LOCK as _FOXBOT_TENANT_ZERO_REFRESH_LOCK_V1
 
 from fastapi.staticfiles import StaticFiles
 
@@ -25309,6 +25310,25 @@ def foxbot_blaze_oauth_refresh_v1(request: Request):
     if guard:
         return guard
 
+    return _foxbot_blaze_oauth_refresh_tenant_zero_v1()
+
+
+def _foxbot_blaze_oauth_refresh_tenant_zero_v1():
+    """The tenant-zero refresh itself, shared by the admin route above and
+    the scheduled loop (_foxbot_blaze_oauth_refresh_worker_v1). No request
+    and no auth here: the route does its admin check first, and the loop is
+    in-process. Holds TENANT_ZERO_REFRESH_LOCK across read -> POST -> save,
+    and reads the saved refresh token inside the lock, so a refresh that
+    just finished hands the next one its new token.
+
+    Fixes the loop crash from 80c58be: the loop called the route function
+    with no arguments after the route started requiring `request`, so every
+    scheduled cycle raised TypeError."""
+    with _FOXBOT_TENANT_ZERO_REFRESH_LOCK_V1:
+        return _foxbot_blaze_oauth_refresh_tenant_zero_locked_v1()
+
+
+def _foxbot_blaze_oauth_refresh_tenant_zero_locked_v1():
     import os
 
     import json
@@ -26142,8 +26162,9 @@ def foxbot_bot_connect_revoke_v1(request: Request, creator_id: str = ""):
 
 
 # === FoxBot Blaze OAuth Scheduled Refresh v1 ===
-# Calls the existing, identity-locked foxbot_blaze_oauth_refresh_v1() on a
-# timer so the bot's Blaze access token gets renewed automatically instead
+# Calls _foxbot_blaze_oauth_refresh_tenant_zero_v1() -- the same locked,
+# identity-verified refresh the admin route foxbot_blaze_oauth_refresh_v1
+# uses -- on a timer so the bot's Blaze access token gets renewed automatically instead
 # of expiring and needing a manual /auth/blaze/login redo. Deliberately does
 # not touch foxbot_blaze_oauth_refresh_v1, _foxbot_blaze_oauth_save_tokens_v1,
 # or _foxbot_blaze_oauth_verify_identity_v1 -- this only calls that existing
@@ -26164,33 +26185,6 @@ blaze_oauth_refresh_status = {
     "last_error": None,
     "per_creator": {},
 }
-
-
-def _foxbot_blaze_oauth_log_raw_fields_v1():
-    """Read back the just-saved token file and print whatever fields Blaze's
-    response actually contained (masking only the token values themselves),
-    so the real expiresIn/tokenType/etc. show up once in the Render log
-    stream instead of staying unknown forever. Read-only -- writes nothing."""
-
-    import json
-
-    token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
-
-    if not token_path.exists():
-        return
-
-    try:
-        saved = json.loads(token_path.read_text(encoding="utf-8") or "{}")
-    except Exception as e:
-        print(f"[FoxBot OAuth Refresh] could not read back token file for logging: {e}")
-        return
-
-    masked = dict(saved)
-    for key in ("accessToken", "access_token", "refreshToken", "refresh_token"):
-        if key in masked:
-            masked[key] = _foxbot_blaze_oauth_mask_v1(masked.get(key))
-
-    print(f"[FoxBot OAuth Refresh] saved token fields (masked tokens only): {masked}")
 
 
 def _foxbot_blaze_oauth_refresh_creator_v1(creator_id, creator_slot):
@@ -26274,6 +26268,32 @@ def _foxbot_blaze_oauth_refresh_creator_status_v1(creator_id):
     )
 
 
+FOXBOT_OAUTH_REFRESH_ALERT_PREFIX_V1 = "FOXBOT_ALERT oauth_refresh"
+
+
+def _foxbot_oauth_refresh_alert_v1(kind, error, creator="tenant_zero"):
+    """One alertable log line per refresh failure. Fixed, grep-able shape:
+
+        FOXBOT_ALERT oauth_refresh kind=<crashed|failed> creator=<id> error_type=<T> error="..." | [FoxBot OAuth Refresh] scheduled refresh <kind>: ...
+
+    Alert on the literal "FOXBOT_ALERT oauth_refresh" (or narrow to
+    kind=crashed). The trailing legacy text keeps older log searches for
+    "scheduled refresh crashed" matching. Flushed immediately, because this
+    runs on a daemon thread and buffered stdout can show up in Render's log
+    stream late, or never if the process dies. The error text is truncated
+    and never includes token values: it's an exception message or Blaze's
+    error string, and the token payload is never formatted into it."""
+    error_type = type(error).__name__ if isinstance(error, BaseException) else "RefreshFailed"
+    message = " ".join(str(error or "unknown error").split())[:300].replace('"', "'")
+    legacy = "crashed" if kind == "crashed" else "did not run"
+    print(
+        f'{FOXBOT_OAUTH_REFRESH_ALERT_PREFIX_V1} kind={kind} creator={creator} '
+        f'error_type={error_type} error="{message}" '
+        f"| [FoxBot OAuth Refresh] scheduled refresh {legacy}: {message}",
+        flush=True,
+    )
+
+
 def _foxbot_blaze_oauth_refresh_worker_v1():
     blaze_oauth_refresh_status["running"] = True
 
@@ -26284,91 +26304,107 @@ def _foxbot_blaze_oauth_refresh_worker_v1():
     interval = max(60.0, interval)
 
     while blaze_oauth_refresh_status["running"]:
-        blaze_oauth_refresh_status["last_attempt_at"] = time.time()
-        blaze_oauth_refresh_status["cycles"] += 1
-
-        # --- Tenant-zero: UNCHANGED flat-path refresh. Same call, same
-        # try/except shape as before Sub-phase C -- zero new code in this
-        # block. Also mirrored into per_creator[tz_id] so the status
-        # endpoint gives one consistent view of every creator, even
-        # though tenant-zero's actual refresh mechanism stays untouched.
-        tz_id = _tenant_zero_id()
-        tz_status = _foxbot_blaze_oauth_refresh_creator_status_v1(tz_id)
-        tz_status["last_attempt_at"] = time.time()
-        tz_status["cycles"] += 1
-
         try:
-            result = foxbot_blaze_oauth_refresh_v1()
-            ok = bool(result.get("ok"))
-            blaze_oauth_refresh_status["last_ok"] = ok
-            tz_status["last_ok"] = ok
-
-            if ok:
-                blaze_oauth_refresh_status["last_error"] = None
-                tz_status["last_error"] = None
-                print("[FoxBot OAuth Refresh] scheduled refresh succeeded.")
-                _foxbot_blaze_oauth_log_raw_fields_v1()
-            else:
-                blaze_oauth_refresh_status["last_error"] = result.get("error")
-                tz_status["last_error"] = result.get("error")
-                print(f"[FoxBot OAuth Refresh] scheduled refresh did not run: {result.get('error')}")
+            _foxbot_blaze_oauth_refresh_cycle_v1()
         except Exception as e:
-            blaze_oauth_refresh_status["last_ok"] = False
-            blaze_oauth_refresh_status["last_error"] = str(e)
-            tz_status["last_ok"] = False
-            tz_status["last_error"] = str(e)
-            print(f"[FoxBot OAuth Refresh] scheduled refresh crashed: {e}")
-
-        # --- Every OTHER creator in by_creator: Bot Connection Sub-phase
-        # C. Explicitly skips tz_id -- keyed on _tenant_zero_id(), the
-        # same function that writes by_creator[tz_id] (Sub-phase A's
-        # mirror sync), so the exclusion always matches what's actually
-        # stored there regardless of whether BLAZE_BOT_USER_ID/
-        # FOXBOT_BLAZE_USER_ID (the identity-lock's own env vars) ever
-        # differs from FOXBOT_TENANT_ZERO_CREATOR_ID. Tenant-zero is
-        # never refreshed here -- it was already handled above via the
-        # unchanged flat path. Dormant today: by_creator only ever
-        # contains tz_id until Sub-phase E ships a route that can add
-        # another creator.
-        import json
-
-        try:
-            token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
-            existing = json.loads(token_path.read_text(encoding="utf-8") or "{}") if token_path.exists() else {}
-        except Exception as e:
-            existing = {}
-            print(f"[FoxBot OAuth Refresh] could not read token file for per-creator refresh: {e}")
-
-        by_creator = existing.get("by_creator") if isinstance(existing, dict) else None
-
-        for creator_id, creator_slot in (by_creator or {}).items():
-            if creator_id == tz_id:
-                continue
-
-            creator_status = _foxbot_blaze_oauth_refresh_creator_status_v1(creator_id)
-            creator_status["last_attempt_at"] = time.time()
-            creator_status["cycles"] += 1
-
-            try:
-                result = _foxbot_blaze_oauth_refresh_creator_v1(creator_id, creator_slot)
-                creator_status["last_ok"] = bool(result.get("ok"))
-                creator_status["last_error"] = None if result.get("ok") else result.get("error")
-                if result.get("ok"):
-                    print(f"[FoxBot OAuth Refresh] scheduled refresh succeeded for creator {creator_id!r}.")
-                else:
-                    print(f"[FoxBot OAuth Refresh] scheduled refresh did not run for creator {creator_id!r}: {result.get('error')}")
-            except Exception as e:
-                # Isolation: caught here, per creator_id -- one creator's
-                # exception must never stop the loop from reaching the
-                # next creator, and is only ever recorded against this
-                # creator's own status entry.
-                creator_status["last_ok"] = False
-                creator_status["last_error"] = str(e)
-                print(f"[FoxBot OAuth Refresh] scheduled refresh crashed for creator {creator_id!r}: {e}")
-
+            # Last-resort guard: nothing in one cycle may end the loop.
+            _foxbot_oauth_refresh_alert_v1("crashed", e, creator="cycle")
         time.sleep(interval)
 
     blaze_oauth_refresh_status["running"] = False
+
+
+def _foxbot_blaze_oauth_refresh_cycle_v1():
+    """One scheduled refresh pass: tenant-zero, then every other creator."""
+    blaze_oauth_refresh_status["last_attempt_at"] = time.time()
+    blaze_oauth_refresh_status["cycles"] += 1
+
+    # --- Tenant-zero: the same locked refresh + identity-verified save the
+    # admin route uses (_foxbot_blaze_oauth_refresh_tenant_zero_v1). Also
+    # mirrored into per_creator[tz_id] so the status endpoint gives one
+    # consistent view of every creator.
+    tz_id = _tenant_zero_id()
+    tz_status = _foxbot_blaze_oauth_refresh_creator_status_v1(tz_id)
+    tz_status["last_attempt_at"] = time.time()
+    tz_status["cycles"] += 1
+
+    try:
+        result = _foxbot_blaze_oauth_refresh_tenant_zero_v1()
+        ok = bool(result.get("ok"))
+        blaze_oauth_refresh_status["last_ok"] = ok
+        tz_status["last_ok"] = ok
+
+        if ok:
+            blaze_oauth_refresh_status["last_error"] = None
+            tz_status["last_error"] = None
+            # Booleans only. The old follow-up dump of the saved token file
+            # (_foxbot_blaze_oauth_log_raw_fields_v1) is removed: it masked
+            # only top-level keys, so the by_creator mirror printed full
+            # tokens to the log stream.
+            print(
+                "[FoxBot OAuth Refresh] scheduled refresh succeeded "
+                f"(has_access_token={bool(result.get('has_access_token'))}, "
+                f"has_refresh_token={bool(result.get('has_refresh_token'))}).",
+                flush=True,
+            )
+        else:
+            blaze_oauth_refresh_status["last_error"] = result.get("error")
+            tz_status["last_error"] = result.get("error")
+            _foxbot_oauth_refresh_alert_v1("failed", result.get("error"))
+    except Exception as e:
+        blaze_oauth_refresh_status["last_ok"] = False
+        blaze_oauth_refresh_status["last_error"] = str(e)
+        tz_status["last_ok"] = False
+        tz_status["last_error"] = str(e)
+        _foxbot_oauth_refresh_alert_v1("crashed", e)
+
+    # --- Every OTHER creator in by_creator: Bot Connection Sub-phase
+    # C. Explicitly skips tz_id -- keyed on _tenant_zero_id(), the
+    # same function that writes by_creator[tz_id] (Sub-phase A's
+    # mirror sync), so the exclusion always matches what's actually
+    # stored there regardless of whether BLAZE_BOT_USER_ID/
+    # FOXBOT_BLAZE_USER_ID (the identity-lock's own env vars) ever
+    # differs from FOXBOT_TENANT_ZERO_CREATOR_ID. Tenant-zero is
+    # never refreshed here -- it was already handled above via the
+    # unchanged flat path. Dormant today: by_creator only ever
+    # contains tz_id until Sub-phase E ships a route that can add
+    # another creator.
+    import json
+
+    try:
+        token_path = _foxbot_storage_path_v1("blaze_oauth_tokens.json", "FOXBOT_OAUTH_TOKEN_FILE")
+        existing = json.loads(token_path.read_text(encoding="utf-8") or "{}") if token_path.exists() else {}
+    except Exception as e:
+        existing = {}
+        print(f"[FoxBot OAuth Refresh] could not read token file for per-creator refresh: {e}")
+
+    by_creator = existing.get("by_creator") if isinstance(existing, dict) else None
+
+    for creator_id, creator_slot in (by_creator or {}).items():
+        if creator_id == tz_id:
+            continue
+
+        creator_status = _foxbot_blaze_oauth_refresh_creator_status_v1(creator_id)
+        creator_status["last_attempt_at"] = time.time()
+        creator_status["cycles"] += 1
+
+        try:
+            result = _foxbot_blaze_oauth_refresh_creator_v1(creator_id, creator_slot)
+            creator_status["last_ok"] = bool(result.get("ok"))
+            creator_status["last_error"] = None if result.get("ok") else result.get("error")
+            if result.get("ok"):
+                print(f"[FoxBot OAuth Refresh] scheduled refresh succeeded for creator {creator_id!r}.")
+            else:
+                _foxbot_oauth_refresh_alert_v1("failed", result.get("error"), creator=creator_id)
+        except Exception as e:
+            # Isolation: caught here, per creator_id -- one creator's
+            # exception must never stop the loop from reaching the
+            # next creator, and is only ever recorded against this
+            # creator's own status entry.
+            creator_status["last_ok"] = False
+            creator_status["last_error"] = str(e)
+            _foxbot_oauth_refresh_alert_v1("crashed", e, creator=creator_id)
+
 
 
 def _foxbot_blaze_oauth_startup_sync_tenant_zero_slot_v1():

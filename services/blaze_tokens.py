@@ -20,8 +20,21 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 from services.storage_paths import storage_path
+
+
+# Serializes every TENANT-ZERO refresh-token exchange (read refresh token ->
+# POST /bapi/oauth2/refresh -> save) in this process. Held by app.py's
+# _foxbot_blaze_oauth_refresh_tenant_zero_v1, which both the manual
+# /api/blaze/oauth/refresh route and the scheduled refresh loop call.
+# Whether Blaze rotates refresh tokens on use is unverified; holding this
+# across the whole read->POST->save means a second refresh re-reads the
+# file and sends the token the first one just saved, instead of both
+# sending the same one. Process-local only: it cannot serialize two Render
+# instances.
+TENANT_ZERO_REFRESH_LOCK = threading.Lock()
 
 
 def _find_token(payload, possible_keys):
