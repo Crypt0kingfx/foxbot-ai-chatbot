@@ -9265,6 +9265,54 @@ def _foxbot_item_has_sub_signal_v1(item):
     return item.get("type") == "subscribed" and isinstance(item.get("actionInfo"), dict)
 
 
+_FOXBOT_RAID_ITEM_TYPES_V1 = frozenset({"raid", "raided", "channel.raid", "incoming_raid"})
+
+
+def _foxbot_item_has_raid_signal_v1(item):
+    """True only when a chat-feed row carries a structured raid marker:
+    top-level type (lowercased) in _FOXBOT_RAID_ITEM_TYPES_V1 AND a sibling
+    actionInfo dict -- same shape as _foxbot_item_has_vote_signal_v1 /
+    _foxbot_item_has_sub_signal_v1.
+
+    UNCONFIRMED shape: unlike vote/sub, no real raid capture exists yet, so
+    the type values above are educated guesses, not observed payloads.
+    Replaces the old bare "raid" substring match in parse_auto_chat_event,
+    which fired on any chat text containing "raid" ("raid time", "welcome
+    raiders", "I'm afraid", bot announcements) and paid out a flat raid
+    reward each time. If Blaze's real raid row uses a different type, a
+    real raid simply goes uncredited -- under-crediting a real raid is the
+    acceptable failure mode here, not crediting a fake one. Mods can still
+    credit a raid manually with !thankraid. Once a real raid payload is
+    captured, tighten this to the confirmed type."""
+    if not isinstance(item, dict):
+        return False
+    item_type = str(item.get("type") or "").strip().lower()
+    return item_type in _FOXBOT_RAID_ITEM_TYPES_V1 and isinstance(item.get("actionInfo"), dict)
+
+
+# Known bot accounts to exclude from command dispatch and auto-recognition,
+# independent of FOXBOT_BLAZE_PROFILE_HANDLE. blazeian_bot_ai was observed
+# live posting vote-shaped chat text that triggered FoxCoin awards before
+# the identity fix; foxbotai is listed defensively even though the profile
+# handle env var already covers it, so this still holds if that env var is
+# ever misconfigured.
+FOXBOT_KNOWN_BOT_HANDLES_V1 = frozenset({"foxbotai", "blazeian_bot_ai", "scurvybot", "botger", "cachebot"})
+
+
+def _foxbot_is_known_bot_handle_v1(handle):
+    """True if handle (any case, optional leading @) is a known bot account:
+    one of FOXBOT_KNOWN_BOT_HANDLES_V1, or this deployment's own
+    FOXBOT_BLAZE_PROFILE_HANDLE (read at call time, same default as the
+    polling loop's bot_handle)."""
+    clean = str(handle or "").strip().lstrip("@").lower()
+    if not clean:
+        return False
+    if clean in FOXBOT_KNOWN_BOT_HANDLES_V1:
+        return True
+    profile_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai")).strip().lower().lstrip("@")
+    return bool(profile_handle) and clean == profile_handle
+
+
 def _foxbot_sender_has_bot_role_v1(item):
     """SPECULATIVE / best-effort -- unconfirmed whether Blaze populates a
     "bot" role on sender.roles for a REST-polled chat item the same way it
@@ -20961,7 +21009,11 @@ def parse_auto_chat_event(message_text: str, username: str = "viewer", item: dic
 
 
 
-    elif "raided" in lower or "raid" in lower:
+    elif _foxbot_item_has_raid_signal_v1(item):
+
+        # Structural gate only, no keyword fallback -- the old bare "raid"
+        # substring match fired on "afraid"/"raiders"/bot announcements.
+        # See _foxbot_item_has_raid_signal_v1.
 
         event_type = "raid"
 
@@ -20996,6 +21048,14 @@ def handle_auto_chat_event(message_id: str, message_text: str, username: str = "
 
 
     if not event:
+
+        return None
+
+
+
+    # Never reward a bot account as the event's target, whatever the event
+    # type -- checked before any reward path below.
+    if _foxbot_is_known_bot_handle_v1(event.get("username")):
 
         return None
 
@@ -29534,12 +29594,8 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
     processed_count = 0
     bot_handle = str(os.getenv("FOXBOT_BLAZE_PROFILE_HANDLE", "foxbotai"))
     bot_handle = bot_handle.strip().lower().lstrip("@")
-    # Known bot accounts to exclude from command dispatch and auto-recognition,
-    # independent of FOXBOT_BLAZE_PROFILE_HANDLE. blazeian_bot_ai was observed
-    # live posting vote-shaped chat text that triggered FoxCoin awards before
-    # the identity fix; foxbotai is listed defensively even though bot_handle
-    # already covers it, so this still holds if that env var is ever misconfigured.
-    known_bot_handles = {"foxbotai", "blazeian_bot_ai", "scurvybot", "botger", "cachebot"}
+    # See FOXBOT_KNOWN_BOT_HANDLES_V1 for why each handle is listed.
+    known_bot_handles = set(FOXBOT_KNOWN_BOT_HANDLES_V1)
     subscription_commands = {
         "!joinfox",
         "!connect",
