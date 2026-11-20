@@ -26,6 +26,15 @@ Same fail-closed contract as tts_config/casino_config: Postgres only, no
 local-file fallback, and wheels are OPT-IN (enabled defaults False) --
 bot-connect creators must never suddenly start getting "spin the pushup
 wheel" messages in their chat because this shipped.
+
+Mission Wheel (third wheel, "mission"): same engine -- same tables, same
+queue_spin / resolve_spin / weighted casino_rng draw -- with its own
+segment shape (title, short_label, description, duration_minutes,
+weight 1-10) and its own settings columns on wheel_config. It is ON by
+default only for the owner (tenant-zero) handle; every other creator
+gets it off. A mission spin's lifecycle maps onto the existing columns:
+queued = pending, spun+owed = playing (or done once a timed mission's
+clock has run out), done = done. See mission_state().
 """
 
 from __future__ import annotations
@@ -45,11 +54,19 @@ TABLE_SPINS = "wheel_spins"
 
 WHEEL_EXERCISE = "exercise"
 WHEEL_SUB = "sub"
+# The two original prize wheels. Deliberately does NOT include the mission
+# wheel: everything that iterates WHEELS (the !wheel help, /overlay/wheel,
+# /api/studio/wheels) is about those two, and the mission wheel has its own
+# admin-gated routes and overlay.
 WHEELS = (WHEEL_EXERCISE, WHEEL_SUB)
+WHEEL_MISSION = "mission"
+# Every wheel the engine (queue_spin / resolve_spin / active_segments) knows.
+ALL_WHEELS = WHEELS + (WHEEL_MISSION,)
 
 WHEEL_TITLES = {
     WHEEL_EXERCISE: "Pushup Wheel",
     WHEEL_SUB: "Sub Prize Wheel",
+    WHEEL_MISSION: "GTA 6 Mission Wheel",
 }
 
 # Prize types. What app.py does with each once a spin resolves:
@@ -87,6 +104,23 @@ MAX_FOXCOIN_PRIZE = 100000
 # but auto_spin makes the chain run with no human in the loop, so it's
 # capped structurally rather than trusted to luck.
 MAX_CHAIN_DEPTH = 3
+
+# Mission Wheel limits/defaults.
+MISSION_PRIZE_TYPE = "mission"   # never in PRIZE_TYPES: not selectable on the other wheels
+DEFAULT_MISSION_VOTE_THRESHOLD = 30
+DEFAULT_MISSION_MAX_SPINS = 3
+MIN_MISSION_MAX_SPINS = 1
+MAX_MISSION_MAX_SPINS = 10
+MAX_MISSION_TITLE_CHARS = 60
+MAX_MISSION_SHORT_LABEL_CHARS = 14
+MAX_MISSION_DESCRIPTION_CHARS = 200
+MIN_MISSION_WEIGHT = 1
+MAX_MISSION_WEIGHT = 10
+MAX_MISSION_DURATION_MINUTES = 240
+# A timed mission's clock starts when the overlay lands, not when the
+# server draws it: the overlay's spin animation takes ~8s (700ms intro +
+# 7.2s spin). app.py's reveal delay for the chat line uses the same number.
+MISSION_START_DELAY_SECONDS = 9
 
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 
@@ -135,6 +169,43 @@ DEFAULT_SEGMENTS = {
 }
 
 
+def _mission(seg_id, title, short_label, description, duration_minutes=None, weight=5):
+    return {
+        "id": seg_id, "title": title, "short_label": short_label, "label": short_label,
+        "description": description, "duration_minutes": duration_minutes,
+        "type": MISSION_PRIZE_TYPE, "amount": 0, "weight": weight, "enabled": True,
+    }
+
+
+# Starter missions so the wheel isn't empty -- the streamer edits these in
+# Studio. 23 of them, inside MAX_SEGMENTS (24).
+DEFAULT_SEGMENTS[WHEEL_MISSION] = [
+    _mission("no-hud-drive", "No HUD drive", "No HUD", "Drive with the HUD and minimap turned off."),
+    _mission("first-person-only", "First-person only", "1st Person", "First-person camera only.", 10),
+    _mission("obey-traffic-laws", "Obey traffic laws", "Obey Traffic", "Stop at reds, stay in lane, no speeding.", 5),
+    _mission("airboat-swamp-lap", "Airboat swamp lap", "Airboat Lap", "Take an airboat for a full lap of the swamp."),
+    _mission("jet-ski-3-jumps", "Jet ski 3 jumps", "Jet Ski x3", "Land 3 jumps on a jet ski."),
+    _mission("street-race-top-3", "Street race top 3", "Race Top 3", "Finish a street race in the top 3."),
+    _mission("pool-game", "Pool game", "Pool Game", "Play a full game of pool."),
+    _mission("fists-only", "Fists only", "Fists Only", "No weapons -- fists only.", 10),
+    _mission("basketball-5-shots", "Basketball 5 shots", "Hoops x5", "Sink 5 basketball shots."),
+    _mission("mini-golf-round", "Mini golf round", "Mini Golf", "Play a full round of mini golf."),
+    _mission("catch-a-fish", "Catch a fish", "Catch a Fish", "Go fishing and land one."),
+    _mission("scuba-dive", "Scuba dive", "Scuba Dive", "Gear up and go scuba diving."),
+    _mission("skydive-highest-point", "Skydive from the highest point", "Skydive", "Get to the highest point on the map and jump."),
+    _mission("gym-plus-pushups", "In-game gym + 10 real pushups", "Gym + Pushups", "Hit the in-game gym, then do 10 real pushups."),
+    _mission("motocross-run", "Motocross run", "Motocross", "Do a full motocross run."),
+    _mission("chat-picks-my-car", "Chat picks my car", "Chat's Car", "Chat picks the car -- drive it."),
+    _mission("hanks-waffles", "Hank's Waffles with no wanted level", "Hank's Waffles", "Get to Hank's Waffles without picking up a wanted level."),
+    _mission("scooters-only", "Scooters only", "Scooters Only", "Scooters only, nothing else.", 10),
+    _mission("binocular-stakeout", "Binocular stakeout", "Stakeout", "Find a spot and run a binocular stakeout."),
+    _mission("five-star-wanted", "5-star wanted for 3 min", "5-Star Wanted", "Survive a 5-star wanted level for 3 minutes.", 3),
+    _mission("swap-jason-lucia", "Swap Jason/Lucia", "Swap J/L", "Switch to the other character.", 15),
+    _mission("car-meet", "Car meet", "Car Meet", "Roll up to a car meet."),
+    _mission("viewers-choice", "Viewer's Choice", "Viewer Choice", "The viewer who spun picks the mission.", None, 1),
+]
+
+
 class WheelsUnavailable(Exception):
     """DATABASE_URL isn't configured -- no local-file fallback by design."""
 
@@ -148,12 +219,17 @@ class WheelConfig:
     auto_spin: bool
     announce_in_chat: bool
     segments: dict = field(default_factory=dict)
+    mission_enabled: bool = False
+    mission_vote_threshold: int = DEFAULT_MISSION_VOTE_THRESHOLD
+    mission_max_spins: int = DEFAULT_MISSION_MAX_SPINS
 
     def wheel_enabled(self, wheel: str) -> bool:
         if wheel == WHEEL_EXERCISE:
             return self.exercise_enabled
         if wheel == WHEEL_SUB:
             return self.sub_enabled
+        if wheel == WHEEL_MISSION:
+            return self.mission_enabled
         return False
 
 
@@ -241,11 +317,19 @@ def _ensure_schema(connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_{TABLE_SPINS}_handle_status
                 ON {TABLE_SPINS} (creator_handle, status, id)
             """,
+            # Mission Wheel -- additive only. mission_enabled is nullable on
+            # purpose: NULL means "never set", which resolves to on for the
+            # owner handle and off for everyone else (_mission_default_enabled).
+            f"ALTER TABLE {TABLE_CONFIG} ADD COLUMN IF NOT EXISTS mission_enabled BOOLEAN",
+            f"ALTER TABLE {TABLE_CONFIG} ADD COLUMN IF NOT EXISTS mission_vote_threshold INT NOT NULL DEFAULT {DEFAULT_MISSION_VOTE_THRESHOLD}",
+            f"ALTER TABLE {TABLE_CONFIG} ADD COLUMN IF NOT EXISTS mission_max_spins INT NOT NULL DEFAULT {DEFAULT_MISSION_MAX_SPINS}",
+            f"ALTER TABLE {TABLE_CONFIG} ADD COLUMN IF NOT EXISTS mission_segments JSONB",
         )
         for statement in statements:
             try:
                 connection.execute(statement)
-            except (psycopg.errors.DuplicateTable, psycopg.errors.UniqueViolation, psycopg.errors.DuplicateObject):
+            except (psycopg.errors.DuplicateTable, psycopg.errors.UniqueViolation, psycopg.errors.DuplicateObject,
+                    psycopg.errors.DuplicateColumn):
                 connection.rollback()
 
         connection.commit()
@@ -268,6 +352,8 @@ def validate_segments(wheel: str, segments: Any) -> list[dict]:
     Labels are rendered on the public overlay and posted to chat, so they
     are trimmed, length-capped and stripped of control characters here --
     the one place segment text enters the system."""
+    if wheel == WHEEL_MISSION:
+        return validate_mission_segments(segments)
     if wheel not in WHEELS:
         raise ValueError("unknown wheel.")
     if not isinstance(segments, list):
@@ -327,6 +413,79 @@ def validate_segments(wheel: str, segments: Any) -> list[dict]:
     return cleaned
 
 
+def _clean_text(value: Any, limit: int) -> str:
+    return re.sub(r"[\x00-\x1f\x7f]", "", str(value or "")).strip()[:limit]
+
+
+def validate_mission_segments(segments: Any) -> list[dict]:
+    """Normalizes a creator-submitted mission list or raises ValueError.
+    Same role as validate_segments: title/short_label/description reach the
+    public overlay and chat, so they're cleaned and capped here. Each
+    mission also carries label (= short_label), type and amount so the
+    shared engine and overlay code can treat it like any other segment."""
+    if not isinstance(segments, list):
+        raise ValueError("missions must be a list.")
+    if not (MIN_SEGMENTS <= len(segments) <= MAX_SEGMENTS):
+        raise ValueError(f"the mission wheel needs between {MIN_SEGMENTS} and {MAX_SEGMENTS} missions.")
+
+    cleaned = []
+    seen_ids = set()
+    for index, raw in enumerate(segments):
+        if not isinstance(raw, dict):
+            raise ValueError(f"mission {index + 1} is not an object.")
+
+        title = _clean_text(raw.get("title"), MAX_MISSION_TITLE_CHARS)
+        if not title:
+            raise ValueError(f"mission {index + 1} needs a title.")
+        raw_short = _clean_text(raw.get("short_label"), 1000)
+        if len(raw_short) > MAX_MISSION_SHORT_LABEL_CHARS:
+            raise ValueError(f"mission {index + 1} ({title}): short label must be {MAX_MISSION_SHORT_LABEL_CHARS} characters or fewer.")
+        short_label = raw_short or title[:MAX_MISSION_SHORT_LABEL_CHARS].strip()
+        description = _clean_text(raw.get("description"), MAX_MISSION_DESCRIPTION_CHARS)
+
+        duration = raw.get("duration_minutes")
+        if duration in (None, ""):
+            duration = None
+        else:
+            try:
+                duration = int(duration)
+            except (TypeError, ValueError):
+                raise ValueError(f"mission {index + 1} ({title}): duration must be whole minutes, or blank.")
+            if not (1 <= duration <= MAX_MISSION_DURATION_MINUTES):
+                raise ValueError(f"mission {index + 1} ({title}): duration must be between 1 and {MAX_MISSION_DURATION_MINUTES} minutes, or blank.")
+
+        try:
+            weight = int(raw.get("weight", 5))
+        except (TypeError, ValueError):
+            raise ValueError(f"mission {index + 1} ({title}): weight must be a whole number.")
+        if not (MIN_MISSION_WEIGHT <= weight <= MAX_MISSION_WEIGHT):
+            raise ValueError(f"mission {index + 1} ({title}): weight must be between {MIN_MISSION_WEIGHT} and {MAX_MISSION_WEIGHT}.")
+
+        seg_id = _slug(raw.get("id") or title)
+        base_id, suffix = seg_id, 2
+        while seg_id in seen_ids:
+            seg_id = f"{base_id}-{suffix}"
+            suffix += 1
+        seen_ids.add(seg_id)
+
+        cleaned.append({
+            "id": seg_id,
+            "title": title,
+            "short_label": short_label,
+            "label": short_label,
+            "description": description,
+            "duration_minutes": duration,
+            "type": MISSION_PRIZE_TYPE,
+            "amount": 0,
+            "weight": weight,
+            "enabled": bool(raw.get("enabled", True)),
+        })
+
+    if sum(1 for seg in cleaned if seg["enabled"]) < MIN_SEGMENTS:
+        raise ValueError(f"at least {MIN_SEGMENTS} missions must be enabled.")
+    return cleaned
+
+
 def active_segments(config: WheelConfig, wheel: str) -> list[dict]:
     """The segments actually drawn on the wheel: enabled ones, in order.
     Zero-weight segments stay visible (a creator may want a 'tease'
@@ -352,19 +511,40 @@ def pick_segment_index(segments: list[dict]) -> int:
 # ------------------------------------------------------------------ config
 
 
+_CONFIG_COLUMNS = (
+    "exercise_enabled, sub_enabled, vote_threshold, auto_spin, announce_in_chat, "
+    "exercise_segments, sub_segments, "
+    "mission_enabled, mission_vote_threshold, mission_max_spins, mission_segments"
+)
+
+
+def _mission_default_enabled(handle: str) -> bool:
+    """The Mission Wheel defaults ON for the owner (tenant-zero) handle and
+    OFF for every other creator -- same reason the other wheels are opt-in:
+    a bot-connect creator must never suddenly get mission spam in chat."""
+    from services import foxbot_events
+
+    return handle == foxbot_events.resolve_owner_handle()
+
+
 def _row_to_config(handle: str, row) -> WheelConfig:
     if row is None:
         return WheelConfig(
             handle, DEFAULT_ENABLED, DEFAULT_ENABLED, DEFAULT_VOTE_THRESHOLD,
             DEFAULT_AUTO_SPIN, DEFAULT_ANNOUNCE_IN_CHAT,
-            {WHEEL_EXERCISE: default_segments(WHEEL_EXERCISE), WHEEL_SUB: default_segments(WHEEL_SUB)},
+            {wheel: default_segments(wheel) for wheel in ALL_WHEELS},
+            _mission_default_enabled(handle), DEFAULT_MISSION_VOTE_THRESHOLD, DEFAULT_MISSION_MAX_SPINS,
         )
     return WheelConfig(
         handle, bool(row[0]), bool(row[1]), int(row[2]), bool(row[3]), bool(row[4]),
         {
             WHEEL_EXERCISE: row[5] if isinstance(row[5], list) and row[5] else default_segments(WHEEL_EXERCISE),
             WHEEL_SUB: row[6] if isinstance(row[6], list) and row[6] else default_segments(WHEEL_SUB),
+            WHEEL_MISSION: row[10] if isinstance(row[10], list) and row[10] else default_segments(WHEEL_MISSION),
         },
+        _mission_default_enabled(handle) if row[7] is None else bool(row[7]),
+        int(row[8]),
+        int(row[9]),
     )
 
 
@@ -375,11 +555,7 @@ def get_config(creator_handle: str, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECON
     with _connect(timeout=timeout) as connection:
         _ensure_schema(connection)
         row = connection.execute(
-            f"""
-            SELECT exercise_enabled, sub_enabled, vote_threshold, auto_spin, announce_in_chat,
-                   exercise_segments, sub_segments
-            FROM {TABLE_CONFIG} WHERE creator_handle = %s
-            """,
+            f"SELECT {_CONFIG_COLUMNS} FROM {TABLE_CONFIG} WHERE creator_handle = %s",
             (handle,),
         ).fetchone()
     return _row_to_config(handle, row)
@@ -396,12 +572,16 @@ def set_config(
     exercise_segments: list | None = None,
     sub_segments: list | None = None,
     reset_segments: str | None = None,
+    mission_enabled: bool | None = None,
+    mission_vote_threshold: int | None = None,
+    mission_max_spins: int | None = None,
+    mission_segments: list | None = None,
     timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS,
 ) -> WheelConfig:
     """Partial update: only the kwargs actually given change; everything
     else keeps its stored value (same contract as tts_config.set_config).
-    reset_segments="exercise"|"sub" puts that wheel back on the built-in
-    defaults (stored as NULL, so future default tweaks reach it too)."""
+    reset_segments="exercise"|"sub"|"mission" puts that wheel back on the
+    built-in defaults (stored as NULL, so future default tweaks reach it too)."""
     _require_available()
     handle = _clean_handle(creator_handle)
 
@@ -413,8 +593,18 @@ def set_config(
         exercise_segments = validate_segments(WHEEL_EXERCISE, exercise_segments)
     if sub_segments is not None:
         sub_segments = validate_segments(WHEEL_SUB, sub_segments)
-    if reset_segments is not None and reset_segments not in WHEELS:
-        raise ValueError("reset_segments must be 'exercise' or 'sub'.")
+    if reset_segments is not None and reset_segments not in ALL_WHEELS:
+        raise ValueError("reset_segments must be 'exercise', 'sub' or 'mission'.")
+    if mission_vote_threshold is not None:
+        mission_vote_threshold = int(mission_vote_threshold)
+        if not (MIN_VOTE_THRESHOLD <= mission_vote_threshold <= MAX_VOTE_THRESHOLD):
+            raise ValueError(f"mission vote threshold must be between {MIN_VOTE_THRESHOLD} and {MAX_VOTE_THRESHOLD}.")
+    if mission_max_spins is not None:
+        mission_max_spins = int(mission_max_spins)
+        if not (MIN_MISSION_MAX_SPINS <= mission_max_spins <= MAX_MISSION_MAX_SPINS):
+            raise ValueError(f"max spins per event must be between {MIN_MISSION_MAX_SPINS} and {MAX_MISSION_MAX_SPINS}.")
+    if mission_segments is not None:
+        mission_segments = validate_mission_segments(mission_segments)
 
     from psycopg.types.json import Jsonb
 
@@ -432,10 +622,21 @@ def set_config(
             ("vote_threshold", vote_threshold),
             ("auto_spin", auto_spin),
             ("announce_in_chat", announce_in_chat),
+            ("mission_enabled", mission_enabled),
         ):
             if value is not None:
                 assignments.append(f"{column} = %s")
                 params.append(bool(value) if column != "vote_threshold" else value)
+        for column, value in (
+            ("mission_vote_threshold", mission_vote_threshold),
+            ("mission_max_spins", mission_max_spins),
+        ):
+            if value is not None:
+                assignments.append(f"{column} = %s")
+                params.append(value)
+        if mission_segments is not None:
+            assignments.append("mission_segments = %s")
+            params.append(Jsonb(mission_segments))
         if exercise_segments is not None:
             assignments.append("exercise_segments = %s")
             params.append(Jsonb(exercise_segments))
@@ -453,11 +654,7 @@ def set_config(
             )
 
         row = connection.execute(
-            f"""
-            SELECT exercise_enabled, sub_enabled, vote_threshold, auto_spin, announce_in_chat,
-                   exercise_segments, sub_segments
-            FROM {TABLE_CONFIG} WHERE creator_handle = %s
-            """,
+            f"SELECT {_CONFIG_COLUMNS} FROM {TABLE_CONFIG} WHERE creator_handle = %s",
             (handle,),
         ).fetchone()
     return _row_to_config(handle, row)
@@ -521,7 +718,7 @@ def queue_spin(
     in-memory set, is what makes that durable across restarts."""
     _require_available()
     handle = _clean_handle(creator_handle)
-    if wheel not in WHEELS:
+    if wheel not in ALL_WHEELS:
         raise ValueError("unknown wheel.")
     key = str(dedupe_key or "").strip()
     if not key:
@@ -612,11 +809,18 @@ def list_spins(
     fulfillment: str | None = None,
     limit: int = 25,
     oldest_first: bool = False,
+    wheels: tuple | list | None = None,
     timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS,
 ) -> list[dict]:
+    """wheels=None lists every wheel's spins; pass a tuple to restrict it
+    (the Prize Wheels routes pass WHEELS, the Mission Wheel routes pass
+    (WHEEL_MISSION,), so neither queue shows or spins the other's rows)."""
     _require_available()
     handle = _clean_handle(creator_handle)
     clauses, params = ["creator_handle = %s"], [handle]
+    if wheels is not None:
+        clauses.append("wheel = ANY(%s)")
+        params.append(list(wheels))
     if status:
         clauses.append("status = %s")
         params.append(status)
@@ -635,7 +839,8 @@ def list_spins(
     return [_row_to_spin(row) for row in rows]
 
 
-def latest_spun(creator_handle: str, max_age_seconds: int = 120, timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) -> list[dict]:
+def latest_spun(creator_handle: str, max_age_seconds: int = 120, wheels: tuple | list | None = None,
+                timeout: int = DEFAULT_CONNECT_TIMEOUT_SECONDS) -> list[dict]:
     """Recently-resolved spins, oldest first -- what the OBS overlay polls.
     The age window means a freshly-opened overlay never replays last
     night's spins; the overlay's own last-seen id keeps it from
@@ -649,10 +854,12 @@ def latest_spun(creator_handle: str, max_age_seconds: int = 120, timeout: int = 
             SELECT {_SPIN_COLUMNS} FROM {TABLE_SPINS}
              WHERE creator_handle = %s AND status = %s
                AND spun_at > NOW() - make_interval(secs => %s)
+               AND (%s::text[] IS NULL OR wheel = ANY(%s::text[]))
              ORDER BY spun_at ASC, id ASC
              LIMIT 20
             """,
-            (handle, STATUS_SPUN, int(max_age_seconds)),
+            (handle, STATUS_SPUN, int(max_age_seconds),
+             list(wheels) if wheels is not None else None, list(wheels) if wheels is not None else None),
         ).fetchall()
     return [_row_to_spin(row) for row in rows]
 
@@ -729,3 +936,42 @@ def close_test_spin(creator_handle: str, spin_id: int, timeout: int = DEFAULT_CO
             (FULFILL_DONE, handle, int(spin_id), STATUS_SPUN),
         ).fetchone()
     return _row_to_spin(row)
+
+
+# ---------------------------------------------------------- mission state
+
+MISSION_PENDING = "pending"
+MISSION_PLAYING = "playing"
+MISSION_DONE = "done"
+
+
+def mission_ends_at(spin: dict):
+    """When a timed mission's clock runs out (aware datetime), or None for
+    an untimed mission / an unresolved spin. The clock starts when the
+    overlay lands (MISSION_START_DELAY_SECONDS after spun_at)."""
+    from datetime import datetime, timedelta
+
+    prize = (spin or {}).get("prize") or {}
+    duration = prize.get("duration_minutes")
+    spun_at = (spin or {}).get("spun_at")
+    if not duration or not spun_at:
+        return None
+    started = datetime.fromisoformat(spun_at) + timedelta(seconds=MISSION_START_DELAY_SECONDS)
+    return started + timedelta(minutes=int(duration))
+
+
+def mission_state(spin: dict, now=None) -> str:
+    """pending / playing / done for the Studio queue view, derived from
+    the existing columns -- no extra writes: queued -> pending; spun and
+    still owed -> playing, unless it's a timed mission whose clock already
+    ran out (then done); marked done (or a closed test spin) -> done."""
+    from datetime import datetime, timezone
+
+    if spin.get("status") == STATUS_QUEUED:
+        return MISSION_PENDING
+    if spin.get("status") != STATUS_SPUN or spin.get("fulfillment") != FULFILL_OWED:
+        return MISSION_DONE
+    ends_at = mission_ends_at(spin)
+    if ends_at is not None and ends_at <= (now or datetime.now(timezone.utc)):
+        return MISSION_DONE
+    return MISSION_PLAYING

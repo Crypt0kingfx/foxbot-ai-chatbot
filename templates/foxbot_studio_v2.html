@@ -710,7 +710,7 @@ body::before {
 
 /* ═══ PRIZE WHEELS ═══════════════════════════════════════════ */
 .wheel-row { align-items: center; }
-#page-wheels > .card + .card { margin-top: 16px; }
+#page-wheels .wheels-pane > .card + .card { margin-top: 16px; }
 #page-wheels .action-row .step-go, #page-wheels .field-row > .step-go { margin-left: 0; }
 .wheel-row .feed-body { flex: 1; }
 .wheel-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
@@ -749,6 +749,26 @@ body::before {
 .wheel-seg-table .seg-num { width: 90px; }
 .wheel-seg-remove { background: none; border: 0; color: var(--ink-mute); cursor: pointer; font-size: 16px; }
 .wheel-seg-remove:hover { color: var(--magenta); }
+
+/* Mission Wheel (sub-tab of Prize Wheels) -- reuses the wheel-* styles above */
+.wheel-badge.mission { border-color: rgba(255,0,127,.5); color: #FF9AD5; }
+.mw-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.mw-col-title { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-mute); margin: 0 0 6px; }
+.mw-table .mw-drag { cursor: grab; color: var(--ink-mute); font-size: 16px; user-select: none; width: 18px; text-align: center; }
+.mw-table tr.dragging { opacity: .45; }
+.mw-table tr.drop-before td { box-shadow: inset 0 2px 0 var(--magenta); }
+.mw-table .mw-title { min-width: 170px; }
+.mw-table .mw-short { width: 130px; }
+.mw-table .mw-desc { min-width: 220px; }
+.mw-table .mw-min { width: 70px; }
+.mw-table .mw-weight { width: 64px; }
+.mw-count { display: block; font-family: var(--font-data); font-size: 10.5px; color: var(--ink-mute); margin-top: 2px; }
+.mw-count.full { color: var(--magenta); }
+.mw-preview { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 10px; border: 1px solid var(--line);
+  background: radial-gradient(ellipse at center, rgba(176,38,255,.10), rgba(0,0,0,0) 70%); }
+.mw-preview iframe { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; background: transparent; }
+.mw-dirty { color: var(--amber); font-size: 12px; margin-left: 10px; }
+@media (max-width: 980px) { .mw-grid { grid-template-columns: 1fr; } }
 
 /* ═══ RESPONSIVE + A11Y ═════════════════════════════════════ */
 
@@ -1223,8 +1243,15 @@ body::before {
 
     <div class="page-head">
       <h1 class="page-title">Prize Wheels</h1>
-      <p class="page-sub">The 💪 Pushup Wheel spins on big vote drops, the 🎁 Sub Prize Wheel spins on every sub and gift sub. Results are drawn server-side; your /overlay/wheel OBS source animates them.</p>
+      <p class="page-sub">The 💪 Pushup Wheel spins on big vote drops, the 🎁 Sub Prize Wheel spins on every sub and gift sub, and the 🌴 Mission Wheel hands out GTA 6 missions on vote drops. Results are drawn server-side; the OBS overlays only animate them.</p>
     </div>
+
+    <div class="subtab-row" id="wheelsPaneTabs">
+      <button type="button" class="subtab active" data-wheels-pane="wheelsPanePrize">🎡 Prize Wheels</button>
+      <button type="button" class="subtab" data-wheels-pane="wheelsPaneMission">🌴 Mission Wheel</button>
+    </div>
+
+    <div class="wheels-pane" id="wheelsPanePrize">
 
     <section class="card" aria-label="Spin queue">
       <div class="card-head">
@@ -1344,6 +1371,96 @@ body::before {
       </div>
       <p class="dismiss-error" id="wheelSegError" hidden></p>
     </section>
+
+    </div>
+
+    <div class="wheels-pane" id="wheelsPaneMission" hidden>
+
+    <p class="dismiss-error" id="mwAccessError" hidden></p>
+
+    <section class="card" aria-label="Mission queue">
+      <div class="card-head">
+        <h2 class="card-title">Mission queue</h2>
+        <span class="card-count" id="mwQueueCount">—</span>
+        <button type="button" id="mwSpinNextBtn" class="step-go" style="margin-left:12px;">🌴 Spin next</button>
+      </div>
+      <p class="card-sub">Vote drops queue spins here and they play automatically, one after another. If the server restarts mid-sequence, the rest wait under Pending — hit Spin next to play them.</p>
+      <div class="mw-grid">
+        <div><h3 class="mw-col-title">Pending</h3><div id="mwPending"></div></div>
+        <div><h3 class="mw-col-title">Playing</h3><div id="mwPlaying"></div></div>
+        <div><h3 class="mw-col-title">Done</h3><div id="mwDone"></div></div>
+      </div>
+      <p class="dismiss-error" id="mwQueueError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Mission Wheel settings">
+      <div class="card-head">
+        <h2 class="card-title">Settings</h2>
+      </div>
+      <p class="card-sub">Only structural Blaze vote events count — never chat text, never bot accounts. Spins per drop = votes ÷ threshold (rounded down), capped at the max.</p>
+
+      <div class="field-row">
+        <div class="field">
+          <span class="field-label">🌴 Mission Wheel</span>
+          <div class="action-row"><button type="button" class="step-go" id="mwEnabledBtn" disabled>—</button></div>
+        </div>
+        <label class="field">
+          <span class="field-label">Votes per spin</span>
+          <input type="text" id="mwThreshold" class="field-input" placeholder="30" inputmode="numeric">
+        </label>
+        <label class="field">
+          <span class="field-label">Max spins per event</span>
+          <input type="text" id="mwMaxSpins" class="field-input" placeholder="3" inputmode="numeric">
+        </label>
+        <button type="button" id="mwSettingsSaveBtn" class="step-go" style="align-self:flex-end;">Save</button>
+      </div>
+      <p class="dismiss-error" id="mwSettingsError" hidden></p>
+
+      <h3 class="subhead subhead-spaced">OBS overlay</h3>
+      <p class="card-sub">Add a Browser Source (1920×1080) pointing at this URL. Transparent background. Optional: <code>&amp;pos=left|right</code>, <code>&amp;size=600</code> (default 720), <code>&amp;hold=20</code> (seconds the mission card stays up, default 15), <code>&amp;chip=0</code> (hide the corner countdown), <code>&amp;idle=show</code>, <code>&amp;sound=0</code>.</p>
+      <div class="field-row">
+        <input type="text" id="mwOverlayUrl" class="field-input field-wide" readonly>
+        <button type="button" id="mwOverlayCopyBtn" class="step-go" style="align-self:flex-end;">Copy</button>
+      </div>
+      <div class="action-row">
+        <button type="button" class="step-go" id="mwTestBtn">Test spin</button>
+      </div>
+      <p class="card-sub" style="margin-top:8px;">Test spins animate on the overlay only — no votes needed, no chat message, nothing left playing.</p>
+      <p class="dismiss-error" id="mwTestError" hidden></p>
+    </section>
+
+    <section class="card" aria-label="Mission Wheel preview">
+      <div class="card-head">
+        <h2 class="card-title">Live preview</h2>
+      </div>
+      <p class="card-sub">The real overlay, showing your enabled missions as you edit them (before saving). Test spins play here too.</p>
+      <div class="mw-preview" id="mwPreviewBox"><iframe id="mwPreview" title="Mission Wheel overlay preview"></iframe></div>
+    </section>
+
+    <section class="card" aria-label="Missions">
+      <div class="card-head">
+        <h2 class="card-title">Missions</h2>
+        <span class="card-count" id="mwMissionCount">—</span>
+        <span class="mw-dirty" id="mwDirty" hidden>Unsaved changes</span>
+      </div>
+      <p class="card-sub">Drag ⠿ to reorder. The short label is what's printed on the wheel (14 characters max). Weight 1–10 sets how often a mission lands; Chance is its share among enabled missions. Blank minutes = until it's done.</p>
+      <div class="wheel-seg-table-wrap">
+        <table class="wheel-seg-table mw-table">
+          <thead>
+            <tr><th></th><th>On</th><th>Title</th><th>Short label</th><th>Description</th><th>Min</th><th>Weight</th><th>Chance</th><th></th></tr>
+          </thead>
+          <tbody id="mwBody"></tbody>
+        </table>
+      </div>
+      <div class="action-row">
+        <button type="button" id="mwAddBtn" class="step-go">+ Add mission</button>
+        <button type="button" id="mwSaveBtn" class="step-go">Save missions</button>
+        <button type="button" id="mwResetBtn" class="dismiss-link" style="margin-top:0;">Reset to starter missions</button>
+      </div>
+      <p class="dismiss-error" id="mwSaveError" hidden></p>
+    </section>
+
+    </div>
 
     </section>
 
@@ -4936,6 +5053,467 @@ document.querySelectorAll('.item').forEach(function (item) {
   poll();
   setInterval(function () {
     if (!document.getElementById('page-wheels').hidden) poll();
+  }, POLL_MS);
+})();
+
+/* ═══ MISSION WHEEL (Prize Wheels sub-tab) ═══
+   Same conventions as the Prize Wheels block above: the queue is polled,
+   settings + missions load once and only reload after a successful save
+   (never clobber an in-progress edit). Every /api/studio/mission-wheel
+   route is admin-only; a scoped session gets a notice instead. */
+(function () {
+  var POLL_MS = 3000;
+  var page = document.getElementById('page-wheels');
+  var pane = document.getElementById('wheelsPaneMission');
+
+  /* ── pane switcher (Prize Wheels | Mission Wheel) ── */
+  document.querySelectorAll('[data-wheels-pane]').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('[data-wheels-pane]').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      var target = tab.getAttribute('data-wheels-pane');
+      document.querySelectorAll('#page-wheels .wheels-pane').forEach(function (p) { p.hidden = (p.id !== target); });
+      if (target === 'wheelsPaneMission') { poll(); sizePreview(); }
+    });
+  });
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function ago(iso) {
+    if (!iso) return '';
+    var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    if (s < 86400) return Math.round(s / 3600) + 'h';
+    return Math.round(s / 86400) + 'd';
+  }
+
+  function left(iso) {
+    var ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return 'time’s up';
+    var t = Math.ceil(ms / 1000), m = Math.floor(t / 60), s = t % 60;
+    return '⏱ ' + m + ':' + String(s).padStart(2, '0') + ' left';
+  }
+
+  async function api(path, payload) {
+    var opts = payload === undefined ? { cache: 'no-store' } : {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload || {})
+    };
+    var res = await fetch(path, opts);
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* handled below */ }
+    if (!res.ok || !data || !data.ok) {
+      var err = new Error((data && data.error) || ('HTTP ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function showError(id, err) {
+    var el = document.getElementById(id);
+    if (!err) { el.hidden = true; el.style.color = ''; return; }
+    el.textContent = err.message || String(err);
+    el.style.color = '';
+    el.hidden = false;
+  }
+
+  function flash(id, text) {
+    var el = document.getElementById(id);
+    el.textContent = text;
+    el.style.color = 'var(--pulse)';
+    el.hidden = false;
+    setTimeout(function () { el.hidden = true; el.style.color = ''; }, 2500);
+  }
+
+  function emptyRow(text) {
+    return '<div class="feed-item"><span class="feed-body">' + escapeHtml(text) + '</span></div>';
+  }
+
+  function triggerText(s) {
+    if (s.trigger_kind === 'vote') return s.trigger_amount + ' votes';
+    if (s.trigger_kind === 'test') return 'test spin';
+    return s.trigger_kind || '';
+  }
+
+  /* ── queue ── */
+  var config = null;
+  var draft = null;          // working copy of the mission list
+  var savedJson = '';        // last-saved list, to show "Unsaved changes"
+  var lastQueue = null;
+  var blocked = false;       // scoped (non-admin) session
+
+  function renderQueue(data) {
+    lastQueue = data;
+    document.getElementById('mwQueueCount').textContent =
+      data.pending.length + ' pending · ' + data.playing.length + ' playing';
+
+    document.getElementById('mwPending').innerHTML = data.pending.length ? data.pending.map(function (s) {
+      return '<div class="feed-item wheel-row"><span class="feed-time">' + ago(s.created_at) + '</span>' +
+        '<span class="feed-body"><b>@' + escapeHtml(s.viewer) + '</b> — ' + escapeHtml(triggerText(s)) + '</span>' +
+        '<span class="wheel-row-actions"><button type="button" class="dismiss-link" style="margin-top:0" data-mission-cancel="' + s.id + '">Cancel</button></span></div>';
+    }).join('') : emptyRow('Nothing pending.');
+
+    document.getElementById('mwPlaying').innerHTML = data.playing.length ? data.playing.map(function (s) {
+      var p = s.prize || {};
+      return '<div class="feed-item wheel-row"><span class="feed-time">' + ago(s.spun_at) + '</span>' +
+        '<span class="feed-body"><span class="wheel-prize">' + escapeHtml(p.title) + '</span><br>' +
+        '<span style="color:var(--ink-mute)">@' + escapeHtml(s.viewer) + ' · ' + escapeHtml(triggerText(s)) + ' · ' +
+        (s.ends_at ? '<span data-ends="' + escapeHtml(s.ends_at) + '">' + left(s.ends_at) + '</span>' : 'until done') + '</span></span>' +
+        '<span class="wheel-row-actions"><button type="button" class="step-go" data-mission-done="' + s.id + '">Done ✓</button></span></div>';
+    }).join('') : emptyRow('No mission in progress.');
+
+    document.getElementById('mwDone').innerHTML = data.done.length ? data.done.map(function (s) {
+      var p = s.prize || {};
+      return '<div class="feed-item"><span class="feed-time">' + ago(s.spun_at) + '</span>' +
+        '<span class="feed-body">' + escapeHtml(p.title) + ' <span style="color:var(--ink-mute)">(@' + escapeHtml(s.viewer) +
+        ' · ' + escapeHtml(triggerText(s)) + ')</span></span></div>';
+    }).join('') : emptyRow('No missions finished yet.');
+  }
+
+  setInterval(function () {
+    document.querySelectorAll('#mwPlaying [data-ends]').forEach(function (el) {
+      el.textContent = left(el.getAttribute('data-ends'));
+    });
+  }, 1000);
+
+  async function poll() {
+    if (blocked) return;
+    try {
+      var data = await api('/api/studio/mission-wheel');
+      showError('mwQueueError', null);
+      renderQueue(data);
+      if (!config) {
+        config = data.config;
+        loadDraft(config.missions);
+        renderSettings();
+        var url = window.location.origin + data.overlay_path;
+        document.getElementById('mwOverlayUrl').value = url;
+        var frame = document.getElementById('mwPreview');
+        frame.src = data.overlay_path + '&idle=show&preview=1&sound=0';
+        frame.addEventListener('load', pushPreview);
+      }
+    } catch (err) {
+      if (err.status === 403) {
+        blocked = true;
+        pane.querySelectorAll('section.card').forEach(function (c) { c.hidden = true; });
+        showError('mwAccessError', new Error('The Mission Wheel is admin-only for now.'));
+        return;
+      }
+      showError('mwQueueError', err);
+    }
+  }
+
+  pane.addEventListener('click', async function (event) {
+    var btn = event.target.closest('button');
+    if (!btn) return;
+    var id;
+    try {
+      if ((id = btn.getAttribute('data-mission-cancel'))) {
+        btn.disabled = true;
+        await api('/api/studio/mission-wheel/cancel/' + id, {});
+      } else if ((id = btn.getAttribute('data-mission-done'))) {
+        btn.disabled = true;
+        await api('/api/studio/mission-wheel/done/' + id, { done: true });
+      } else {
+        return;
+      }
+      showError('mwQueueError', null);
+      poll();
+    } catch (err) {
+      btn.disabled = false;
+      showError('mwQueueError', err);
+    }
+  });
+
+  document.getElementById('mwSpinNextBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      await api('/api/studio/mission-wheel/spin-next', {});
+      showError('mwQueueError', null);
+    } catch (err) {
+      showError('mwQueueError', err);
+    } finally {
+      btn.disabled = false;
+      poll();
+    }
+  });
+
+  /* ── settings ── */
+  function renderSettings() {
+    var btn = document.getElementById('mwEnabledBtn');
+    btn.disabled = false;
+    btn.textContent = config.enabled ? 'Turn Mission Wheel off' : 'Turn Mission Wheel on';
+    document.getElementById('mwThreshold').value = config.vote_threshold;
+    document.getElementById('mwMaxSpins').value = config.max_spins;
+  }
+
+  async function saveConfig(payload, errorId) {
+    var data = await api('/api/studio/mission-wheel/config', payload);
+    config.enabled = data.config.enabled;
+    config.vote_threshold = data.config.vote_threshold;
+    config.max_spins = data.config.max_spins;
+    renderSettings();
+    pushPreview();
+    return data;
+  }
+
+  document.getElementById('mwEnabledBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      await saveConfig({ enabled: !config.enabled });
+      showError('mwSettingsError', null);
+    } catch (err) {
+      showError('mwSettingsError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('mwSettingsSaveBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      await saveConfig({
+        vote_threshold: document.getElementById('mwThreshold').value.trim(),
+        max_spins: document.getElementById('mwMaxSpins').value.trim()
+      });
+      flash('mwSettingsError', 'Saved.');
+    } catch (err) {
+      showError('mwSettingsError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('mwOverlayCopyBtn').addEventListener('click', function () {
+    var input = document.getElementById('mwOverlayUrl');
+    var btn = this;
+    input.select();
+    try { navigator.clipboard.writeText(input.value); } catch (e) { document.execCommand('copy'); }
+    btn.textContent = 'Copied';
+    setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+  });
+
+  document.getElementById('mwTestBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var data = await api('/api/studio/mission-wheel/test', {});
+      flash('mwTestError', 'Test spin sent — the overlay will land on: ' + ((data.prize || {}).title || '?'));
+      poll();
+    } catch (err) {
+      showError('mwTestError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* ── mission editor ── */
+  var body = document.getElementById('mwBody');
+
+  function loadDraft(missions) {
+    draft = JSON.parse(JSON.stringify(missions || []));
+    savedJson = JSON.stringify(draft);
+    renderMissions();
+  }
+
+  function markDirty() {
+    document.getElementById('mwDirty').hidden = JSON.stringify(draft) === savedJson;
+  }
+
+  function weightOptions(selected) {
+    var out = '';
+    for (var w = 1; w <= 10; w++) out += '<option value="' + w + '"' + (w === selected ? ' selected' : '') + '>' + w + '</option>';
+    return out;
+  }
+
+  function chanceText(m, total) {
+    if (m.enabled === false || total <= 0) return '—';
+    return ((Math.max(1, parseInt(m.weight, 10) || 1) / total) * 100).toFixed(1) + '%';
+  }
+
+  function totalWeight() {
+    return draft.reduce(function (sum, m) {
+      return sum + (m.enabled !== false ? Math.max(1, parseInt(m.weight, 10) || 1) : 0);
+    }, 0);
+  }
+
+  function renderMissions() {
+    var total = totalWeight();
+    var enabled = draft.filter(function (m) { return m.enabled !== false; }).length;
+    document.getElementById('mwMissionCount').textContent = enabled + ' of ' + draft.length + ' on';
+    body.innerHTML = draft.map(function (m, i) {
+      var shortLen = String(m.short_label || '').length;
+      var w = Math.max(1, Math.min(10, parseInt(m.weight, 10) || 5));
+      return '<tr data-i="' + i + '">' +
+        '<td class="mw-drag" title="Drag to reorder">⠿</td>' +
+        '<td><input type="checkbox" data-k="enabled"' + (m.enabled !== false ? ' checked' : '') + '></td>' +
+        '<td><input type="text" class="field-input mw-title" data-k="title" maxlength="60" value="' + escapeHtml(m.title) + '"></td>' +
+        '<td><input type="text" class="field-input mw-short" data-k="short_label" maxlength="14" value="' + escapeHtml(m.short_label) + '">' +
+          '<span class="mw-count' + (shortLen >= 14 ? ' full' : '') + '">' + shortLen + '/14</span></td>' +
+        '<td><input type="text" class="field-input mw-desc" data-k="description" maxlength="200" value="' + escapeHtml(m.description) + '"></td>' +
+        '<td><input type="text" class="field-input mw-min" data-k="duration_minutes" inputmode="numeric" placeholder="—" value="' +
+          escapeHtml(m.duration_minutes == null ? '' : m.duration_minutes) + '"></td>' +
+        '<td><select class="field-input mw-weight" data-k="weight">' + weightOptions(w) + '</select></td>' +
+        '<td class="odds">' + chanceText(m, total) + '</td>' +
+        '<td><button type="button" class="wheel-seg-remove" data-mission-remove="' + i + '" title="Delete">✕</button></td></tr>';
+    }).join('');
+    markDirty();
+    pushPreview();
+  }
+
+  // Updates the % column and counters in place, so typing never loses focus.
+  function refreshComputed() {
+    var total = totalWeight();
+    body.querySelectorAll('tr[data-i]').forEach(function (row) {
+      var m = draft[parseInt(row.getAttribute('data-i'), 10)];
+      row.querySelector('td.odds').textContent = chanceText(m, total);
+      var count = row.querySelector('.mw-count');
+      var len = String(m.short_label || '').length;
+      count.textContent = len + '/14';
+      count.classList.toggle('full', len >= 14);
+    });
+    var enabled = draft.filter(function (m) { return m.enabled !== false; }).length;
+    document.getElementById('mwMissionCount').textContent = enabled + ' of ' + draft.length + ' on';
+    markDirty();
+    pushPreview();
+  }
+
+  function onEdit(event) {
+    var row = event.target.closest('tr[data-i]');
+    var key = event.target.getAttribute('data-k');
+    if (!row || !key) return;
+    var m = draft[parseInt(row.getAttribute('data-i'), 10)];
+    if (key === 'enabled') m.enabled = event.target.checked;
+    else if (key === 'weight') m.weight = parseInt(event.target.value, 10);
+    else if (key === 'duration_minutes') m.duration_minutes = event.target.value.trim() === '' ? null : event.target.value.trim();
+    else m[key] = event.target.value;
+    refreshComputed();
+  }
+  body.addEventListener('input', onEdit);
+  body.addEventListener('change', onEdit);
+
+  body.addEventListener('click', function (event) {
+    var idx = event.target.getAttribute('data-mission-remove');
+    if (idx === null) return;
+    var m = draft[parseInt(idx, 10)];
+    if ((m.title || m.short_label) && !window.confirm('Delete "' + (m.title || m.short_label) + '"?')) return;
+    draft.splice(parseInt(idx, 10), 1);
+    renderMissions();
+  });
+
+  /* drag to reorder -- rows only become draggable from the ⠿ handle, so
+     text in the inputs stays selectable */
+  var dragFrom = null;
+  body.addEventListener('mousedown', function (event) {
+    var handle = event.target.closest('.mw-drag');
+    if (handle) handle.parentElement.draggable = true;
+  });
+  body.addEventListener('dragstart', function (event) {
+    var row = event.target.closest('tr[data-i]');
+    if (!row || !row.draggable) { event.preventDefault(); return; }
+    dragFrom = parseInt(row.getAttribute('data-i'), 10);
+    row.classList.add('dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    try { event.dataTransfer.setData('text/plain', String(dragFrom)); } catch (e) { /* IE */ }
+  });
+  body.addEventListener('dragover', function (event) {
+    if (dragFrom === null) return;
+    event.preventDefault();
+    body.querySelectorAll('.drop-before').forEach(function (r) { r.classList.remove('drop-before'); });
+    var row = event.target.closest('tr[data-i]');
+    if (row) row.classList.add('drop-before');
+  });
+  body.addEventListener('drop', function (event) {
+    if (dragFrom === null) return;
+    event.preventDefault();
+    var row = event.target.closest('tr[data-i]');
+    var to = row ? parseInt(row.getAttribute('data-i'), 10) : draft.length - 1;
+    var moved = draft.splice(dragFrom, 1)[0];
+    if (to > dragFrom) to -= 1;
+    draft.splice(to, 0, moved);
+    dragFrom = null;
+    renderMissions();
+  });
+  body.addEventListener('dragend', function () {
+    dragFrom = null;
+    body.querySelectorAll('tr').forEach(function (r) {
+      r.draggable = false;
+      r.classList.remove('dragging', 'drop-before');
+    });
+  });
+
+  document.getElementById('mwAddBtn').addEventListener('click', function () {
+    if (draft.length >= ((config && config.limits.max_missions) || 24)) {
+      showError('mwSaveError', new Error('The wheel holds at most ' + ((config && config.limits.max_missions) || 24) + ' missions.'));
+      return;
+    }
+    draft.push({ title: '', short_label: '', description: '', duration_minutes: null, weight: 5, enabled: true });
+    renderMissions();
+    var inputs = body.querySelectorAll('input[data-k="title"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+
+  document.getElementById('mwSaveBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var data = await api('/api/studio/mission-wheel/config', { missions: draft });
+      config = data.config;
+      loadDraft(config.missions);
+      flash('mwSaveError', 'Saved.');
+    } catch (err) {
+      showError('mwSaveError', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('mwResetBtn').addEventListener('click', async function () {
+    if (!window.confirm('Replace your missions with the starter list? This can’t be undone.')) return;
+    try {
+      var data = await api('/api/studio/mission-wheel/config', { reset_missions: true });
+      config = data.config;
+      loadDraft(config.missions);
+      showError('mwSaveError', null);
+    } catch (err) {
+      showError('mwSaveError', err);
+    }
+  });
+
+  /* ── live preview: the real overlay in an iframe, scaled to fit ── */
+  var previewTimer = null;
+  function pushPreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(function () {
+      var frame = document.getElementById('mwPreview');
+      if (!frame.contentWindow || !draft) return;
+      var segments = draft.filter(function (m) { return m.enabled !== false; }).map(function (m) {
+        return { label: String(m.short_label || m.title || '').slice(0, 14) };
+      });
+      frame.contentWindow.postMessage({
+        type: 'foxbot-mission-preview', segments: segments, threshold: config && config.vote_threshold
+      }, window.location.origin);
+    }, 150);
+  }
+
+  function sizePreview() {
+    var box = document.getElementById('mwPreviewBox');
+    var frame = document.getElementById('mwPreview');
+    if (!box.clientWidth) return;
+    frame.style.transform = 'scale(' + (box.clientWidth / 1920) + ')';
+  }
+  window.addEventListener('resize', sizePreview);
+
+  setInterval(function () {
+    if (!page.hidden && !pane.hidden) poll();
   }, POLL_MS);
 })();
 </script>

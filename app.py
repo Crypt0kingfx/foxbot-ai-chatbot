@@ -4098,9 +4098,203 @@ def _foxbot_wheel_help_line_v1(creator_handle: str) -> str:
         parts.append(f"send {config.vote_threshold}+ votes to spin the 💪 Pushup Wheel")
     if config.sub_enabled:
         parts.append("sub or gift a sub to spin the 🎁 Sub Prize Wheel (FoxCoins, challenges & prizes!)")
+    if config.mission_enabled:
+        parts.append(f"drop {config.mission_vote_threshold}+ votes to spin the 🌴 Mission Wheel")
     if not parts:
         return ""
     return "🎡 Prize Wheels: " + "; ".join(parts) + "."
+
+
+# === Mission Wheel v1: GTA 6 Mission Wheel (third wheel, same engine) ===
+# services/prize_wheels.py owns storage, missions, the queue and the
+# weighted casino_rng draw (WHEEL_MISSION). This block is the app.py glue:
+# the structural-vote trigger, the auto-play runner, and the chat lines.
+#
+# Trigger contract -- STRUCTURAL ONLY: a raw Blaze row with type=="vote"
+# and a positive whole-number actionInfo.amount. Chat text is never read
+# (unlike handle_auto_chat_event's vote branch, there's no digits-in-text
+# fallback here), and known bot senders are ignored.
+#
+# Auto-play: every queued mission spin is resolved one after another by a
+# per-creator runner thread, spaced so each overlay animation + result
+# card finishes before the next one starts. The runner lives in memory;
+# the QUEUE lives in Postgres, so a restart mid-sequence just leaves the
+# rest as Pending in Studio, where "Spin next" plays them.
+
+# Delay from "spin resolved" to the 🌴 MISSION chat line: the overlay's
+# spin animation lands first, so chat doesn't spoil it.
+FOXBOT_MISSION_REVEAL_DELAY_SECONDS_V1 = float(_foxbot_wheels_v1.MISSION_START_DELAY_SECONDS)
+# Gap between auto-played spins: one full overlay cycle (0.7s intro +
+# 7.2s spin + 15s default result hold + 0.6s fade ≈ 23.5s), plus margin.
+FOXBOT_MISSION_SPIN_GAP_SECONDS_V1 = 25.0
+# Lets the 🎯 announcement land in chat before the wheel starts moving.
+FOXBOT_MISSION_FIRST_SPIN_DELAY_SECONDS_V1 = 2.0
+
+_FOXBOT_MISSION_RUNNERS_LOCK_V1 = threading.Lock()
+_FOXBOT_MISSION_RUNNERS_V1 = set()
+
+
+def _foxbot_mission_announce_line_v1(sender: str, amount: int, spins: int) -> str:
+    return f"🎯 {sender} dropped {amount} votes. MISSION WHEEL x{spins}!"
+
+
+def _foxbot_mission_result_line_v1(spin: dict) -> str:
+    prize = (spin or {}).get("prize") or {}
+    title = prize.get("title") or prize.get("label") or "?"
+    description = prize.get("description") or ""
+    return f"🌴 MISSION: {title}: {description}" if description else f"🌴 MISSION: {title}"
+
+
+def _foxbot_mission_vote_amount_v1(item):
+    """actionInfo.amount from a STRUCTURAL vote row, or None. Never looks
+    at the message text."""
+    if not isinstance(item, dict) or item.get("type") != "vote":
+        return None
+    action_info = item.get("actionInfo")
+    if not isinstance(action_info, dict):
+        return None
+    amount = action_info.get("amount")
+    if isinstance(amount, bool):
+        return None
+    if isinstance(amount, float) and amount.is_integer():
+        amount = int(amount)
+    if not isinstance(amount, int) or amount <= 0:
+        return None
+    return amount
+
+
+def _foxbot_mission_spin_count_v1(amount: int, threshold: int, max_spins: int) -> int:
+    """spins = floor(amount / threshold), capped at max_spins."""
+    if threshold <= 0 or amount <= 0:
+        return 0
+    return max(0, min(int(amount) // int(threshold), int(max_spins)))
+
+
+def _foxbot_mission_run_spin_v1(creator_handle: str, spin_id: int, *, announce: bool = True,
+                                reveal_delay: float | None = None):
+    """Resolves one mission spin and schedules its 🌴 MISSION chat line.
+    Row-locked by resolve_spin, so the runner and a Studio "Spin next"
+    racing on the same row can only resolve it once -- the loser gets
+    replayed=True and posts nothing."""
+    spin = _foxbot_wheels_v1.resolve_spin(creator_handle, spin_id)
+    if spin is None or spin.get("replayed"):
+        return spin
+    _foxbot_events_v1.emit_event(
+        creator_handle, "wheel_spin", actor=spin.get("viewer"),
+        detail={"wheel": spin.get("wheel"), "prize": (spin.get("prize") or {}).get("title"), "spin_id": spin["id"]},
+    )
+    if announce and spin.get("trigger_kind") != "test":
+        delay = FOXBOT_MISSION_REVEAL_DELAY_SECONDS_V1 if reveal_delay is None else reveal_delay
+        line = _foxbot_mission_result_line_v1(spin)
+        if delay > 0:
+            timer = threading.Timer(delay, _foxbot_wheel_say_v1, args=(creator_handle, spin, line))
+            timer.daemon = True
+            timer.start()
+        else:
+            _foxbot_wheel_say_v1(creator_handle, spin, line)
+    return spin
+
+
+def _foxbot_mission_play_next_v1(creator_handle: str):
+    """Plays the oldest pending mission spin, if any. Returns it or None."""
+    queued = _foxbot_wheels_v1.list_spins(
+        creator_handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=1,
+        wheels=(_foxbot_wheels_v1.WHEEL_MISSION,),
+    )
+    if not queued:
+        return None
+    return _foxbot_mission_run_spin_v1(creator_handle, queued[0]["id"])
+
+
+def _foxbot_mission_start_runner_v1(creator_handle: str, first_delay: float) -> bool:
+    """Starts this creator's auto-play runner unless one is already going
+    (a running one picks up newly queued spins on its next tick). Returns
+    True if a new runner was started."""
+    with _FOXBOT_MISSION_RUNNERS_LOCK_V1:
+        if creator_handle in _FOXBOT_MISSION_RUNNERS_V1:
+            return False
+        _FOXBOT_MISSION_RUNNERS_V1.add(creator_handle)
+
+    def tick():
+        spin = None
+        try:
+            if _foxbot_wheels_v1.get_config(creator_handle).mission_enabled:
+                spin = _foxbot_mission_play_next_v1(creator_handle)
+        except Exception as error:
+            print(f"FoxBot mission wheel auto-play failed ({creator_handle}): {error}")
+            spin = None
+        if spin is not None:
+            timer = threading.Timer(FOXBOT_MISSION_SPIN_GAP_SECONDS_V1, tick)
+            timer.daemon = True
+            timer.start()
+            return
+        with _FOXBOT_MISSION_RUNNERS_LOCK_V1:
+            _FOXBOT_MISSION_RUNNERS_V1.discard(creator_handle)
+        # A spin queued between our empty check and the discard above saw a
+        # runner still registered and didn't start one -- pick it up now.
+        try:
+            config = _foxbot_wheels_v1.get_config(creator_handle)
+            if config.mission_enabled and _foxbot_wheels_v1.list_spins(
+                creator_handle, status=_foxbot_wheels_v1.STATUS_QUEUED, limit=1,
+                wheels=(_foxbot_wheels_v1.WHEEL_MISSION,),
+            ):
+                _foxbot_mission_start_runner_v1(creator_handle, FOXBOT_MISSION_SPIN_GAP_SECONDS_V1)
+        except Exception:
+            pass
+
+    timer = threading.Timer(first_delay, tick)
+    timer.daemon = True
+    timer.start()
+    return True
+
+
+def _foxbot_mission_wheel_on_vote_v1(creator_handle: str, item, message_key: str,
+                                     channel_id=None, creator_id=None) -> list:
+    """Polling-loop hook: a structural vote row may earn mission spins.
+    Returns the newly queued spins ([] when nothing happened). Never
+    raises -- a mission-wheel bug or a Postgres blip must not break the
+    polling loop.
+
+    spins = floor(amount / mission_vote_threshold), capped at
+    mission_max_spins. Each spin's dedupe key is mission:{message_key}:{n},
+    so a restart re-reading the same row can't queue it twice (the UNIQUE
+    constraint, not memory, is what makes that durable)."""
+    try:
+        amount = _foxbot_mission_vote_amount_v1(item)
+        if amount is None:
+            return []
+        action_info = item.get("actionInfo") or {}
+        sender = str(action_info.get("senderDisplayName") or "").strip().lstrip("@")[:64] or "viewer"
+        if _foxbot_is_known_bot_handle_v1(sender) or _foxbot_sender_has_bot_role_v1(item):
+            return []
+        if not message_key or not _foxbot_wheels_v1.is_available():
+            return []
+
+        config = _foxbot_wheels_v1.get_config(creator_handle)
+        if not config.mission_enabled:
+            return []
+        spins = _foxbot_mission_spin_count_v1(amount, config.mission_vote_threshold, config.mission_max_spins)
+        if spins <= 0:
+            return []
+
+        queued = []
+        for n in range(1, spins + 1):
+            spin = _foxbot_wheels_v1.queue_spin(
+                creator_handle, _foxbot_wheels_v1.WHEEL_MISSION, sender,
+                trigger_kind="vote", trigger_amount=amount, dedupe_key=f"mission:{message_key}:{n}",
+                channel_id=channel_id, creator_id=creator_id,
+            )
+            if spin is not None:
+                queued.append(spin)
+        if not queued:
+            return []  # this exact row was already queued (replay / restart)
+
+        _foxbot_wheel_say_v1(creator_handle, queued[0], _foxbot_mission_announce_line_v1(sender, amount, spins))
+        _foxbot_mission_start_runner_v1(creator_handle, FOXBOT_MISSION_FIRST_SPIN_DELAY_SECONDS_V1)
+        return queued
+    except Exception as error:
+        print(f"FoxBot mission wheel trigger failed: {error}")
+        return []
 
 
 # === Casino Studio Tab v1, Feature 5: dashboard plays also post to chat ===
@@ -11046,6 +11240,11 @@ tts_overlay_html = """
 # Query params: handle, wheel=exercise|sub, pos=center|left|right,
 # size=300..1000 (default 720), hold=3..60 seconds the result stays up
 # (default 15), sound=0, idle=show, demo=1 (local preview, no data).
+# Mission Wheel v1: /overlay/mission-wheel serves this same page with
+# window.FOXBOT_WHEEL_MODE = "mission" (Vice City theme, mission card with
+# countdown, corner chip for the mission in progress; chip=0 hides the
+# chip; preview=1 accepts unsaved mission lists from Studio via
+# same-origin postMessage).
 wheel_overlay_html = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -11199,6 +11398,64 @@ wheel_overlay_html = r"""
     color: rgba(255, 255, 255, .3);
     text-shadow: 0 0 4px rgba(0, 0, 0, .8);
   }
+
+  /* Mission Wheel mode: Vice City neon, magenta-led */
+  body.mission .plaque {
+    border-color: rgba(255, 0, 127, .8);
+    box-shadow: 0 0 22px rgba(255, 0, 127, .55), inset 0 0 18px rgba(176, 38, 255, .25);
+  }
+  body.mission .plaque h1 { text-shadow: 0 0 10px var(--magenta), 0 0 24px var(--violet); }
+  body.mission .plaque p { color: #FF9AD5; text-shadow: 0 0 8px rgba(255, 0, 127, .7); }
+  body.mission #wheel { filter: drop-shadow(0 0 26px rgba(255, 0, 127, .6)); }
+  body.mission .result .label { max-width: calc(var(--wheel-size) + 40px); }
+  .result .timer {
+    display: none;
+    margin-top: 10px;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 34px;
+    color: #fff;
+    text-shadow: 0 0 10px var(--magenta), 0 0 22px var(--violet);
+  }
+  body.mission .result .timer.on { display: block; }
+  #missionChip {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    max-width: 440px;
+    padding: 12px 20px 14px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(20, 8, 38, .92), rgba(10, 6, 18, .92));
+    border: 2px solid rgba(255, 0, 127, .75);
+    box-shadow: 0 0 18px rgba(255, 0, 127, .5), inset 0 0 14px rgba(176, 38, 255, .2);
+    color: #fff;
+    opacity: 0;
+    transform: translateY(-12px);
+    transition: opacity .35s ease, transform .35s ease;
+    pointer-events: none;
+  }
+  #missionChip.show { opacity: 1; transform: none; }
+  #missionChip .k {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #FF9AD5;
+  }
+  #missionChip .t {
+    margin-top: 2px;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 24px;
+    text-shadow: 0 0 8px var(--violet);
+  }
+  #missionChip .c {
+    margin-top: 4px;
+    font-family: "Syne", "Arial Black", sans-serif;
+    font-weight: 800;
+    font-size: 30px;
+    text-shadow: 0 0 10px var(--magenta);
+  }
 </style>
 </head>
 <body>
@@ -11215,7 +11472,13 @@ wheel_overlay_html = r"""
     <div class="result" id="result">
       <div class="label" id="resultLabel">&nbsp;</div>
       <div class="sub" id="resultSub">&nbsp;</div>
+      <div class="timer" id="resultTimer"></div>
     </div>
+  </div>
+  <div id="missionChip">
+    <div class="k">&#127796; Current mission</div>
+    <div class="t" id="chipTitle"></div>
+    <div class="c" id="chipTimer"></div>
   </div>
   <div id="status">FoxBot wheel overlay loading...</div>
 
@@ -11232,7 +11495,22 @@ wheel_overlay_html = r"""
   var holdSeconds = parseInt(params.get("hold") || "15", 10);
   if (size >= 300 && size <= 1000) document.documentElement.style.setProperty("--wheel-size", size + "px");
 
-  var dataUrl = "/overlay/wheel-data" + (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
+  // Mission Wheel mode (set by /overlay/mission-wheel): same renderer,
+  // its own data feed, theme, mission card and countdown chip.
+  var missionMode = window.FOXBOT_WHEEL_MODE === "mission";
+  var preview = params.get("preview") === "1";
+  var chipOn = params.get("chip") !== "0";
+  var previewOverride = false;
+  var missionThreshold = null;
+  var activeMission = null;
+  var serverSkewMs = 0;      // server clock minus this browser's clock
+  if (missionMode) {
+    document.body.classList.add("mission");
+    onlyWheel = "mission";
+  }
+
+  var dataUrl = (missionMode ? "/overlay/mission-wheel-data" : "/overlay/wheel-data") +
+    (handle ? ("?handle=" + encodeURIComponent(handle)) : "");
 
   var SPIN_MS = 7200;
   // How long the result stays on screen after the wheel lands.
@@ -11254,7 +11532,7 @@ wheel_overlay_html = r"""
   var confettiCanvas = document.getElementById("confetti");
   var cctx = confettiCanvas.getContext("2d");
 
-  var PALETTE = ["#B026FF", "#FF007F", "#6A16C9", "#2A1250"];
+  var PALETTE = missionMode ? ["#FF007F", "#B026FF", "#FF4FA3", "#5B12B0"] : ["#B026FF", "#FF007F", "#6A16C9", "#2A1250"];
   var TYPE_COLORS = { foxcoins: null, jackpot: "#FFB300" };
 
   var seen = new Set();
@@ -11263,7 +11541,7 @@ wheel_overlay_html = r"""
   var firstPoll = true;
   var rotation = 0;           // radians, current wheel rotation
   var currentSegments = [];
-  var idleSegments = { exercise: [], sub: [] };
+  var idleSegments = { exercise: [], sub: [], mission: [] };
   var lightsPhase = 0;
   var winnerIndex = -1;       // set once the wheel lands -> highlight that slice
 
@@ -11498,6 +11776,7 @@ wheel_overlay_html = r"""
 
   function resultSubFor(spin) {
     var p = spin.prize || {};
+    if (spin.wheel === "mission") return p.description || ("Mission for @" + spin.viewer);
     if (spin.wheel === "exercise") {
       if (p.type === "nothing") return "Lucky escape!";
       if (p.type === "respin") return "Here we go again...";
@@ -11566,8 +11845,11 @@ wheel_overlay_html = r"""
     drawWheel();
 
     var prize = spin.prize || {};
-    resultLabel.textContent = prize.label || "?";
+    resultLabel.textContent = (spin.wheel === "mission" && prize.title) || prize.label || "?";
     resultSub.textContent = resultSubFor(spin);
+    cardEndsAt = spin.wheel === "mission" ? (spin.ends_at || "untimed") : null;
+    renderTimers();
+    hideChip();
     resultEl.classList.add("show");
     winSound();
     burst();
@@ -11576,11 +11858,50 @@ wheel_overlay_html = r"""
     await wait(HOLD_MS);
     if (!idleShow) stage.classList.remove("show");
     resultEl.classList.remove("show");
+    cardEndsAt = null;
     await wait(600);
     winnerIndex = -1;
     busy = false;
+    renderTimers();
     next();
   }
+
+  /* ── Mission Wheel: countdown on the card + corner chip ── */
+  var cardEndsAt = null;     // ISO string, "untimed", or null (no mission card up)
+  var resultTimer = document.getElementById("resultTimer");
+  var chipEl = document.getElementById("missionChip");
+  var chipTitle = document.getElementById("chipTitle");
+  var chipTimer = document.getElementById("chipTimer");
+
+  function countdownText(endsAtIso) {
+    var ms = new Date(endsAtIso).getTime() - (Date.now() + serverSkewMs);
+    if (ms <= 0) return "TIME'S UP";
+    var total = Math.ceil(ms / 1000);
+    var h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    var mm = (h ? String(m).padStart(2, "0") : String(m)) + ":" + String(s).padStart(2, "0");
+    return "\u23F1 " + (h ? h + ":" : "") + mm;
+  }
+
+  function hideChip() { chipEl.classList.remove("show"); }
+
+  function renderTimers() {
+    if (!missionMode) return;
+    if (cardEndsAt && cardEndsAt !== "untimed") {
+      resultTimer.textContent = countdownText(cardEndsAt);
+      resultTimer.classList.add("on");
+    } else if (cardEndsAt === "untimed") {
+      resultTimer.textContent = "Until it's done";
+      resultTimer.classList.add("on");
+    } else {
+      resultTimer.classList.remove("on");
+    }
+    var p = activeMission && activeMission.prize;
+    if (!chipOn || busy || !p) { hideChip(); return; }
+    chipTitle.textContent = p.title || p.label || "";
+    chipTimer.textContent = activeMission.ends_at ? countdownText(activeMission.ends_at) : "Until it's done";
+    chipEl.classList.add("show");
+  }
+  if (missionMode) setInterval(renderTimers, 1000);
 
   function next() {
     if (busy || !queue.length) {
@@ -11590,15 +11911,36 @@ wheel_overlay_html = r"""
     play(queue.shift());
   }
 
-  function showIdle() {
-    var key = onlyWheel === "sub" ? "sub" : "exercise";
+  function showIdle(force) {
+    var key = onlyWheel === "sub" ? "sub" : (onlyWheel === "mission" ? "mission" : "exercise");
     var segs = idleSegments[key] || [];
-    if (!segs.length || stage.classList.contains("show")) return;
+    if (!segs.length || (stage.classList.contains("show") && !force)) return;
     currentSegments = segs;
-    titleEl.textContent = key === "sub" ? "Sub Prize Wheel" : "Pushup Wheel";
-    subtitleEl.textContent = key === "sub" ? "Sub or gift a sub to spin!" : "Send 50+ votes to spin!";
+    if (key === "mission") {
+      titleEl.textContent = "GTA 6 Mission Wheel";
+      subtitleEl.textContent = "Drop " + (missionThreshold || 30) + "+ votes to spin!";
+    } else {
+      titleEl.textContent = key === "sub" ? "Sub Prize Wheel" : "Pushup Wheel";
+      subtitleEl.textContent = key === "sub" ? "Sub or gift a sub to spin!" : "Send 50+ votes to spin!";
+    }
     drawWheel();
     stage.classList.add("show");
+  }
+
+  // Studio's live preview (?preview=1) pushes the UNSAVED mission list in.
+  // Same-origin only: it can only redraw idle labels, never play a spin.
+  if (missionMode && preview) {
+    window.addEventListener("message", function (event) {
+      if (event.origin !== window.location.origin) return;
+      var d = event.data || {};
+      if (d.type !== "foxbot-mission-preview" || !Array.isArray(d.segments)) return;
+      idleSegments.mission = d.segments.slice(0, 24).map(function (seg) {
+        return { label: String((seg && seg.label) || "").slice(0, 14), type: "mission" };
+      });
+      if (d.threshold) missionThreshold = d.threshold;
+      previewOverride = true;
+      if (!busy) showIdle(true);
+    });
   }
 
   async function poll() {
@@ -11607,7 +11949,15 @@ wheel_overlay_html = r"""
       if (!res.ok) return;
       var data = await res.json();
       if (!data.ok) return;
-      idleSegments = data.wheels || idleSegments;
+      if (missionMode) {
+        if (!previewOverride && data.wheels) idleSegments.mission = data.wheels.mission || [];
+        if (data.vote_threshold) missionThreshold = data.vote_threshold;
+        if (data.server_now) serverSkewMs = new Date(data.server_now).getTime() - Date.now();
+        activeMission = data.active || null;
+        renderTimers();
+      } else {
+        idleSegments = data.wheels || idleSegments;
+      }
       (data.spins || []).forEach(function (spin) {
         if (seen.has(spin.id)) return;
         seen.add(spin.id);
@@ -19577,12 +19927,14 @@ async def foxbot_studio_wheels_get_v1(request: Request):
         return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
     try:
         config = _foxbot_wheels_v1.get_config(handle)
-        queued = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=50)
+        prize_wheels = _foxbot_wheels_v1.WHEELS  # the Mission Wheel has its own queue/routes
+        queued = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=50,
+                                              wheels=prize_wheels)
         owed = _foxbot_wheels_v1.list_spins(
             handle, status=_foxbot_wheels_v1.STATUS_SPUN, fulfillment=_foxbot_wheels_v1.FULFILL_OWED,
-            oldest_first=True, limit=100,
+            oldest_first=True, limit=100, wheels=prize_wheels,
         )
-        recent = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_SPUN, limit=15)
+        recent = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_SPUN, limit=15, wheels=prize_wheels)
     except _foxbot_wheels_v1.WheelsUnavailable:
         return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
 
@@ -19634,6 +19986,15 @@ async def foxbot_studio_wheels_config_post_v1(payload: dict, request: Request):
     return {"ok": True, "config": _foxbot_wheels_config_payload_v1(config)}
 
 
+def _foxbot_wheels_spin_is_mission_v1(handle: str, spin_id: int) -> bool:
+    """The Prize Wheels routes are self-service (scoped creators reach
+    them); Mission Wheel spins are admin-only and have their own routes.
+    This keeps the by-id Prize Wheels routes from spinning, ticking off or
+    cancelling a mission spin."""
+    spin = _foxbot_wheels_v1.get_spin(handle, spin_id)
+    return bool(spin) and spin.get("wheel") == _foxbot_wheels_v1.WHEEL_MISSION
+
+
 def _foxbot_wheels_spin_response_v1(result):
     spin = result["spin"]
     return {
@@ -19653,6 +20014,8 @@ async def foxbot_studio_wheels_spin_v1(spin_id: int, request: Request):
     if not handle:
         return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
     try:
+        if _foxbot_wheels_spin_is_mission_v1(handle, spin_id):
+            return _foxbot_wheels_error_v1("that's a Mission Wheel spin -- use the Mission Wheel section.", 404)
         result = _foxbot_wheel_run_spin_v1(handle, spin_id)
     except _foxbot_wheels_v1.WheelsUnavailable:
         return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
@@ -19671,7 +20034,8 @@ async def foxbot_studio_wheels_spin_next_v1(request: Request):
     if not handle:
         return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
     try:
-        queued = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=1)
+        queued = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True, limit=1,
+                                              wheels=_foxbot_wheels_v1.WHEELS)
         if not queued:
             return _foxbot_wheels_error_v1("nothing in the spin queue.", 404)
         result = _foxbot_wheel_run_spin_v1(handle, queued[0]["id"])
@@ -19733,6 +20097,8 @@ async def foxbot_studio_wheels_fulfill_v1(spin_id: int, payload: dict, request: 
     if not handle:
         return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
     try:
+        if _foxbot_wheels_spin_is_mission_v1(handle, spin_id):
+            return _foxbot_wheels_error_v1("that's a Mission Wheel spin -- use the Mission Wheel section.", 404)
         spin = _foxbot_wheels_v1.set_fulfilled(handle, spin_id, done=bool(payload.get("done", True)))
     except _foxbot_wheels_v1.WheelsUnavailable:
         return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
@@ -19747,6 +20113,8 @@ async def foxbot_studio_wheels_cancel_v1(spin_id: int, request: Request):
     if not handle:
         return _foxbot_wheels_error_v1("no channel resolved for this account yet.")
     try:
+        if _foxbot_wheels_spin_is_mission_v1(handle, spin_id):
+            return _foxbot_wheels_error_v1("that's a Mission Wheel spin -- use the Mission Wheel section.", 404)
         spin = _foxbot_wheels_v1.cancel_spin(handle, spin_id)
     except _foxbot_wheels_v1.WheelsUnavailable:
         return _foxbot_wheels_error_v1("Prize wheels require DATABASE_URL -- not configured.", 503)
@@ -19762,7 +20130,7 @@ async def foxbot_overlay_wheel_data_v1(handle: str = ""):
     creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
     try:
         config = _foxbot_wheels_v1.get_config(creator_handle)
-        spins = _foxbot_wheels_v1.latest_spun(creator_handle, max_age_seconds=120)
+        spins = _foxbot_wheels_v1.latest_spun(creator_handle, max_age_seconds=120, wheels=_foxbot_wheels_v1.WHEELS)
     except Exception:
         return {"ok": False, "creator_handle": creator_handle, "spins": [], "wheels": {}}
 
@@ -19802,6 +20170,304 @@ async def foxbot_overlay_wheel_data_v1(handle: str = ""):
 @app.get("/overlay/wheel", response_class=HTMLResponse)
 async def foxbot_overlay_wheel_page_v1():
     return wheel_overlay_html
+
+
+# === Mission Wheel v1: Studio routes + the public /overlay/mission-wheel ===
+# Every /api/studio/mission-wheel* route -- reads included, since they
+# carry the settings and the mission list -- is admin-only
+# (_foxbot_require_admin_v1, layered on the Layer-1 gate). Unlike the
+# self-service Prize Wheels routes above, a scoped creator gets 403 here.
+# /overlay/mission-wheel(-data) are anonymous OBS sources scoped by
+# ?handle=, display-only fields, same trust model as /overlay/wheel-data.
+
+
+def _foxbot_mission_route_handle_v1(request: Request):
+    """(handle, None) for an admin session with a resolved channel, else
+    (None, error_response)."""
+    guard = _foxbot_require_admin_v1(request)
+    if guard:
+        return None, guard
+    handle = _foxbot_wheels_session_handle_v1(request)
+    if not handle:
+        return None, _foxbot_wheels_error_v1("no channel resolved for this account yet.")
+    return handle, None
+
+
+def _foxbot_mission_public_prize_v1(prize: dict) -> dict:
+    prize = prize or {}
+    return {
+        "title": prize.get("title") or prize.get("label") or "",
+        "short_label": prize.get("short_label") or prize.get("label") or "",
+        "label": prize.get("label") or "",
+        "type": prize.get("type") or "",
+        "description": prize.get("description") or "",
+        "duration_minutes": prize.get("duration_minutes"),
+    }
+
+
+def _foxbot_mission_ends_at_iso_v1(spin: dict):
+    ends_at = _foxbot_wheels_v1.mission_ends_at(spin)
+    return ends_at.isoformat() if ends_at else None
+
+
+def _foxbot_mission_config_payload_v1(config) -> dict:
+    return {
+        "creator_handle": config.creator_handle,
+        "enabled": config.mission_enabled,
+        "vote_threshold": config.mission_vote_threshold,
+        "max_spins": config.mission_max_spins,
+        "missions": config.segments.get(_foxbot_wheels_v1.WHEEL_MISSION) or [],
+        "limits": {
+            "max_missions": _foxbot_wheels_v1.MAX_SEGMENTS,
+            "short_label_chars": _foxbot_wheels_v1.MAX_MISSION_SHORT_LABEL_CHARS,
+            "title_chars": _foxbot_wheels_v1.MAX_MISSION_TITLE_CHARS,
+            "description_chars": _foxbot_wheels_v1.MAX_MISSION_DESCRIPTION_CHARS,
+            "min_weight": _foxbot_wheels_v1.MIN_MISSION_WEIGHT,
+            "max_weight": _foxbot_wheels_v1.MAX_MISSION_WEIGHT,
+            "max_duration_minutes": _foxbot_wheels_v1.MAX_MISSION_DURATION_MINUTES,
+            "max_spins": _foxbot_wheels_v1.MAX_MISSION_MAX_SPINS,
+        },
+    }
+
+
+def _foxbot_mission_slim_spin_v1(spin: dict, now=None) -> dict:
+    return {
+        "id": spin["id"],
+        "viewer": spin.get("viewer"),
+        "trigger_kind": spin.get("trigger_kind"),
+        "trigger_amount": spin.get("trigger_amount"),
+        "status": spin.get("status"),
+        "state": _foxbot_wheels_v1.mission_state(spin, now),
+        "prize": _foxbot_mission_public_prize_v1(spin.get("prize")) if spin.get("prize") else None,
+        "created_at": spin.get("created_at"),
+        "spun_at": spin.get("spun_at"),
+        "ends_at": _foxbot_mission_ends_at_iso_v1(spin),
+    }
+
+
+@app.get("/api/studio/mission-wheel")
+async def foxbot_studio_mission_wheel_get_v1(request: Request):
+    from datetime import datetime as _dt, timezone as _tz
+
+    handle, error = _foxbot_mission_route_handle_v1(request)
+    if error:
+        return error
+    mission = (_foxbot_wheels_v1.WHEEL_MISSION,)
+    try:
+        config = _foxbot_wheels_v1.get_config(handle)
+        pending = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_QUEUED, oldest_first=True,
+                                               limit=50, wheels=mission)
+        owed = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_SPUN,
+                                            fulfillment=_foxbot_wheels_v1.FULFILL_OWED, limit=100, wheels=mission)
+        done = _foxbot_wheels_v1.list_spins(handle, status=_foxbot_wheels_v1.STATUS_SPUN,
+                                            fulfillment=_foxbot_wheels_v1.FULFILL_DONE, limit=15, wheels=mission)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("The Mission Wheel requires DATABASE_URL -- not configured.", 503)
+
+    now = _dt.now(_tz.utc)
+    owed_slim = [_foxbot_mission_slim_spin_v1(s, now) for s in owed]
+    playing = [s for s in owed_slim if s["state"] == _foxbot_wheels_v1.MISSION_PLAYING]
+    playing.sort(key=lambda s: s["id"])
+    finished = [s for s in owed_slim if s["state"] == _foxbot_wheels_v1.MISSION_DONE]
+    finished += [_foxbot_mission_slim_spin_v1(s, now) for s in done]
+    finished.sort(key=lambda s: s.get("spun_at") or "", reverse=True)
+
+    return {
+        "ok": True,
+        "config": _foxbot_mission_config_payload_v1(config),
+        "pending": [_foxbot_mission_slim_spin_v1(s, now) for s in pending],
+        "playing": playing,
+        "done": finished[:15],
+        "overlay_path": f"/overlay/mission-wheel?handle={handle}",
+    }
+
+
+@app.post("/api/studio/mission-wheel/config")
+async def foxbot_studio_mission_wheel_config_v1(payload: dict, request: Request):
+    handle, error = _foxbot_mission_route_handle_v1(request)
+    if error:
+        return error
+
+    kwargs = {}
+    if "enabled" in payload:
+        kwargs["mission_enabled"] = bool(payload["enabled"])
+    for key, kwarg in (("vote_threshold", "mission_vote_threshold"), ("max_spins", "mission_max_spins")):
+        if key in payload:
+            try:
+                kwargs[kwarg] = int(payload[key])
+            except (TypeError, ValueError):
+                return _foxbot_wheels_error_v1(f"{key.replace('_', ' ')} must be a whole number.")
+    if "missions" in payload:
+        kwargs["mission_segments"] = payload["missions"]
+    if payload.get("reset_missions"):
+        kwargs["reset_segments"] = _foxbot_wheels_v1.WHEEL_MISSION
+
+    try:
+        config = _foxbot_wheels_v1.set_config(handle, **kwargs)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("The Mission Wheel requires DATABASE_URL -- not configured.", 503)
+    except ValueError as exc:
+        return _foxbot_wheels_error_v1(str(exc))
+    return {"ok": True, "config": _foxbot_mission_config_payload_v1(config)}
+
+
+@app.post("/api/studio/mission-wheel/test")
+async def foxbot_studio_mission_wheel_test_v1(request: Request):
+    """Overlay preview: a real server-side draw so the OBS source animates,
+    but no chat message and nothing left playing. Works while the wheel is
+    turned off, so it can be set up before going live."""
+    handle, error = _foxbot_mission_route_handle_v1(request)
+    if error:
+        return error
+    try:
+        spin = _foxbot_wheels_v1.queue_spin(
+            handle, _foxbot_wheels_v1.WHEEL_MISSION, "TestViewer", trigger_kind="test",
+            dedupe_key=f"test:{uuid.uuid4().hex}",
+        )
+        resolved = _foxbot_mission_run_spin_v1(handle, spin["id"], announce=False)
+        _foxbot_wheels_v1.close_test_spin(handle, spin["id"])
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("The Mission Wheel requires DATABASE_URL -- not configured.", 503)
+    return {"ok": True, "spin_id": spin["id"],
+            "prize": _foxbot_mission_public_prize_v1((resolved or {}).get("prize"))}
+
+
+@app.post("/api/studio/mission-wheel/spin-next")
+async def foxbot_studio_mission_wheel_spin_next_v1(request: Request):
+    """Plays the oldest pending mission spin now -- the restart fallback for
+    spins the in-memory auto-play runner didn't get to."""
+    handle, error = _foxbot_mission_route_handle_v1(request)
+    if error:
+        return error
+    try:
+        spin = _foxbot_mission_play_next_v1(handle)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("The Mission Wheel requires DATABASE_URL -- not configured.", 503)
+    if spin is None:
+        return _foxbot_wheels_error_v1("no pending mission spins.", 404)
+    return {"ok": True, "replayed": bool(spin.get("replayed")), "spin": _foxbot_mission_slim_spin_v1(spin)}
+
+
+def _foxbot_mission_spin_or_404_v1(handle: str, spin_id: int):
+    spin = _foxbot_wheels_v1.get_spin(handle, spin_id)
+    if not spin or spin.get("wheel") != _foxbot_wheels_v1.WHEEL_MISSION:
+        return None
+    return spin
+
+
+@app.post("/api/studio/mission-wheel/done/{spin_id}")
+async def foxbot_studio_mission_wheel_done_v1(spin_id: int, request: Request, payload: dict | None = None):
+    handle, error = _foxbot_mission_route_handle_v1(request)
+    if error:
+        return error
+    try:
+        if not _foxbot_mission_spin_or_404_v1(handle, spin_id):
+            return _foxbot_wheels_error_v1("no such mission spin.", 404)
+        spin = _foxbot_wheels_v1.set_fulfilled(handle, spin_id, done=bool((payload or {}).get("done", True)))
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("The Mission Wheel requires DATABASE_URL -- not configured.", 503)
+    if spin is None:
+        return _foxbot_wheels_error_v1("nothing to update for that mission.", 404)
+    return {"ok": True, "fulfillment": spin["fulfillment"]}
+
+
+@app.post("/api/studio/mission-wheel/cancel/{spin_id}")
+async def foxbot_studio_mission_wheel_cancel_v1(spin_id: int, request: Request):
+    handle, error = _foxbot_mission_route_handle_v1(request)
+    if error:
+        return error
+    try:
+        if not _foxbot_mission_spin_or_404_v1(handle, spin_id):
+            return _foxbot_wheels_error_v1("no such mission spin.", 404)
+        spin = _foxbot_wheels_v1.cancel_spin(handle, spin_id)
+    except _foxbot_wheels_v1.WheelsUnavailable:
+        return _foxbot_wheels_error_v1("The Mission Wheel requires DATABASE_URL -- not configured.", 503)
+    if spin is None:
+        return _foxbot_wheels_error_v1("only a pending mission spin can be cancelled.", 404)
+    return {"ok": True}
+
+
+@app.get("/overlay/mission-wheel-data")
+async def foxbot_overlay_mission_wheel_data_v1(handle: str = ""):
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    creator_handle = handle.strip() or _foxbot_events_v1.resolve_owner_handle()
+    mission = (_foxbot_wheels_v1.WHEEL_MISSION,)
+    try:
+        config = _foxbot_wheels_v1.get_config(creator_handle)
+        spins = _foxbot_wheels_v1.latest_spun(creator_handle, max_age_seconds=120, wheels=mission)
+        owed = _foxbot_wheels_v1.list_spins(creator_handle, status=_foxbot_wheels_v1.STATUS_SPUN,
+                                            fulfillment=_foxbot_wheels_v1.FULFILL_OWED, limit=20, wheels=mission)
+    except Exception:
+        return {"ok": False, "creator_handle": creator_handle, "spins": [], "wheels": {}, "active": None}
+
+    now = _dt.now(_tz.utc)
+
+    def display_segments(segments):
+        return [{"label": seg.get("label", ""), "type": seg.get("type", "")} for seg in segments or []]
+
+    out = []
+    for spin in spins:
+        spun_at = _dt.fromisoformat(spin["spun_at"]) if spin.get("spun_at") else None
+        out.append({
+            "id": spin["id"],
+            "wheel": spin["wheel"],
+            "wheel_title": spin["wheel_title"],
+            "viewer": spin["viewer"],
+            "trigger_kind": spin["trigger_kind"],
+            "trigger_amount": spin["trigger_amount"],
+            "segments": display_segments(spin.get("segments")),
+            "segment_index": spin.get("segment_index"),
+            "prize": _foxbot_mission_public_prize_v1(spin.get("prize")),
+            "ends_at": _foxbot_mission_ends_at_iso_v1(spin),
+            "age_seconds": int((now - spun_at).total_seconds()) if spun_at else None,
+        })
+
+    # The mission currently being played (newest first): what the corner
+    # countdown chip shows. Only once its wheel has landed, so the chip
+    # never spoils a spin that's still animating.
+    active = None
+    reveal = _td(seconds=_foxbot_wheels_v1.MISSION_START_DELAY_SECONDS)
+    for spin in owed:
+        if _foxbot_wheels_v1.mission_state(spin, now) != _foxbot_wheels_v1.MISSION_PLAYING:
+            continue
+        if not spin.get("spun_at") or _dt.fromisoformat(spin["spun_at"]) + reveal > now:
+            continue
+        active = {
+            "id": spin["id"],
+            "viewer": spin["viewer"],
+            "prize": _foxbot_mission_public_prize_v1(spin.get("prize")),
+            "ends_at": _foxbot_mission_ends_at_iso_v1(spin),
+        }
+        break
+
+    return {
+        "ok": True,
+        "creator_handle": creator_handle,
+        "enabled": config.mission_enabled,
+        "vote_threshold": config.mission_vote_threshold,
+        "server_now": now.isoformat(),
+        "spins": out,
+        "active": active,
+        "wheels": {
+            _foxbot_wheels_v1.WHEEL_MISSION: display_segments(
+                _foxbot_wheels_v1.active_segments(config, _foxbot_wheels_v1.WHEEL_MISSION)),
+        },
+    }
+
+
+# The SAME overlay page and wheel renderer as /overlay/wheel, switched into
+# mission mode by a one-line flag -- not a second wheel implementation.
+mission_wheel_overlay_html = (
+    wheel_overlay_html
+    .replace("<title>FoxBot Prize Wheel Overlay</title>", "<title>FoxBot Mission Wheel Overlay</title>", 1)
+    .replace("<script>\n(function () {", "<script>window.FOXBOT_WHEEL_MODE = \"mission\";</script>\n<script>\n(function () {", 1)
+)
+
+
+@app.get("/overlay/mission-wheel", response_class=HTMLResponse)
+async def foxbot_overlay_mission_wheel_page_v1():
+    return mission_wheel_overlay_html
 
 
 @app.post("/api/studio/action/live/{action}")
@@ -29998,6 +30664,19 @@ def _foxbot_process_channel_rows_v1(target, rows, resolved_creator_id=None, targ
                 )
             except Exception:
                 pass
+
+        # Mission Wheel v1: reads the RAW row, not auto_event_result --
+        # only a structural type=="vote" row with actionInfo.amount can
+        # queue mission spins, never chat text. Independent of the parser
+        # above (and of its reply cooldown); dedupe is the spin table's own
+        # UNIQUE key. Never raises, and wrapped anyway like the hook above.
+        try:
+            _foxbot_mission_wheel_on_vote_v1(
+                creator_handle, item, message_key,
+                channel_id=channel_id or None, creator_id=resolved_creator_id,
+            )
+        except Exception:
+            pass
 
         if auto_event_result and auto_event_result.get("ok") and not auto_event_result.get("duplicate"):
             foxbot_reply = auto_event_result.get("message")
