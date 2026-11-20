@@ -474,6 +474,12 @@ class WheelRoutesIntegrationTestCase(unittest.TestCase):
         self.assertEqual(self.client.post("/api/studio/wheels/spin-next").status_code, 401)
 
     def test_full_flow_add_spin_overlay(self):
+        # Pin the draw: ticket 1 lands on the Sub wheel's first default slice
+        # (FoxCoins). Unpinned, ~11% of draws hit "Spin Again!" / "Spin the
+        # Pushup Wheel", which queue a follow-up spin and make the final
+        # "queue is empty -> 404" assertion fail at random.
+        casino_rng.set_provider(_FixedRoll(1))
+        self.addCleanup(casino_rng.set_provider, casino_rng.SecureRandomProvider())
         cookies = self._cookies(self.admin_blaze_id)
         res = self.client.post("/api/studio/wheels/config", json={"sub_enabled": True}, cookies=cookies)
         self.assertEqual(res.status_code, 200, res.text)
@@ -488,6 +494,7 @@ class WheelRoutesIntegrationTestCase(unittest.TestCase):
         res = self.client.post("/api/studio/wheels/spin-next", cookies=cookies)
         self.assertEqual(res.status_code, 200, res.text)
         prize_label = res.json()["spin"]["prize"]["label"]
+        self.assertEqual(res.json()["spin"]["prize"]["type"], "foxcoins")  # no chained spin
 
         overlay = self.client.get(f"/overlay/wheel-data?handle={self.handle_a}").json()
         self.assertTrue(overlay["ok"])
